@@ -1,31 +1,4 @@
-import { RouteSelector } from '@/components/RouteSelector';
 import Link from 'next/link';
-
-function ShieldIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-    </svg>
-  );
-}
-
-function CompassIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ClockIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
-    </svg>
-  );
-}
 
 function MapPinIcon({ className }: { className?: string }) {
   return (
@@ -46,22 +19,40 @@ function WavesIcon({ className }: { className?: string }) {
   );
 }
 
-const features = [
-  {
-    icon: ShieldIcon,
-    title: 'Sailing Schedules',
-    description: 'See today\'s scheduled sailings for your route, with operator-reported status when available.',
-  },
-  {
-    icon: CompassIcon,
-    title: 'Weather Risk Context',
-    description: 'Understand how current weather conditions may affect ferry reliability - without predicting specific cancellations.',
-  },
-  {
-    icon: ClockIcon,
-    title: 'Clear Information',
-    description: 'We separate what\'s scheduled from what\'s risky. You decide when conditions feel right to travel.',
-  },
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  );
+}
+
+function AlertTriangleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+const terminals = [
+  { id: 'woods-hole', name: 'Woods Hole', description: 'To Martha\'s Vineyard' },
+  { id: 'vineyard-haven', name: 'Vineyard Haven', description: 'Martha\'s Vineyard' },
+  { id: 'oak-bluffs', name: 'Oak Bluffs', description: 'Martha\'s Vineyard' },
+  { id: 'hyannis', name: 'Hyannis', description: 'To Nantucket' },
+  { id: 'nantucket', name: 'Nantucket', description: 'Nantucket Island' },
 ];
 
 export default function Home() {
@@ -84,187 +75,121 @@ export default function Home() {
               <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
             </Link>
             <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="nav-link active">Home</Link>
+              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
             </div>
           </div>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <section className="relative pt-24 lg:pt-32 pb-16 lg:pb-24 bathymetric-bg overflow-hidden">
+      <section className="relative pt-24 lg:pt-32 pb-8 lg:pb-12 bathymetric-bg overflow-hidden">
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border/50 mb-6">
               <WavesIcon className="w-4 h-4 text-accent" />
-              <span className="text-sm font-medium text-muted-foreground">Maritime Travel Status</span>
+              <span className="text-sm font-medium text-muted-foreground">Cape Cod Ferry Status</span>
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-              Know Before You Go
+              Is Your Ferry Running?
             </h1>
 
-            <p className="text-lg lg:text-xl text-muted-foreground mb-8 leading-relaxed">
-              View today&apos;s sailings and understand weather-related disruption risk for Cape Cod ferry routes.
+            <p className="text-lg lg:text-xl text-muted-foreground mb-4 leading-relaxed">
+              Select your terminal to see today&apos;s sailings and operator status.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Route Selector Section */}
-      <section id="main-content" className="py-12 lg:py-16 bg-coastal" aria-label="Route Selection">
+      {/* PRIMARY: Terminal Selection */}
+      <section id="main-content" className="py-8 lg:py-12" aria-label="Select Terminal">
         <div className="container mx-auto px-4 lg:px-8">
-          <div className="max-w-2xl mx-auto">
-            <RouteSelector />
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl lg:text-3xl font-bold text-foreground mb-2">
+                Select Your Terminal
+              </h2>
+              <p className="text-muted-foreground">
+                View all departures, arrivals, and operator status
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {terminals.map((terminal) => (
+                <Link
+                  key={terminal.id}
+                  href={`/terminal/${terminal.id}`}
+                  className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent/10">
+                      <MapPinIcon className="w-6 h-6 text-primary group-hover:text-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-semibold text-foreground group-hover:text-accent transition-colors">
+                        {terminal.name}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {terminal.description}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Terminal Boards Section - Phase 19 */}
-      <section className="py-12 lg:py-16" aria-label="Terminal Departure Boards">
-        <div className="container mx-auto px-4 lg:px-8">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl lg:text-3xl font-bold text-foreground mb-3">
-              Terminal Departure Boards
-            </h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">
-              View all sailings from a terminal, just like an airport departure board.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 max-w-4xl mx-auto">
-            <Link
-              href="/terminal/woods-hole"
-              className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300 text-center"
-            >
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3 mx-auto group-hover:bg-accent/10">
-                <MapPinIcon className="w-5 h-5 text-primary group-hover:text-accent" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Woods Hole</span>
-            </Link>
-
-            <Link
-              href="/terminal/vineyard-haven"
-              className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300 text-center"
-            >
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3 mx-auto group-hover:bg-accent/10">
-                <MapPinIcon className="w-5 h-5 text-primary group-hover:text-accent" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Vineyard Haven</span>
-            </Link>
-
-            <Link
-              href="/terminal/oak-bluffs"
-              className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300 text-center"
-            >
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3 mx-auto group-hover:bg-accent/10">
-                <MapPinIcon className="w-5 h-5 text-primary group-hover:text-accent" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Oak Bluffs</span>
-            </Link>
-
-            <Link
-              href="/terminal/hyannis"
-              className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300 text-center"
-            >
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3 mx-auto group-hover:bg-accent/10">
-                <MapPinIcon className="w-5 h-5 text-primary group-hover:text-accent" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Hyannis</span>
-            </Link>
-
-            <Link
-              href="/terminal/nantucket"
-              className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300 text-center"
-            >
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-3 mx-auto group-hover:bg-accent/10">
-                <MapPinIcon className="w-5 h-5 text-primary group-hover:text-accent" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Nantucket</span>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-16 lg:py-24">
-        <div className="container mx-auto px-4 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-2xl lg:text-3xl font-bold text-foreground mb-3">
-              How It Works
-            </h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">
-              We combine multiple data sources to predict ferry disruption risk.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {features.map((feature, index) => (
-              <div
-                key={index}
-                className="text-center lg:text-left p-8 rounded-2xl bg-card border border-border/30 hover:border-border hover:shadow-card transition-all duration-300"
-              >
-                <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center mb-5 mx-auto lg:mx-0">
-                  <feature.icon className="w-7 h-7 text-primary" />
-                </div>
-                <h3 className="text-xl font-semibold text-foreground mb-3">
-                  {feature.title}
-                </h3>
-                <p className="text-muted-foreground leading-relaxed">
-                  {feature.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* What This Tool Does NOT Do */}
+      {/* What You'll See */}
       <section className="py-12 lg:py-16 bg-secondary/30">
         <div className="container mx-auto px-4 lg:px-8">
-          <div className="max-w-3xl mx-auto">
-            <h2 className="text-xl lg:text-2xl font-bold text-foreground mb-6 text-center">
-              What This Tool Does NOT Do
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-xl lg:text-2xl font-bold text-foreground mb-8 text-center">
+              What You&apos;ll See
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
-                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
-                <p className="text-sm text-muted-foreground">
-                  <strong className="text-foreground">Not a schedule.</strong> We do not show ferry departure times or booking availability.
-                </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="flex items-start gap-4 p-5 bg-card rounded-lg">
+                <ClockIcon className="w-6 h-6 text-accent flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">Today&apos;s Schedule</h3>
+                  <p className="text-sm text-muted-foreground">
+                    All sailings from your terminal, ordered by departure time
+                  </p>
+                </div>
               </div>
-              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
-                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
-                <p className="text-sm text-muted-foreground">
-                  <strong className="text-foreground">Not official status.</strong> Always verify with the ferry operator before traveling.
-                </p>
+              <div className="flex items-start gap-4 p-5 bg-card rounded-lg">
+                <CheckCircleIcon className="w-6 h-6 text-success flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">Operator Status</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Running, delayed, or canceled - direct from the operator
+                  </p>
+                </div>
               </div>
-              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
-                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
-                <p className="text-sm text-muted-foreground">
-                  <strong className="text-foreground">Not a guarantee.</strong> Predictions show risk, not certainty. Ferries may run or cancel regardless.
-                </p>
-              </div>
-              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
-                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
-                <p className="text-sm text-muted-foreground">
-                  <strong className="text-foreground">Not authoritative.</strong> This is an advisory tool for planning, not a replacement for operator announcements.
-                </p>
+              <div className="flex items-start gap-4 p-5 bg-card rounded-lg">
+                <AlertTriangleIcon className="w-6 h-6 text-warning flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">Travel Advisories</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Weather alerts and service announcements
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Disclaimer Section */}
+      {/* Important Notice */}
       <section className="py-8 lg:py-12">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="max-w-3xl mx-auto">
             <div className="bg-warning-muted border border-warning/30 rounded-xl p-6">
               <p className="text-sm text-warning-foreground leading-relaxed">
-                <strong>Important:</strong> This is a prediction tool, not an official
-                source. Always check with your ferry operator for confirmed schedules
-                and cancellations. We show the <em>risk of disruption</em> based on
-                weather conditions, not definitive outcomes.
+                <strong>Important:</strong> Ferry Forecast shows schedule and status information
+                from ferry operators. This is not an official source. Always verify with
+                the operator before traveling, especially during severe weather.
               </p>
             </div>
           </div>
@@ -280,7 +205,7 @@ export default function Home() {
               <span className="font-semibold text-foreground">Ferry Forecast</span>
             </div>
             <p className="text-sm text-muted-foreground text-center">
-              Not affiliated with any ferry operator. Data: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS Tides
+              Not affiliated with any ferry operator. Schedule data from operator websites.
             </p>
           </div>
         </div>
