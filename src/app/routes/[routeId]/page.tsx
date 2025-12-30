@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getRouteById, getOperatorDisplayName, getPortDisplayName } from '@/lib/config/routes';
 import { getRouteSensitivity } from '@/lib/utils/navigation';
+import { isUsingV2Algorithm } from '@/lib/config/exposure';
 import { RiskBar } from '@/components/RiskBar';
 import { ForecastTimeline } from '@/components/ForecastTimeline';
 import { ConditionsPanel } from '@/components/ConditionsPanel';
@@ -285,7 +286,9 @@ export default function RoutePage() {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-3 italic">
-                      Computed from land shelter and route geometry. Does not include vessel behavior.
+                      {isUsingV2Algorithm()
+                        ? 'Computed using shelter-signature algorithm (v2). Does not include vessel behavior.'
+                        : 'Computed from land shelter and route geometry. Does not include vessel behavior.'}
                     </p>
                   </div>
                 );

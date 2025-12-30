@@ -8,7 +8,7 @@
  * not hand-authored. See src/lib/config/exposure.ts for the computed data.
  */
 
-import { getRouteExposure } from '@/lib/config/exposure';
+import { getRouteExposure, isUsingV2Algorithm } from '@/lib/config/exposure';
 
 /**
  * Cardinal and intercardinal compass directions
@@ -105,12 +105,20 @@ function generateExposureDescription(
     ? `${topDirs[0]}, ${topDirs[1]}, and ${topDirs[2]}`
     : topDirs.join(' and ');
 
+  const isV2 = isUsingV2Algorithm();
+
   if (avgExposure > 0.65) {
-    return `This longer crossing through ${waterBody} has high exposure to ${dirList} winds based on computed fetch distances to land.`;
+    return isV2
+      ? `This longer crossing through ${waterBody} has high open-water exposure to ${dirList} winds (${Math.round(avgExposure * 100)}% open).`
+      : `This longer crossing through ${waterBody} has high exposure to ${dirList} winds based on computed fetch distances to land.`;
   } else if (avgExposure > 0.5) {
-    return `This route across ${waterBody} is moderately exposed to ${dirList} winds based on coastline geometry.`;
+    return isV2
+      ? `This route across ${waterBody} is moderately exposed to ${dirList} winds (${Math.round(avgExposure * 100)}% open).`
+      : `This route across ${waterBody} is moderately exposed to ${dirList} winds based on coastline geometry.`;
   } else {
-    return `This route through ${waterBody} has some shelter but is most exposed to ${dirList} winds.`;
+    return isV2
+      ? `This route through ${waterBody} has good shelter but is most exposed to ${dirList} winds (${Math.round(avgExposure * 100)}% open).`
+      : `This route through ${waterBody} has some shelter but is most exposed to ${dirList} winds.`;
   }
 }
 

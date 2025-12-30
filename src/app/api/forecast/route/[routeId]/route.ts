@@ -6,6 +6,7 @@ import { getActiveAdvisoryLevel, AlertFetchError } from '@/lib/weather/nws';
 import { getCurrentTideSwing, TideFetchError, hasTideStation } from '@/lib/tides/noaaCoops';
 import { getOperatorStatus, type OperatorStatusResult } from '@/lib/operators';
 import { calculateRiskScore, getRiskLevel, type ScoringInput } from '@/lib/scoring/score';
+import { isUsingV2Algorithm, degreesToCompassBucket, calculateExposureModifier } from '@/lib/config/exposure';
 import type {
   ForecastResponse,
   WeatherSnapshot,
@@ -17,6 +18,52 @@ import type {
 
 // Cache configuration
 const CACHE_MAX_AGE = 300; // 5 minutes
+
+// Prediction logging configuration
+const ENABLE_PREDICTION_LOGGING = process.env.ENABLE_PREDICTION_LOGGING === 'true';
+
+/**
+ * Log prediction snapshot for future learning analysis
+ * Fire-and-forget: errors don't affect the main response
+ */
+async function logPredictionSnapshot(
+  routeId: string,
+  weather: WeatherSnapshot,
+  tide: TideSwing | undefined,
+  riskScore: ReturnType<typeof calculateRiskScore>,
+  riskLevel: ReturnType<typeof getRiskLevel>,
+  modelVersion: string
+): Promise<void> {
+  if (!ENABLE_PREDICTION_LOGGING) return;
+
+  try {
+    const exposureVersion = isUsingV2Algorithm() ? '2' : '1';
+    const windDirBucket = degreesToCompassBucket(weather.wind_direction);
+    const exposureModifier = calculateExposureModifier(routeId, weather.wind_direction);
+
+    await fetch(new URL('/api/predictions/snapshot', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        route_id: routeId,
+        forecast_for_time: weather.timestamp,
+        predicted_score: riskScore.score,
+        predicted_risk_level: riskLevel.level,
+        predicted_confidence: riskScore.confidence,
+        factors: riskScore.factors,
+        weather_input: weather,
+        tide_input: tide,
+        exposure_version: exposureVersion,
+        exposure_modifier: exposureModifier,
+        wind_direction_bucket: windDirBucket,
+        model_version: modelVersion,
+      }),
+    });
+  } catch (error) {
+    // Silently fail - logging should never affect main response
+    console.warn('Failed to log prediction snapshot:', error);
+  }
+}
 
 interface RouteParams {
   params: Promise<{
@@ -267,6 +314,16 @@ export async function GET(
       ],
     },
   };
+
+  // Log prediction snapshot for future learning analysis (fire-and-forget)
+  logPredictionSnapshot(
+    route.route_id,
+    weatherWithAdvisory,
+    data.tideSwing || undefined,
+    riskScore,
+    riskLevel,
+    riskScore.model_version
+  );
 
   return NextResponse.json(response, {
     status: 200,
