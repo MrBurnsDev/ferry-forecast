@@ -40,18 +40,18 @@ function WavesIcon({ className }: { className?: string }) {
 const features = [
   {
     icon: ShieldIcon,
-    title: 'Reliable Forecasts',
-    description: 'Data-driven predictions combining weather, tides, and operator status for informed travel planning.',
+    title: 'Sailing Schedules',
+    description: 'See today\'s scheduled sailings for your route, with operator-reported status when available.',
   },
   {
     icon: CompassIcon,
-    title: 'Route Intelligence',
-    description: 'Understands how specific routes are affected by wind, waves, and weather patterns.',
+    title: 'Weather Risk Context',
+    description: 'Understand how current weather conditions may affect ferry reliability - without predicting specific cancellations.',
   },
   {
     icon: ClockIcon,
-    title: 'Continuous Monitoring',
-    description: 'Conditions change. We track weather and advisories so you can plan with confidence.',
+    title: 'Clear Information',
+    description: 'We separate what\'s scheduled from what\'s risky. You decide when conditions feel right to travel.',
   },
 ];
 
@@ -95,8 +95,7 @@ export default function Home() {
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-8 leading-relaxed">
-              Reliable ferry status forecasts for safer, more predictable maritime travel.
-              Check conditions before your journey.
+              View today&apos;s sailings and understand weather-related disruption risk for Cape Cod ferry routes.
             </p>
           </div>
         </div>

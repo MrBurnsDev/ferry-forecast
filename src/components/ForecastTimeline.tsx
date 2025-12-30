@@ -17,7 +17,7 @@ export function ForecastTimeline({
 }: ForecastTimelineProps) {
   // Title and subtitle for the timeline - clarifies this is weather-based, not schedule-based
   const timelineTitle = 'Weather Risk Timeline';
-  const timelineSubtitle = 'Next 24 hours';
+  const timelineSubtitle = 'How conditions may change over the next 24 hours';
 
   if (loading) {
     return (
@@ -126,14 +126,14 @@ export function ForecastTimeline({
         })}
       </div>
 
-      {/* Explanatory text - clarifies this is about conditions, not specific ferry trips */}
+      {/* Explanatory text - clarifies this is about conditions, not specific sailings */}
       <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
-        Shows how weather conditions may change over time. Individual ferry sailings may be affected differently based on vessel and schedule.
+        This shows how weather conditions affecting ferry reliability may change over time. It is not a sailing schedule. Individual sailings may run or be canceled regardless of risk level.
       </p>
 
       {/* Confidence note for time-based uncertainty */}
       <p className="text-xs text-muted-foreground mt-2 italic">
-        Note: Predictions for later hours are based on weather forecasts, which become less certain over time.
+        Note: Later hours are based on weather forecasts which become less certain over time.
       </p>
     </div>
   );

@@ -9,8 +9,9 @@ import { isUsingV2Algorithm } from '@/lib/config/exposure';
 import { RiskBar } from '@/components/RiskBar';
 import { ForecastTimeline } from '@/components/ForecastTimeline';
 import { ConditionsPanel } from '@/components/ConditionsPanel';
-import { OfficialStatusBadge } from '@/components/OfficialStatusBadge';
+import { TodaySailings } from '@/components/TodaySailings';
 import type { ForecastResponse } from '@/types/forecast';
+import type { Sailing } from '@/lib/schedules';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -30,10 +31,31 @@ function ArrowLeftIcon({ className }: { className?: string }) {
   );
 }
 
+function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4M12 8h.01" />
+    </svg>
+  );
+}
+
 interface ForecastState {
   data: ForecastResponse | null;
   loading: boolean;
   error: string | null;
+}
+
+interface ScheduleState {
+  sailings: Sailing[] | null;
+  loading: boolean;
+  error: string | null;
+  operatorScheduleUrl?: string;
+  isStaticFallback: boolean;
+  operatorStatus?: {
+    status: string | null;
+    source: string | null;
+  };
 }
 
 export default function RoutePage() {
@@ -47,6 +69,14 @@ export default function RoutePage() {
     error: null,
   });
 
+  const [schedule, setSchedule] = useState<ScheduleState>({
+    sailings: null,
+    loading: true,
+    error: null,
+    isStaticFallback: true,
+  });
+
+  // Fetch forecast data
   useEffect(() => {
     async function fetchForecast() {
       try {
@@ -54,19 +84,11 @@ export default function RoutePage() {
         const data = await response.json();
 
         if (!response.ok) {
-          if (response.status === 503) {
-            setForecast({
-              data: null,
-              loading: false,
-              error: data.message || 'Forecast data not yet available',
-            });
-          } else {
-            setForecast({
-              data: null,
-              loading: false,
-              error: data.message || `Error: ${response.status}`,
-            });
-          }
+          setForecast({
+            data: null,
+            loading: false,
+            error: data.message || `Error: ${response.status}`,
+          });
           return;
         }
 
@@ -85,6 +107,44 @@ export default function RoutePage() {
     }
 
     fetchForecast();
+  }, [routeId]);
+
+  // Fetch schedule data
+  useEffect(() => {
+    async function fetchSchedule() {
+      try {
+        const response = await fetch(`/api/schedule/${routeId}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          setSchedule({
+            sailings: null,
+            loading: false,
+            error: data.message || 'Failed to load schedule',
+            isStaticFallback: true,
+          });
+          return;
+        }
+
+        setSchedule({
+          sailings: data.sailings,
+          loading: false,
+          error: null,
+          operatorScheduleUrl: data.operatorScheduleUrl,
+          isStaticFallback: data.isStaticFallback,
+          operatorStatus: data.operatorStatus,
+        });
+      } catch (err) {
+        setSchedule({
+          sailings: null,
+          loading: false,
+          error: err instanceof Error ? err.message : 'Failed to fetch schedule',
+          isStaticFallback: true,
+        });
+      }
+    }
+
+    fetchSchedule();
   }, [routeId]);
 
   if (!route) {
@@ -107,6 +167,8 @@ export default function RoutePage() {
       </div>
     );
   }
+
+  const routeDisplayName = `${getPortDisplayName(route.origin_port)} ↔ ${getPortDisplayName(route.destination_port)}`;
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -146,7 +208,7 @@ export default function RoutePage() {
           </Link>
           <div className="max-w-2xl">
             <h1 className="text-3xl lg:text-4xl font-bold text-foreground mb-3">
-              {getPortDisplayName(route.origin_port)} → {getPortDisplayName(route.destination_port)}
+              {routeDisplayName}
             </h1>
             <p className="text-muted-foreground text-lg">
               {getOperatorDisplayName(route.operator)}
@@ -158,24 +220,46 @@ export default function RoutePage() {
       {/* Main Content */}
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
-          {/* Error State */}
-          {forecast.error && !forecast.loading && (
-            <div className="bg-warning-muted border border-warning/30 rounded-xl p-5 mb-6">
-              <h3 className="font-semibold text-warning-foreground mb-1">
-                Forecast Data Unavailable
-              </h3>
-              <p className="text-warning-foreground/80 text-sm">{forecast.error}</p>
-              <p className="text-warning-foreground/60 text-xs mt-2">
-                This feature is under development. Check back soon for live forecasts.
-              </p>
-            </div>
-          )}
+          {/* Trust Statement */}
+          <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-8 flex items-start gap-3">
+            <InfoIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              This app does not predict individual ferry cancellations. It provides weather-based risk context to help travelers plan. Always verify with the operator.
+            </p>
+          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Content Area */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Risk Score */}
-              <div className="card-maritime p-6 lg:p-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* ==================== */}
+            {/* PANE A: TODAY'S SAILINGS (Primary) */}
+            {/* ==================== */}
+            <div className="space-y-6">
+              <TodaySailings
+                sailings={schedule.sailings}
+                loading={schedule.loading}
+                error={schedule.error || undefined}
+                operatorStatus={schedule.operatorStatus?.status as 'on_time' | 'delayed' | 'canceled' | 'unknown' | undefined}
+                operatorStatusSource={schedule.operatorStatus?.source}
+                operatorScheduleUrl={schedule.operatorScheduleUrl}
+                isStaticSchedule={schedule.isStaticFallback}
+                routeDisplayName={routeDisplayName}
+              />
+            </div>
+
+            {/* ==================== */}
+            {/* PANE B: WEATHER RISK CONTEXT (Secondary) */}
+            {/* ==================== */}
+            <div className="space-y-6">
+              {/* Weather Context Header */}
+              <div className="card-maritime p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <h2 className="text-xl font-semibold text-foreground">Weather Risk Context</h2>
+                  <span className="text-xs px-2 py-0.5 bg-secondary rounded-full text-muted-foreground">Route-level</span>
+                </div>
+                <p className="text-sm text-muted-foreground mb-6">
+                  This is a weather-based risk assessment for the route overall. Individual sailings may run or be canceled independently.
+                </p>
+
+                {/* Risk Score */}
                 <RiskBar
                   score={forecast.data?.current_risk?.score ?? null}
                   loading={forecast.loading}
@@ -183,28 +267,16 @@ export default function RoutePage() {
                 />
               </div>
 
-              {/* Official Status */}
-              <OfficialStatusBadge
-                status={forecast.data?.official_status?.status ?? null}
-                source={forecast.data?.official_status?.source ?? null}
-                updatedAt={forecast.data?.official_status?.updated_at ?? null}
-                message={forecast.data?.official_status?.message}
-                loading={forecast.loading}
-              />
-
-              {/* 24-Hour Timeline */}
-              <div className="card-maritime p-6 lg:p-8">
+              {/* Weather Risk Timeline */}
+              <div className="card-maritime p-6">
                 <ForecastTimeline
                   forecasts={forecast.data?.hourly_forecast ?? null}
                   loading={forecast.loading}
                   error={forecast.error && !forecast.data ? forecast.error : undefined}
                 />
               </div>
-            </div>
 
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Conditions Panel */}
+              {/* Current Conditions */}
               <ConditionsPanel
                 weather={forecast.data?.current_conditions?.weather ?? null}
                 tide={forecast.data?.current_conditions?.tide ?? null}
@@ -212,53 +284,6 @@ export default function RoutePage() {
                 loading={forecast.loading}
                 error={forecast.error && !forecast.data ? forecast.error : undefined}
               />
-
-              {/* Route Info */}
-              <div className="card-maritime p-6">
-                <h3 className="text-lg font-semibold text-foreground mb-4">Route Information</h3>
-                <dl className="space-y-3 text-sm">
-                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                    <dt className="text-muted-foreground">Origin</dt>
-                    <dd className="font-medium text-foreground">
-                      {getPortDisplayName(route.origin_port)}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                    <dt className="text-muted-foreground">Destination</dt>
-                    <dd className="font-medium text-foreground">
-                      {getPortDisplayName(route.destination_port)}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                    <dt className="text-muted-foreground">Operator</dt>
-                    <dd className="font-medium text-foreground">
-                      {getOperatorDisplayName(route.operator)}
-                    </dd>
-                  </div>
-                  {(() => {
-                    const sensitivity = getRouteSensitivity(routeId);
-                    return sensitivity ? (
-                      <>
-                        <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                          <dt className="text-muted-foreground">General Heading</dt>
-                          <dd className="font-medium text-foreground">{sensitivity.generalHeading}</dd>
-                        </div>
-                        <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                          <dt className="text-muted-foreground">Water Body</dt>
-                          <dd className="font-medium text-foreground">{sensitivity.waterBody}</dd>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                        <dt className="text-muted-foreground">Crossing Type</dt>
-                        <dd className="font-medium text-foreground capitalize">
-                          {route.crossing_type.replace('_', ' ')}
-                        </dd>
-                      </div>
-                    );
-                  })()}
-                </dl>
-              </div>
 
               {/* Route Sensitivity */}
               {(() => {
@@ -294,32 +319,19 @@ export default function RoutePage() {
                 );
               })()}
 
-              {/* Forecast Summary */}
-              <div className="card-maritime p-6">
-                <h3 className="text-lg font-semibold text-foreground mb-4">Forecast Summary</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                  {forecast.loading
-                    ? 'Loading forecast data...'
-                    : forecast.error
-                    ? 'Unable to generate summary.'
-                    : 'Conditions are being monitored continuously. Check the 24-hour timeline for detailed predictions.'}
+              {/* Last Updated */}
+              {forecast.data?.metadata && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Weather data last updated: {new Date(forecast.data.metadata.generated_at).toLocaleString()}
                 </p>
-                {forecast.data?.metadata && (
-                  <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/50">
-                    Last updated: {new Date(forecast.data.metadata.generated_at).toLocaleString()}
-                  </p>
-                )}
-              </div>
+              )}
             </div>
           </div>
 
           {/* Disclaimer */}
           <div className="mt-8 bg-warning-muted border border-warning/30 rounded-xl p-6">
             <p className="text-sm text-warning-foreground leading-relaxed">
-              <strong>Important:</strong> This forecast shows the predicted{' '}
-              <em>risk of disruption</em> based on weather conditions. It is not a
-              guarantee of delays or cancellations. Always verify with{' '}
-              {getOperatorDisplayName(route.operator)} for official status before traveling.
+              <strong>Important:</strong> The weather risk score shows conditions that may affect ferry reliability. It does <strong>not</strong> predict which specific sailings will be canceled. Ferries may run during elevated risk, or be canceled during low risk. Always verify with {getOperatorDisplayName(route.operator)} for confirmed schedules and status.
             </p>
           </div>
         </div>
