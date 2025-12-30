@@ -3,16 +3,24 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+// Ferry Forecast uses an isolated schema for multi-app Supabase projects
+const SCHEMA_NAME = 'ferry_forecast';
+
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
     'Supabase credentials not configured. Using mock data for development.'
   );
 }
 
-// Client for browser-side usage
+// Client for browser-side usage - configured to use ferry_forecast schema
 export const supabase = createClient(
   supabaseUrl || 'http://localhost:54321',
-  supabaseAnonKey || 'mock-anon-key'
+  supabaseAnonKey || 'mock-anon-key',
+  {
+    db: {
+      schema: SCHEMA_NAME,
+    },
+  }
 );
 
 // Server-side client with service role (for API routes)
@@ -29,6 +37,9 @@ export function createServerClient() {
       autoRefreshToken: false,
       persistSession: false,
     },
+    db: {
+      schema: SCHEMA_NAME,
+    },
   });
 }
 
@@ -36,3 +47,6 @@ export function createServerClient() {
 export function isSupabaseConfigured(): boolean {
   return Boolean(supabaseUrl && supabaseAnonKey);
 }
+
+// Export schema name for reference
+export const schemaName = SCHEMA_NAME;

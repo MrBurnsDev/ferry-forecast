@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getRouteById, getOperatorDisplayName, getPortDisplayName } from '@/lib/config/routes';
 import { RiskBar } from '@/components/RiskBar';
@@ -9,21 +10,15 @@ import { ConditionsPanel } from '@/components/ConditionsPanel';
 import { OfficialStatusBadge } from '@/components/OfficialStatusBadge';
 import type { ForecastResponse } from '@/types/forecast';
 
-interface RoutePageProps {
-  params: Promise<{
-    routeId: string;
-  }>;
-}
-
 interface ForecastState {
   data: ForecastResponse | null;
   loading: boolean;
   error: string | null;
 }
 
-export default function RoutePage({ params }: RoutePageProps) {
-  const resolvedParams = use(params);
-  const routeId = resolvedParams.routeId;
+export default function RoutePage() {
+  const params = useParams();
+  const routeId = params.routeId as string;
   const route = getRouteById(routeId);
 
   const [forecast, setForecast] = useState<ForecastState>({
