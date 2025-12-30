@@ -1,22 +1,20 @@
 /**
  * SSA Status Page Scraper
  *
- * Phase 17: Authoritative Sailing Status Integration
- * Phase 18 CORRECTED: Status as Overlay, Not Canonical Source
+ * Phase 22: Single-Corridor Truth Lock
  *
  * Scrapes https://www.steamshipauthority.com/traveling_today/status
- * for real-time per-sailing status (Operating, Cancelled, Delayed).
+ * for real-time per-sailing status.
  *
- * THREE-LAYER TRUTH MODEL:
- * - Layer 0: Canonical Schedule (template) = BASE TRUTH (all sailings)
- * - Layer 1: Operator Status Overlay = SPARSE delta (updates matching sailings)
- * - Layer 2: Risk Overlay = interpretive only (never overrides operator status)
+ * CRITICAL CHANGE FROM PHASE 18:
+ * The status page IS the authoritative schedule for today.
+ * We do NOT overlay onto a template - the status page defines what sailings exist.
  *
- * STATUS PAGE IS NOT CANONICAL:
- * - It provides status UPDATES for some sailings, not a complete schedule
- * - Template schedule defines which sailings exist
- * - Status page overlays onto matching sailings by port + time
- * - Unmatched sailings remain visible with statusFromOperator: false
+ * If a sailing appears on the status page, it's a real sailing.
+ * If it says "Cancelled", it was cancelled.
+ * If it says "On Time", it's running.
+ *
+ * PHASE 22 LOCK: Woods Hole ↔ Vineyard Haven only.
  */
 
 import type { Sailing, SailingStatus, SailingDirection } from './types';
@@ -24,7 +22,7 @@ import { parseTimeInTimezone, getTodayInTimezone, DEFAULT_TIMEZONE } from './tim
 
 // SSA status page URL
 const SSA_STATUS_URL = 'https://www.steamshipauthority.com/traveling_today/status';
-const REQUEST_TIMEOUT = 15000;
+const REQUEST_TIMEOUT = 20000;
 
 // Debug mode
 const STATUS_DEBUG = process.env.SCHEDULE_DEBUG === 'true';
@@ -51,6 +49,8 @@ export interface SSASailingStatus {
   statusMessage?: string;
   /** Vessel type for Nantucket (Vehicle/Passenger vs High-Speed) */
   vesselType?: string;
+  /** Whether this sailing has departed */
+  departed?: boolean;
 }
 
 /**
@@ -78,6 +78,8 @@ export interface SSAStatusResult {
   fetchedAt: string;
   /** Error message if failed */
   errorMessage?: string;
+  /** Raw HTML for debugging */
+  rawHtmlLength?: number;
 }
 
 /**
@@ -111,42 +113,40 @@ function portNameToSlug(name: string): string {
 }
 
 /**
- * Parse status class to SailingStatus
+ * Parse status class and text to SailingStatus
  */
-function parseStatusClass(statusClass: string, statusText: string): { status: SailingStatus; message?: string } {
+function parseStatusClass(statusClass: string, statusText: string): { status: SailingStatus; message?: string; departed?: boolean } {
   const classLower = statusClass.toLowerCase();
   const textLower = statusText.toLowerCase();
 
-  if (classLower.includes('cancelled') || classLower.includes('canceled')) {
+  const departed = classLower.includes('departed');
+
+  if (classLower.includes('cancelled') || classLower.includes('canceled') || textLower.includes('cancelled')) {
     return {
       status: 'canceled',
-      message: statusText.includes('due to') ? statusText : undefined,
+      message: statusText.includes('due to') ? statusText.replace(/<[^>]*>/g, '').trim() : undefined,
+      departed,
     };
   }
 
-  if (classLower.includes('delayed')) {
+  if (classLower.includes('delayed') || textLower.includes('delayed')) {
     return {
       status: 'delayed',
-      message: statusText,
+      message: statusText.replace(/<[^>]*>/g, '').trim(),
+      departed,
     };
   }
 
   if (classLower.includes('on_time') || classLower.includes('on-time') || textLower.includes('on time')) {
-    return { status: 'on_time' };
+    return { status: 'on_time', departed };
   }
 
-  if (classLower.includes('departed')) {
-    // Departed can also have cancelled status (e.g., "departed cancelled")
-    if (classLower.includes('cancelled') || classLower.includes('canceled')) {
-      return {
-        status: 'canceled',
-        message: statusText.includes('due to') ? statusText : undefined,
-      };
-    }
-    return { status: 'on_time' }; // Departed means it ran
+  // If departed without cancel/delay, it ran successfully
+  if (departed) {
+    return { status: 'on_time', departed: true };
   }
 
-  return { status: 'unknown' };
+  return { status: 'unknown', departed };
 }
 
 /**
@@ -189,15 +189,16 @@ function parseVineyardTrips(html: string): SSASailingStatus[] {
     // Skip header rows
     if (rowHtml.includes('<th')) continue;
 
-    // Extract cells
+    // Extract cells with their classes
     const cellPattern = /<td[^>]*(?:class="([^"]*)")?[^>]*>([\s\S]*?)<\/td>/gi;
-    const cells: Array<{ class: string; text: string }> = [];
+    const cells: Array<{ class: string; text: string; raw: string }> = [];
     let cellMatch;
 
     while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
       cells.push({
         class: cellMatch[1] || '',
         text: cellMatch[2].replace(/<[^>]*>/g, '').trim(),
+        raw: cellMatch[2],
       });
     }
 
@@ -217,6 +218,7 @@ function parseVineyardTrips(html: string): SSASailingStatus[] {
           arrivalTimeDisplay: destination.time,
           status: statusInfo.status,
           statusMessage: statusInfo.message,
+          departed: statusInfo.departed,
         });
       }
     }
@@ -224,6 +226,10 @@ function parseVineyardTrips(html: string): SSASailingStatus[] {
 
   if (STATUS_DEBUG) {
     console.log(`[STATUS_DEBUG] Parsed ${sailings.length} Vineyard sailings`);
+    const canceled = sailings.filter(s => s.status === 'canceled');
+    if (canceled.length > 0) {
+      console.log(`[STATUS_DEBUG] CANCELLED: ${canceled.map(s => `${s.from} ${s.departureTimeDisplay}`).join(', ')}`);
+    }
   }
 
   return sailings;
@@ -285,6 +291,7 @@ function parseNantucketTrips(html: string): SSASailingStatus[] {
           status: statusInfo.status,
           statusMessage: statusInfo.message,
           vesselType,
+          departed: statusInfo.departed,
         });
       }
     }
@@ -383,9 +390,8 @@ function parseAdvisories(html: string): SSAAdvisory[] {
 /**
  * Fetch and parse SSA status page
  *
- * Note: SSA uses Queue-IT for traffic management.
- * This function attempts a direct fetch which may not always succeed.
- * Consider caching results for short periods.
+ * PHASE 22: This is THE authoritative source for today's sailings.
+ * The status page defines what sailings exist, not a template.
  */
 export async function fetchSSAStatus(): Promise<SSAStatusResult> {
   const fetchedAt = new Date().toISOString();
@@ -394,18 +400,30 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
+    // Use fetch with redirect following and proper headers
+    // Key: Send accept-encoding and other headers that browsers send
     const response = await fetch(SSA_STATUS_URL, {
+      method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
       },
+      redirect: 'follow',
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      if (STATUS_DEBUG) {
+        console.log(`[STATUS_DEBUG] SSA HTTP error: ${response.status} ${response.statusText}`);
+      }
       return {
         success: false,
         sailings: [],
@@ -416,6 +434,10 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
     }
 
     const html = await response.text();
+
+    if (STATUS_DEBUG) {
+      console.log(`[STATUS_DEBUG] SSA response length: ${html.length} chars`);
+    }
 
     // Check for Queue-IT redirect (indicates we didn't get the real page)
     if (html.includes('queue-it') || html.includes('Queue-it') || html.includes('queueit')) {
@@ -428,6 +450,7 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
         advisories: [],
         fetchedAt,
         errorMessage: 'SSA status page access restricted (queue system)',
+        rawHtmlLength: html.length,
       };
     }
 
@@ -435,6 +458,7 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
     if (!html.includes('vineyard_trips') && !html.includes('nantucket_trips')) {
       if (STATUS_DEBUG) {
         console.log('[STATUS_DEBUG] SSA response does not contain status tables');
+        console.log('[STATUS_DEBUG] First 500 chars:', html.substring(0, 500));
       }
       return {
         success: false,
@@ -442,6 +466,7 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
         advisories: [],
         fetchedAt,
         errorMessage: 'SSA status page content not found',
+        rawHtmlLength: html.length,
       };
     }
 
@@ -454,6 +479,11 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
 
     if (STATUS_DEBUG) {
       console.log(`[STATUS_DEBUG] SSA status: ${allSailings.length} total sailings, ${advisories.length} advisories`);
+      const whvh = allSailings.filter(s =>
+        (s.fromSlug === 'woods-hole' && s.toSlug === 'vineyard-haven') ||
+        (s.fromSlug === 'vineyard-haven' && s.toSlug === 'woods-hole')
+      );
+      console.log(`[STATUS_DEBUG] WH<->VH sailings: ${whvh.length}`);
     }
 
     return {
@@ -461,6 +491,7 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
       sailings: allSailings,
       advisories,
       fetchedAt,
+      rawHtmlLength: html.length,
     };
 
   } catch (error) {
@@ -532,17 +563,15 @@ export function getAdvisoriesForRoute(
 }
 
 // ============================================================
-// PHASE 18: Convert Status Table to Canonical Sailings
+// PHASE 22: Status Page AS Canonical Schedule
 // ============================================================
 
 /**
  * Convert SSASailingStatus objects to full Sailing objects.
  *
- * Phase 18: The status page IS the canonical list of today's sailings.
- * Each row in the status table becomes a Sailing with:
- * - Full timezone-aware timestamps
- * - Direction information
- * - Operator status (statusFromOperator = true)
+ * PHASE 22: The status page IS the canonical list of today's sailings.
+ * Each row in the status table becomes a Sailing.
+ * No template overlay - what's on the status page is what exists.
  *
  * @param statusSailings - Parsed rows from SSA status tables
  * @param routeId - Route ID to filter for (e.g., 'wh-vh-ssa')
@@ -601,7 +630,7 @@ export function convertStatusToSailings(
       operatorSlug: 'ssa',
       status: statusSailing.status,
       statusMessage: statusSailing.statusMessage,
-      statusFromOperator: true, // Always true - this came from operator status page
+      statusFromOperator: true, // Always true - this IS from operator status page
     };
 
     // Add arrival time if available
@@ -654,7 +683,7 @@ function normalizeTimeDisplay(time: string): string {
 /**
  * Get all sailings for a route from the status page result.
  *
- * Phase 18: This is the primary entry point for getting SSA sailings.
+ * PHASE 22: This is THE authoritative source for SSA sailings.
  * Returns sailings ONLY if the status page was successfully fetched.
  *
  * @param statusResult - Result from fetchSSAStatus()

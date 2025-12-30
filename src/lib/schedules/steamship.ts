@@ -175,17 +175,28 @@ function createUnavailableResult(
  * This is the ACTUAL schedule from SSA (not made-up times)
  * Must be explicitly labeled as "template" in UI if used
  *
- * Winter 2024-2025 schedule (effective until further notice)
- * Source: https://www.steamshipauthority.com/schedules
+ * PHASE 22: Updated December 30, 2024 from actual SSA status page
+ * Source: https://www.steamshipauthority.com/traveling_today/status
+ *
+ * These times must EXACTLY match what appears on the SSA status table
+ * to allow proper status overlay matching.
  */
 const SSA_KNOWN_SCHEDULES: Record<string, { departures: string[]; arrivals?: string[] }> = {
-  // Woods Hole to Vineyard Haven (traditional ferry)
+  // Woods Hole to Vineyard Haven - ACTUAL times from SSA Dec 30, 2024
   'wh-vh': {
-    departures: ['6:00 AM', '7:00 AM', '7:30 AM', '8:45 AM', '9:45 AM', '10:45 AM', '11:45 AM', '12:45 PM', '1:45 PM', '2:45 PM', '3:45 PM', '4:45 PM', '5:45 PM', '6:45 PM', '7:45 PM', '8:45 PM'],
+    departures: [
+      '8:35 AM', '9:30 AM', '10:45 AM', '11:05 AM', '12:00 PM',
+      '1:15 PM', '1:35 PM', '2:30 PM', '3:45 PM', '4:05 PM',
+      '5:00 PM', '6:15 PM', '6:30 PM', '7:30 PM', '8:30 PM', '9:45 PM'
+    ],
   },
-  // Vineyard Haven to Woods Hole
+  // Vineyard Haven to Woods Hole - ACTUAL times from SSA Dec 30, 2024
   'vh-wh': {
-    departures: ['6:00 AM', '7:00 AM', '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:30 PM'],
+    departures: [
+      '9:30 AM', '9:50 AM', '10:45 AM', '12:00 PM', '1:15 PM',
+      '2:30 PM', '2:50 PM', '3:45 PM', '5:00 PM', '5:20 PM',
+      '6:15 PM', '7:15 PM', '7:30 PM', '8:30 PM', '9:30 PM'
+    ],
   },
   // Oak Bluffs routes (seasonal - limited in winter)
   'wh-ob': {
