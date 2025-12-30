@@ -70,10 +70,25 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({
+    // Add weather debug info to response
+    const response: CorridorBoardResponse = {
       success: true,
       board,
-    });
+    };
+
+    // Include weather context in response for debugging (Phase 22)
+    if (weather) {
+      (response as Record<string, unknown>).weather_context = {
+        wind_speed: weather.windSpeed,
+        wind_gusts: weather.windGusts,
+        wind_direction: weather.windDirection,
+        advisory_level: weather.advisoryLevel,
+      };
+    } else {
+      (response as Record<string, unknown>).weather_context = null;
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error(`Error generating corridor board for ${corridorId}:`, error);
 
