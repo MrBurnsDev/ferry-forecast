@@ -60,6 +60,12 @@ import {
   OPERATOR_DEFAULTS,
 } from './weights';
 
+import {
+  calculateExposureModifier,
+  getRouteExposure,
+  degreesToCompassBucket,
+} from '@/lib/config/exposure';
+
 /**
  * Scoring Input for Weather-Only MVP
  *
@@ -342,8 +348,42 @@ export function calculateRiskScore(input: ScoringInput): ScoringResult {
     });
   }
 
-  // 4b. Crossing Type Impact - open water crossings are more exposed
-  if (input.route.crossing_type === 'open_water' && input.weather.wind_speed >= WIND_THRESHOLDS.MODERATE) {
+  // 4b. Route Exposure Impact (computed from coastline geometry)
+  // This replaces simple crossing_type logic with physics-based exposure scores
+  const routeExposure = getRouteExposure(input.route.route_id);
+  if (routeExposure && input.weather.wind_speed >= WIND_THRESHOLDS.MODERATE) {
+    // Get exposure modifier for this wind direction
+    // Bounded to [-10, +15] points to prevent dominating the score
+    const exposureModifier = calculateExposureModifier(
+      input.route.route_id,
+      input.weather.wind_direction
+    );
+
+    if (exposureModifier !== 0) {
+      baseScore += exposureModifier;
+
+      // Determine wind direction bucket for description
+      const windDir = degreesToCompassBucket(input.weather.wind_direction);
+      const exposureValue = routeExposure.exposure_by_dir[windDir];
+
+      if (exposureModifier > 0) {
+        factors.push({
+          factor: 'route_exposure',
+          description: `Route exposed to ${windDir} winds (fetch: ${routeExposure.fetch_km_by_dir[windDir]}km)`,
+          weight: exposureModifier,
+          value: exposureValue,
+        });
+      } else {
+        factors.push({
+          factor: 'route_shelter',
+          description: `Route sheltered from ${windDir} winds`,
+          weight: exposureModifier,
+          value: exposureValue,
+        });
+      }
+    }
+  } else if (input.route.crossing_type === 'open_water' && input.weather.wind_speed >= WIND_THRESHOLDS.MODERATE) {
+    // Fallback for routes without computed exposure data
     const exposureScore = Math.min(10, Math.round(input.weather.wind_speed / 5));
     baseScore += exposureScore;
     factors.push({

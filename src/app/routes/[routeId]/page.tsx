@@ -285,7 +285,7 @@ export default function RoutePage() {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-3 italic">
-                      This information helps explain why certain weather patterns may affect this route.
+                      Computed from land shelter and route geometry. Does not include vessel behavior.
                     </p>
                   </div>
                 );

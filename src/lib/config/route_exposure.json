@@ -1,0 +1,202 @@
+{
+  "version": "1.0",
+  "computed_at": "2024-12-30T00:00:00.000Z",
+  "parameters": {
+    "sample_points": 10,
+    "max_fetch_km": 50,
+    "ray_step_m": 100,
+    "note": "Placeholder data - run scripts/compute_route_exposure.py to regenerate"
+  },
+  "routes": {
+    "wh-vh-ssa": {
+      "route_id": "wh-vh-ssa",
+      "origin_port": "woods-hole",
+      "destination_port": "vineyard-haven",
+      "exposure_by_dir": {
+        "N": 0.35, "NNE": 0.30, "NE": 0.28, "ENE": 0.32,
+        "E": 0.45, "ESE": 0.50, "SE": 0.55, "SSE": 0.60,
+        "S": 0.65, "SSW": 0.70, "SW": 0.75, "WSW": 0.72,
+        "W": 0.68, "WNW": 0.55, "NW": 0.42, "NNW": 0.38
+      },
+      "fetch_km_by_dir": {
+        "N": 5.2, "NNE": 4.5, "NE": 4.2, "ENE": 4.8,
+        "E": 8.5, "ESE": 10.2, "SE": 12.5, "SSE": 15.0,
+        "S": 18.5, "SSW": 22.0, "SW": 28.0, "WSW": 25.0,
+        "W": 20.5, "WNW": 12.5, "NW": 7.8, "NNW": 6.2
+      },
+      "avg_exposure": 0.50,
+      "top_exposure_dirs": ["SW", "WSW", "SSW"]
+    },
+    "vh-wh-ssa": {
+      "route_id": "vh-wh-ssa",
+      "origin_port": "vineyard-haven",
+      "destination_port": "woods-hole",
+      "exposure_by_dir": {
+        "N": 0.35, "NNE": 0.30, "NE": 0.28, "ENE": 0.32,
+        "E": 0.45, "ESE": 0.50, "SE": 0.55, "SSE": 0.60,
+        "S": 0.65, "SSW": 0.70, "SW": 0.75, "WSW": 0.72,
+        "W": 0.68, "WNW": 0.55, "NW": 0.42, "NNW": 0.38
+      },
+      "fetch_km_by_dir": {
+        "N": 5.2, "NNE": 4.5, "NE": 4.2, "ENE": 4.8,
+        "E": 8.5, "ESE": 10.2, "SE": 12.5, "SSE": 15.0,
+        "S": 18.5, "SSW": 22.0, "SW": 28.0, "WSW": 25.0,
+        "W": 20.5, "WNW": 12.5, "NW": 7.8, "NNW": 6.2
+      },
+      "avg_exposure": 0.50,
+      "top_exposure_dirs": ["SW", "WSW", "SSW"]
+    },
+    "wh-ob-ssa": {
+      "route_id": "wh-ob-ssa",
+      "origin_port": "woods-hole",
+      "destination_port": "oak-bluffs",
+      "exposure_by_dir": {
+        "N": 0.32, "NNE": 0.28, "NE": 0.25, "ENE": 0.30,
+        "E": 0.42, "ESE": 0.48, "SE": 0.52, "SSE": 0.58,
+        "S": 0.62, "SSW": 0.68, "SW": 0.72, "WSW": 0.70,
+        "W": 0.65, "WNW": 0.52, "NW": 0.40, "NNW": 0.35
+      },
+      "fetch_km_by_dir": {
+        "N": 4.8, "NNE": 4.2, "NE": 3.8, "ENE": 4.5,
+        "E": 7.8, "ESE": 9.5, "SE": 11.2, "SSE": 14.0,
+        "S": 16.5, "SSW": 20.0, "SW": 25.0, "WSW": 22.0,
+        "W": 18.0, "WNW": 11.0, "NW": 7.0, "NNW": 5.5
+      },
+      "avg_exposure": 0.47,
+      "top_exposure_dirs": ["SW", "WSW", "SSW"]
+    },
+    "ob-wh-ssa": {
+      "route_id": "ob-wh-ssa",
+      "origin_port": "oak-bluffs",
+      "destination_port": "woods-hole",
+      "exposure_by_dir": {
+        "N": 0.32, "NNE": 0.28, "NE": 0.25, "ENE": 0.30,
+        "E": 0.42, "ESE": 0.48, "SE": 0.52, "SSE": 0.58,
+        "S": 0.62, "SSW": 0.68, "SW": 0.72, "WSW": 0.70,
+        "W": 0.65, "WNW": 0.52, "NW": 0.40, "NNW": 0.35
+      },
+      "fetch_km_by_dir": {
+        "N": 4.8, "NNE": 4.2, "NE": 3.8, "ENE": 4.5,
+        "E": 7.8, "ESE": 9.5, "SE": 11.2, "SSE": 14.0,
+        "S": 16.5, "SSW": 20.0, "SW": 25.0, "WSW": 22.0,
+        "W": 18.0, "WNW": 11.0, "NW": 7.0, "NNW": 5.5
+      },
+      "avg_exposure": 0.47,
+      "top_exposure_dirs": ["SW", "WSW", "SSW"]
+    },
+    "hy-nan-ssa": {
+      "route_id": "hy-nan-ssa",
+      "origin_port": "hyannis",
+      "destination_port": "nantucket",
+      "exposure_by_dir": {
+        "N": 0.55, "NNE": 0.52, "NE": 0.50, "ENE": 0.55,
+        "E": 0.72, "ESE": 0.78, "SE": 0.82, "SSE": 0.85,
+        "S": 0.88, "SSW": 0.85, "SW": 0.80, "WSW": 0.75,
+        "W": 0.70, "WNW": 0.62, "NW": 0.58, "NNW": 0.55
+      },
+      "fetch_km_by_dir": {
+        "N": 12.5, "NNE": 11.0, "NE": 10.0, "ENE": 12.5,
+        "E": 25.0, "ESE": 32.0, "SE": 38.0, "SSE": 42.0,
+        "S": 48.0, "SSW": 42.0, "SW": 35.0, "WSW": 28.0,
+        "W": 22.0, "WNW": 16.5, "NW": 14.0, "NNW": 12.5
+      },
+      "avg_exposure": 0.69,
+      "top_exposure_dirs": ["S", "SSE", "SE"]
+    },
+    "nan-hy-ssa": {
+      "route_id": "nan-hy-ssa",
+      "origin_port": "nantucket",
+      "destination_port": "hyannis",
+      "exposure_by_dir": {
+        "N": 0.55, "NNE": 0.52, "NE": 0.50, "ENE": 0.55,
+        "E": 0.72, "ESE": 0.78, "SE": 0.82, "SSE": 0.85,
+        "S": 0.88, "SSW": 0.85, "SW": 0.80, "WSW": 0.75,
+        "W": 0.70, "WNW": 0.62, "NW": 0.58, "NNW": 0.55
+      },
+      "fetch_km_by_dir": {
+        "N": 12.5, "NNE": 11.0, "NE": 10.0, "ENE": 12.5,
+        "E": 25.0, "ESE": 32.0, "SE": 38.0, "SSE": 42.0,
+        "S": 48.0, "SSW": 42.0, "SW": 35.0, "WSW": 28.0,
+        "W": 22.0, "WNW": 16.5, "NW": 14.0, "NNW": 12.5
+      },
+      "avg_exposure": 0.69,
+      "top_exposure_dirs": ["S", "SSE", "SE"]
+    },
+    "hy-nan-hlc": {
+      "route_id": "hy-nan-hlc",
+      "origin_port": "hyannis",
+      "destination_port": "nantucket",
+      "exposure_by_dir": {
+        "N": 0.55, "NNE": 0.52, "NE": 0.50, "ENE": 0.55,
+        "E": 0.72, "ESE": 0.78, "SE": 0.82, "SSE": 0.85,
+        "S": 0.88, "SSW": 0.85, "SW": 0.80, "WSW": 0.75,
+        "W": 0.70, "WNW": 0.62, "NW": 0.58, "NNW": 0.55
+      },
+      "fetch_km_by_dir": {
+        "N": 12.5, "NNE": 11.0, "NE": 10.0, "ENE": 12.5,
+        "E": 25.0, "ESE": 32.0, "SE": 38.0, "SSE": 42.0,
+        "S": 48.0, "SSW": 42.0, "SW": 35.0, "WSW": 28.0,
+        "W": 22.0, "WNW": 16.5, "NW": 14.0, "NNW": 12.5
+      },
+      "avg_exposure": 0.69,
+      "top_exposure_dirs": ["S", "SSE", "SE"]
+    },
+    "nan-hy-hlc": {
+      "route_id": "nan-hy-hlc",
+      "origin_port": "nantucket",
+      "destination_port": "hyannis",
+      "exposure_by_dir": {
+        "N": 0.55, "NNE": 0.52, "NE": 0.50, "ENE": 0.55,
+        "E": 0.72, "ESE": 0.78, "SE": 0.82, "SSE": 0.85,
+        "S": 0.88, "SSW": 0.85, "SW": 0.80, "WSW": 0.75,
+        "W": 0.70, "WNW": 0.62, "NW": 0.58, "NNW": 0.55
+      },
+      "fetch_km_by_dir": {
+        "N": 12.5, "NNE": 11.0, "NE": 10.0, "ENE": 12.5,
+        "E": 25.0, "ESE": 32.0, "SE": 38.0, "SSE": 42.0,
+        "S": 48.0, "SSW": 42.0, "SW": 35.0, "WSW": 28.0,
+        "W": 22.0, "WNW": 16.5, "NW": 14.0, "NNW": 12.5
+      },
+      "avg_exposure": 0.69,
+      "top_exposure_dirs": ["S", "SSE", "SE"]
+    },
+    "hy-vh-hlc": {
+      "route_id": "hy-vh-hlc",
+      "origin_port": "hyannis",
+      "destination_port": "vineyard-haven",
+      "exposure_by_dir": {
+        "N": 0.42, "NNE": 0.38, "NE": 0.35, "ENE": 0.40,
+        "E": 0.55, "ESE": 0.62, "SE": 0.68, "SSE": 0.72,
+        "S": 0.78, "SSW": 0.80, "SW": 0.82, "WSW": 0.78,
+        "W": 0.72, "WNW": 0.60, "NW": 0.50, "NNW": 0.45
+      },
+      "fetch_km_by_dir": {
+        "N": 7.8, "NNE": 6.2, "NE": 5.5, "ENE": 7.0,
+        "E": 12.5, "ESE": 16.5, "SE": 20.0, "SSE": 25.0,
+        "S": 32.0, "SSW": 35.0, "SW": 38.0, "WSW": 32.0,
+        "W": 25.0, "WNW": 15.0, "NW": 10.0, "NNW": 8.5
+      },
+      "avg_exposure": 0.59,
+      "top_exposure_dirs": ["SW", "SSW", "S"]
+    },
+    "vh-hy-hlc": {
+      "route_id": "vh-hy-hlc",
+      "origin_port": "vineyard-haven",
+      "destination_port": "hyannis",
+      "exposure_by_dir": {
+        "N": 0.42, "NNE": 0.38, "NE": 0.35, "ENE": 0.40,
+        "E": 0.55, "ESE": 0.62, "SE": 0.68, "SSE": 0.72,
+        "S": 0.78, "SSW": 0.80, "SW": 0.82, "WSW": 0.78,
+        "W": 0.72, "WNW": 0.60, "NW": 0.50, "NNW": 0.45
+      },
+      "fetch_km_by_dir": {
+        "N": 7.8, "NNE": 6.2, "NE": 5.5, "ENE": 7.0,
+        "E": 12.5, "ESE": 16.5, "SE": 20.0, "SSE": 25.0,
+        "S": 32.0, "SSW": 35.0, "SW": 38.0, "WSW": 32.0,
+        "W": 25.0, "WNW": 15.0, "NW": 10.0, "NNW": 8.5
+      },
+      "avg_exposure": 0.59,
+      "top_exposure_dirs": ["SW", "SSW", "S"]
+    }
+  }
+}

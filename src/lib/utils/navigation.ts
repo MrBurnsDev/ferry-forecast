@@ -3,7 +3,12 @@
  *
  * These helpers convert technical navigation data into human-readable formats
  * that match how users naturally think about directions and routes.
+ *
+ * IMPORTANT: Route sensitivity data is now COMPUTED from coastline geometry,
+ * not hand-authored. See src/lib/config/exposure.ts for the computed data.
  */
+
+import { getRouteExposure } from '@/lib/config/exposure';
 
 /**
  * Cardinal and intercardinal compass directions
@@ -53,108 +58,104 @@ export function formatWindDirection(degrees: number): string {
 }
 
 /**
- * Route sensitivity metadata for Cape Cod & Islands routes
+ * Route sensitivity metadata - now derived from COMPUTED exposure data
  *
- * This provides human-readable explanations of why certain wind directions
- * affect specific routes more than others. Based on geographical exposure.
+ * MIGRATION NOTE: This interface maintains backward compatibility with the UI,
+ * but the underlying data now comes from physics-based coastline analysis
+ * (see src/lib/config/exposure.ts) instead of hand-authored values.
  *
- * Intent: Build user trust by showing the app "understands" local conditions.
- * This is informational only - does not affect scoring (yet).
+ * The computed data uses fetch distance (km to land) to determine exposure
+ * for each of 16 wind directions, providing truthful comparisons between routes.
  */
 export interface RouteSensitivity {
-  /** Primary wind directions that most impact this route */
+  /** Primary wind directions that most impact this route (top 3 by exposure) */
   sensitiveWindDirections: CompassDirection[];
-  /** Human-readable explanation of route exposure */
+  /** Human-readable explanation of route exposure (generated from computed data) */
   exposureDescription: string;
-  /** General heading description (avoids misleading specific bearings) */
+  /** General heading description */
   generalHeading: string;
   /** Water body the route crosses */
   waterBody: string;
+  /** Average exposure score (0-1) for transparency */
+  avgExposure: number;
+  /** Whether this is computed vs static data */
+  isComputed: boolean;
+}
+
+// Water body lookup by port pairs (static geographic fact)
+const WATER_BODIES: Record<string, string> = {
+  'woods-hole:vineyard-haven': 'Vineyard Sound',
+  'woods-hole:oak-bluffs': 'Vineyard Sound',
+  'hyannis:nantucket': 'Nantucket Sound',
+  'hyannis:vineyard-haven': 'Nantucket Sound / Vineyard Sound',
+};
+
+function getWaterBody(origin: string, dest: string): string {
+  const key1 = `${origin}:${dest}`;
+  const key2 = `${dest}:${origin}`;
+  return WATER_BODIES[key1] || WATER_BODIES[key2] || 'Open water';
+}
+
+function generateExposureDescription(
+  topDirs: CompassDirection[],
+  avgExposure: number,
+  waterBody: string
+): string {
+  const dirList = topDirs.length === 3
+    ? `${topDirs[0]}, ${topDirs[1]}, and ${topDirs[2]}`
+    : topDirs.join(' and ');
+
+  if (avgExposure > 0.65) {
+    return `This longer crossing through ${waterBody} has high exposure to ${dirList} winds based on computed fetch distances to land.`;
+  } else if (avgExposure > 0.5) {
+    return `This route across ${waterBody} is moderately exposed to ${dirList} winds based on coastline geometry.`;
+  } else {
+    return `This route through ${waterBody} has some shelter but is most exposed to ${dirList} winds.`;
+  }
+}
+
+function generateHeading(origin: string, dest: string): string {
+  // Simplified heading based on port pair
+  const headings: Record<string, string> = {
+    'woods-hole:vineyard-haven': 'North–South across Vineyard Sound',
+    'vineyard-haven:woods-hole': 'South–North across Vineyard Sound',
+    'woods-hole:oak-bluffs': 'North–South through Vineyard Sound',
+    'oak-bluffs:woods-hole': 'South–North through Vineyard Sound',
+    'hyannis:nantucket': 'Northwest–Southeast across Nantucket Sound',
+    'nantucket:hyannis': 'Southeast–Northwest across Nantucket Sound',
+    'hyannis:vineyard-haven': 'East–Southwest across the Sounds',
+    'vineyard-haven:hyannis': 'Southwest–East across the Sounds',
+  };
+  return headings[`${origin}:${dest}`] || 'Open water crossing';
 }
 
 /**
- * Route sensitivity data keyed by route_id
+ * Get route sensitivity data derived from computed exposure
  *
- * These are based on actual geography of Vineyard Sound and Nantucket Sound:
- * - Vineyard Sound runs roughly E-W between Cape Cod and Martha's Vineyard
- * - Nantucket Sound is more protected but exposed to S and SW winds
- * - Routes crossing open water are most affected by winds perpendicular to route
- */
-export const ROUTE_SENSITIVITY: Record<string, RouteSensitivity> = {
-  // Woods Hole ↔ Vineyard Haven (SSA)
-  'wh-vh-ssa': {
-    sensitiveWindDirections: ['W', 'WNW', 'SW', 'WSW'],
-    exposureDescription: 'This route crosses Vineyard Sound and is most impacted by strong westerly and southwesterly winds due to open-water exposure.',
-    generalHeading: 'North–South across Vineyard Sound',
-    waterBody: 'Vineyard Sound',
-  },
-  'vh-wh-ssa': {
-    sensitiveWindDirections: ['W', 'WNW', 'SW', 'WSW'],
-    exposureDescription: 'This route crosses Vineyard Sound and is most impacted by strong westerly and southwesterly winds due to open-water exposure.',
-    generalHeading: 'South–North across Vineyard Sound',
-    waterBody: 'Vineyard Sound',
-  },
-
-  // Woods Hole ↔ Oak Bluffs (SSA)
-  'wh-ob-ssa': {
-    sensitiveWindDirections: ['W', 'SW', 'S'],
-    exposureDescription: 'This route travels through Vineyard Sound with exposure to southerly and westerly winds across open water.',
-    generalHeading: 'North–South through Vineyard Sound',
-    waterBody: 'Vineyard Sound',
-  },
-  'ob-wh-ssa': {
-    sensitiveWindDirections: ['W', 'SW', 'S'],
-    exposureDescription: 'This route travels through Vineyard Sound with exposure to southerly and westerly winds across open water.',
-    generalHeading: 'South–North through Vineyard Sound',
-    waterBody: 'Vineyard Sound',
-  },
-
-  // Hyannis ↔ Nantucket (SSA & Hy-Line)
-  'hy-nan-ssa': {
-    sensitiveWindDirections: ['S', 'SW', 'SE'],
-    exposureDescription: 'This longer crossing through Nantucket Sound is most affected by southerly winds, which can create significant swells.',
-    generalHeading: 'Northwest–Southeast across Nantucket Sound',
-    waterBody: 'Nantucket Sound',
-  },
-  'nan-hy-ssa': {
-    sensitiveWindDirections: ['S', 'SW', 'SE'],
-    exposureDescription: 'This longer crossing through Nantucket Sound is most affected by southerly winds, which can create significant swells.',
-    generalHeading: 'Southeast–Northwest across Nantucket Sound',
-    waterBody: 'Nantucket Sound',
-  },
-  'hy-nan-hlc': {
-    sensitiveWindDirections: ['S', 'SW', 'SE'],
-    exposureDescription: 'This crossing through Nantucket Sound is most affected by southerly winds. High-speed vessels may be more sensitive to sea conditions.',
-    generalHeading: 'Northwest–Southeast across Nantucket Sound',
-    waterBody: 'Nantucket Sound',
-  },
-  'nan-hy-hlc': {
-    sensitiveWindDirections: ['S', 'SW', 'SE'],
-    exposureDescription: 'This crossing through Nantucket Sound is most affected by southerly winds. High-speed vessels may be more sensitive to sea conditions.',
-    generalHeading: 'Southeast–Northwest across Nantucket Sound',
-    waterBody: 'Nantucket Sound',
-  },
-
-  // Hyannis ↔ Vineyard Haven (Hy-Line)
-  'hy-vh-hlc': {
-    sensitiveWindDirections: ['S', 'SW', 'W'],
-    exposureDescription: 'This route crosses both Nantucket Sound and approaches Vineyard Sound, with exposure to southwesterly winds.',
-    generalHeading: 'East–Southwest across the Sounds',
-    waterBody: 'Nantucket Sound / Vineyard Sound',
-  },
-  'vh-hy-hlc': {
-    sensitiveWindDirections: ['S', 'SW', 'W'],
-    exposureDescription: 'This route crosses both Nantucket Sound and approaches Vineyard Sound, with exposure to southwesterly winds.',
-    generalHeading: 'Southwest–East across the Sounds',
-    waterBody: 'Nantucket Sound / Vineyard Sound',
-  },
-};
-
-/**
- * Get route sensitivity data, with fallback for unknown routes
+ * This function now uses physics-based exposure data computed from
+ * coastline geometry (fetch distance analysis) instead of hand-authored values.
  */
 export function getRouteSensitivity(routeId: string): RouteSensitivity | null {
-  return ROUTE_SENSITIVITY[routeId] || null;
+  const exposure = getRouteExposure(routeId);
+
+  if (!exposure) {
+    return null;
+  }
+
+  const waterBody = getWaterBody(exposure.origin_port, exposure.destination_port);
+
+  return {
+    sensitiveWindDirections: exposure.top_exposure_dirs as CompassDirection[],
+    exposureDescription: generateExposureDescription(
+      exposure.top_exposure_dirs as CompassDirection[],
+      exposure.avg_exposure,
+      waterBody
+    ),
+    generalHeading: generateHeading(exposure.origin_port, exposure.destination_port),
+    waterBody,
+    avgExposure: exposure.avg_exposure,
+    isComputed: true,
+  };
 }
 
 /**
