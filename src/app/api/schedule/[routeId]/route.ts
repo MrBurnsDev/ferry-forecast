@@ -43,6 +43,11 @@ function mapOperatorStatusToSailing(status: OfficialStatus | null): SailingStatu
  * - source_url: Link to operator schedule
  * - We NEVER return silent static fallback schedules
  *
+ * PHASE 17 STATUS INTEGRATION:
+ * - Per-sailing status comes from operator status page (when available)
+ * - Advisories are passed through verbatim from operator
+ * - Precedence: operator_status_page > schedule_page > inferred
+ *
  * IMPORTANT: This is DISPLAY ONLY data showing scheduled sailings.
  * It does NOT predict or infer cancellations. Individual sailing
  * status comes from operator reports when available.
@@ -54,6 +59,7 @@ export async function GET(
   const { routeId } = await params;
 
   // Fetch schedule and operator status in parallel
+  // Note: Phase 17 SSA schedule now includes per-sailing status from status page
   const [scheduleResult, operatorStatusResult] = await Promise.all([
     getBidirectionalSchedule(routeId),
     getOperatorStatus(routeId),
@@ -61,16 +67,25 @@ export async function GET(
 
   const { outbound, combined } = scheduleResult;
 
-  // Map operator status to sailing status
+  // Phase 17: Sailings may already have per-sailing status from status page
+  // Only apply route-level operator status if individual sailings don't have operator status
   const sailingStatus = mapOperatorStatusToSailing(operatorStatusResult.status);
 
-  // Apply operator status to sailings (if we have route-level status)
-  const sailingsWithStatus = sailingStatus
-    ? applySailingStatus(combined, sailingStatus, operatorStatusResult.message || undefined)
-    : combined;
+  // Apply route-level operator status to sailings that don't already have operator-confirmed status
+  let sailingsWithStatus = combined;
+  if (sailingStatus) {
+    sailingsWithStatus = applySailingStatus(
+      combined,
+      sailingStatus,
+      operatorStatusResult.message || undefined
+    );
+  }
 
   // Use outbound provenance as the primary (they should be the same for both directions)
   const provenance = outbound.provenance;
+
+  // Phase 17: Collect advisories from outbound (already filtered by route)
+  const advisories = outbound.advisories || [];
 
   return NextResponse.json(
     {
@@ -91,7 +106,13 @@ export async function GET(
         error_message: provenance.error_message,
       },
 
-      // Operator status (from alerts/scraping)
+      // PHASE 17: Travel advisories from operator (verbatim)
+      advisories: advisories.length > 0 ? advisories : undefined,
+
+      // PHASE 17: Status source info
+      statusSource: outbound.statusSource,
+
+      // Operator status (from alerts/scraping - may be supplemental to per-sailing)
       operatorStatus: {
         status: operatorStatusResult.status,
         source: operatorStatusResult.source,

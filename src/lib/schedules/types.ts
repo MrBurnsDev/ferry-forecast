@@ -135,6 +135,18 @@ export interface Sailing {
 }
 
 /**
+ * Travel advisory from operator (Phase 17)
+ */
+export interface OperatorAdvisory {
+  /** Advisory title (e.g., "Travel Advisory") */
+  title: string;
+  /** Advisory text (verbatim from operator) */
+  text: string;
+  /** When the advisory was fetched */
+  fetchedAt: string;
+}
+
+/**
  * Result of fetching schedule for a route
  */
 export interface ScheduleFetchResult {
@@ -158,4 +170,17 @@ export interface ScheduleFetchResult {
 
   /** Link to operator's schedule page */
   operatorScheduleUrl: string;
+
+  /** Travel advisories from operator (Phase 17) */
+  advisories?: OperatorAdvisory[];
+
+  /** Status source info (Phase 17) */
+  statusSource?: {
+    /** Where sailing status came from */
+    source: 'operator_status_page' | 'schedule_page' | 'unavailable';
+    /** URL of the status page */
+    url?: string;
+    /** When status was fetched */
+    fetchedAt?: string;
+  };
 }

@@ -34,6 +34,7 @@ export type {
   ScheduleProvenance,
   ScheduleSourceType,
   ParseConfidence,
+  OperatorAdvisory,
 } from './types';
 
 // Re-export time utilities for components

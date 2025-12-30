@@ -57,6 +57,18 @@ interface ScheduleState {
     status: string | null;
     source: string | null;
   };
+  /** Phase 17: Operator advisories */
+  advisories?: Array<{
+    title: string;
+    text: string;
+    fetchedAt: string;
+  }>;
+  /** Phase 17: Status source info */
+  statusSource?: {
+    source: 'operator_status_page' | 'schedule_page' | 'unavailable';
+    url?: string;
+    fetchedAt?: string;
+  };
 }
 
 export default function RoutePage() {
@@ -133,6 +145,8 @@ export default function RoutePage() {
           operatorScheduleUrl: data.operatorScheduleUrl,
           provenance: data.provenance,
           operatorStatus: data.operatorStatus,
+          advisories: data.advisories,
+          statusSource: data.statusSource,
         });
       } catch (err) {
         setSchedule({
@@ -253,6 +267,8 @@ export default function RoutePage() {
                 routeDisplayName={routeDisplayName}
                 routeId={routeId}
                 weather={weatherContext}
+                advisories={schedule.advisories}
+                statusSource={schedule.statusSource}
               />
             </div>
 

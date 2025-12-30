@@ -1,6 +1,6 @@
 'use client';
 
-import type { Sailing, SailingStatus, ScheduleProvenance, ScheduleSourceType } from '@/lib/schedules';
+import type { Sailing, SailingStatus, ScheduleProvenance, ScheduleSourceType, OperatorAdvisory } from '@/lib/schedules';
 import { getSailingTimeStatus } from '@/lib/schedules';
 import type { OfficialStatus } from '@/types/forecast';
 import {
@@ -24,6 +24,14 @@ interface TodaySailingsProps {
   routeId?: string;
   /** Weather context for per-sailing risk computation */
   weather?: WeatherContext | null;
+  /** Phase 17: Operator advisories (verbatim) */
+  advisories?: OperatorAdvisory[] | null;
+  /** Phase 17: Status source info */
+  statusSource?: {
+    source: 'operator_status_page' | 'schedule_page' | 'unavailable';
+    url?: string;
+    fetchedAt?: string;
+  } | null;
 }
 
 /**
@@ -176,6 +184,16 @@ function AlertCircleIcon({ className }: { className?: string }) {
   );
 }
 
+function AlertTriangleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
 function WindIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -238,10 +256,16 @@ export function TodaySailings({
   routeDisplayName,
   routeId,
   weather,
+  advisories,
+  statusSource,
 }: TodaySailingsProps) {
+  // Phase 17: Check if we have per-sailing status from operator status page
+  const hasPerSailingStatus = statusSource?.source === 'operator_status_page';
+
   // Determine source type display
   const sourceType = provenance?.source_type || 'unavailable';
-  const hasOperatorStatus = !!(operatorStatus && operatorStatus !== 'unknown');
+  // Phase 17: hasOperatorStatus is true if we have status page OR route-level status
+  const hasOperatorStatus = hasPerSailingStatus || !!(operatorStatus && operatorStatus !== 'unknown');
   const sourceDisplay = getSourceTypeDisplay(sourceType, hasOperatorStatus);
 
   // Compute per-sailing risks if we have weather and sailings
@@ -375,6 +399,15 @@ export function TodaySailings({
           <span>Source: {provenance.source_name}</span>
           <span>-</span>
           <span>fetched at {formatFetchedAt(provenance.fetched_at)}</span>
+          {/* Phase 17: Show status source */}
+          {statusSource && statusSource.source === 'operator_status_page' && (
+            <>
+              <span>-</span>
+              <span className="text-success">
+                status from operator
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -387,6 +420,26 @@ export function TodaySailings({
           <p className="text-xs text-warning/80 mt-1">
             These times are approximate and may not reflect today&apos;s actual schedule.
           </p>
+        </div>
+      )}
+
+      {/* Phase 17: Operator Advisory Banner - verbatim from operator */}
+      {advisories && advisories.length > 0 && (
+        <div className="bg-warning-muted border border-warning/40 rounded-lg p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangleIcon className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              {advisories.map((advisory, index) => (
+                <div key={index} className={index > 0 ? 'mt-3 pt-3 border-t border-warning/20' : ''}>
+                  <p className="text-sm font-medium text-warning">{advisory.title}</p>
+                  <p className="text-sm text-warning-foreground mt-1">{advisory.text}</p>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground mt-2">
+                — {provenance?.source_name || 'Operator'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

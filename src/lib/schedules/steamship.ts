@@ -21,6 +21,7 @@ import type {
   SailingStatus,
   ScheduleFetchResult,
   ScheduleProvenance,
+  OperatorAdvisory,
 } from './types';
 import {
   parseTimeInTimezone,
@@ -28,10 +29,18 @@ import {
   getPortTimezone,
   DEFAULT_TIMEZONE,
 } from './time';
+import {
+  fetchSSAStatus,
+  matchSailingToStatus,
+  getAdvisoriesForRoute,
+  type SSAStatusResult,
+  type SSASailingStatus,
+} from './ssa-status';
 
-// SSA schedule page URLs
+// SSA page URLs
 const SSA_BASE_URL = 'https://www.steamshipauthority.com';
 const SSA_SCHEDULE_URL = `${SSA_BASE_URL}/schedules`;
+const SSA_STATUS_URL = `${SSA_BASE_URL}/traveling_today/status`;
 const REQUEST_TIMEOUT = 10000;
 
 // Debug mode from environment
@@ -377,8 +386,88 @@ function createSailingsFromKnownSchedule(
   return sailings;
 }
 
+// ============================================================
+// STATUS CACHING
+// ============================================================
+
+// Cache status results to avoid hammering SSA
+interface StatusCacheEntry {
+  result: SSAStatusResult;
+  expiresAt: number;
+}
+
+let statusCache: StatusCacheEntry | null = null;
+const STATUS_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+
+/**
+ * Get cached or fresh SSA status
+ */
+async function getSSAStatus(): Promise<SSAStatusResult> {
+  const now = Date.now();
+
+  // Return cached if valid
+  if (statusCache && statusCache.expiresAt > now) {
+    return statusCache.result;
+  }
+
+  // Fetch fresh status
+  const result = await fetchSSAStatus();
+
+  // Cache the result (even failures, to avoid hammering)
+  statusCache = {
+    result,
+    expiresAt: now + STATUS_CACHE_TTL_MS,
+  };
+
+  return result;
+}
+
+/**
+ * Apply operator status to sailings
+ *
+ * Phase 17: Precedence is strict:
+ * 1. Operator status page → authoritative
+ * 2. Schedule page → if no status match, keep "scheduled"
+ * 3. Weather risk → never changes status (applied later in UI)
+ */
+function applySailingStatuses(
+  sailings: Sailing[],
+  statusSailings: SSASailingStatus[]
+): Sailing[] {
+  if (statusSailings.length === 0) {
+    return sailings;
+  }
+
+  return sailings.map((sailing) => {
+    const statusMatch = matchSailingToStatus(
+      {
+        fromSlug: sailing.direction.fromSlug,
+        toSlug: sailing.direction.toSlug,
+        departureTimeDisplay: sailing.departureTimeDisplay,
+      },
+      statusSailings
+    );
+
+    if (statusMatch) {
+      return {
+        ...sailing,
+        status: statusMatch.status,
+        statusMessage: statusMatch.statusMessage,
+        statusFromOperator: true,
+      };
+    }
+
+    return sailing;
+  });
+}
+
 /**
  * Fetch SSA schedule for a route
+ *
+ * Phase 17: Now fetches both schedule and status, merging with correct precedence:
+ * 1. Get schedule (times from /schedules or template)
+ * 2. Get status (per-sailing status from /traveling_today/status)
+ * 3. Merge: status overrides schedule defaults
  *
  * Returns source_type: "operator_live" if successfully parsed from website
  * Returns source_type: "template" if using known schedule data
@@ -397,6 +486,78 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
 
   const timezone = getPortTimezone(route.from);
   const serviceDateLocal = getTodayInTimezone(timezone);
+
+  // Fetch schedule and status in parallel
+  const [scheduleResult, statusResult] = await Promise.all([
+    fetchScheduleData(routeId, route, direction, serviceDateLocal, timezone),
+    getSSAStatus(),
+  ]);
+
+  // Start with schedule result
+  let result = scheduleResult;
+
+  // Apply status from operator status page
+  if (statusResult.success && statusResult.sailings.length > 0) {
+    const updatedSailings = applySailingStatuses(result.sailings, statusResult.sailings);
+
+    // Get advisories for this route
+    const advisories = getAdvisoriesForRoute(routeId, statusResult.advisories);
+    const operatorAdvisories: OperatorAdvisory[] = advisories.map((adv) => ({
+      title: adv.title,
+      text: adv.text,
+      fetchedAt: statusResult.fetchedAt,
+    }));
+
+    result = {
+      ...result,
+      sailings: updatedSailings,
+      advisories: operatorAdvisories.length > 0 ? operatorAdvisories : undefined,
+      statusSource: {
+        source: 'operator_status_page',
+        url: SSA_STATUS_URL,
+        fetchedAt: statusResult.fetchedAt,
+      },
+    };
+
+    // Update provenance to indicate status is supported
+    result.provenance = {
+      ...result.provenance,
+      raw_status_supported: true,
+    };
+
+    if (SCHEDULE_DEBUG) {
+      const canceledCount = updatedSailings.filter((s) => s.status === 'canceled').length;
+      const onTimeCount = updatedSailings.filter((s) => s.status === 'on_time').length;
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: applied status - ${canceledCount} canceled, ${onTimeCount} on_time, ${advisories.length} advisories`);
+    }
+  } else {
+    // Status not available
+    result = {
+      ...result,
+      statusSource: {
+        source: 'unavailable',
+        fetchedAt: statusResult.fetchedAt,
+      },
+    };
+
+    if (SCHEDULE_DEBUG && statusResult.errorMessage) {
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: status unavailable - ${statusResult.errorMessage}`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fetch schedule data (without status)
+ */
+async function fetchScheduleData(
+  routeId: string,
+  route: SSARouteInfo,
+  direction: SailingDirection,
+  serviceDateLocal: string,
+  timezone: string
+): Promise<ScheduleFetchResult> {
   const startTime = Date.now();
   let htmlSize = 0;
 
