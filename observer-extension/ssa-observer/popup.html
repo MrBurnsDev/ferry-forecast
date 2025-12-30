@@ -13,7 +13,7 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      width: 320px;
+      width: 340px;
       padding: 16px;
       background: #0f172a;
       color: #e2e8f0;
@@ -22,7 +22,7 @@
     h1 {
       font-size: 16px;
       font-weight: 600;
-      margin-bottom: 12px;
+      margin-bottom: 4px;
       color: #38bdf8;
       display: flex;
       align-items: center;
@@ -36,6 +36,12 @@
       height: 8px;
       background: #38bdf8;
       border-radius: 50%;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 16px;
     }
 
     .section {
@@ -73,8 +79,7 @@
       font-size: 13px;
     }
 
-    input[type="password"]:focus,
-    input[type="text"]:focus {
+    input:focus {
       outline: none;
       border-color: #38bdf8;
     }
@@ -149,7 +154,7 @@
       color: #f87171;
     }
 
-    .status-value.pending {
+    .status-value.skipped {
       color: #fbbf24;
     }
 
@@ -198,47 +203,113 @@
       to { transform: rotate(360deg); }
     }
 
-    .row-count {
+    .auto-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 11px;
       color: #64748b;
-      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+
+    .auto-status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4ade80;
+    }
+
+    .auto-status .dot.inactive {
+      background: #64748b;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .stat {
+      text-align: center;
+      padding: 8px;
+      background: #1e293b;
+      border-radius: 6px;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: #64748b;
+      text-transform: uppercase;
     }
   </style>
 </head>
 <body>
   <h1>SSA Observer</h1>
+  <p class="subtitle">Automatic status polling every 30 minutes</p>
 
   <div class="section">
-    <div class="section-title">API Configuration</div>
-    <div class="input-group">
-      <label for="apiKey">STATUS_UPDATE_KEY</label>
-      <input type="password" id="apiKey" placeholder="Enter your API key">
+    <div class="auto-status">
+      <span class="dot" id="autoDot"></span>
+      <span id="autoStatus">Auto-polling active</span>
     </div>
-    <button class="secondary" id="saveKeyBtn">Save Key</button>
   </div>
 
   <div class="section">
-    <div class="section-title">Actions</div>
+    <div class="section-title">Configuration</div>
+    <div class="input-group">
+      <label for="observerSecret">OBSERVER_SECRET</label>
+      <input type="password" id="observerSecret" placeholder="Enter observer secret">
+    </div>
+    <button class="secondary" id="saveSecretBtn">Save Secret</button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Manual Override</div>
     <button class="primary" id="sendBtn">
       Send SSA Status Now
     </button>
-    <div id="rowCount" class="row-count hidden"></div>
   </div>
 
   <div class="section">
     <div class="section-title">Last Result</div>
     <div class="status-box">
       <div class="status-row">
-        <span class="status-label">Last sent:</span>
-        <span class="status-value" id="lastSent">Never</span>
+        <span class="status-label">Last poll:</span>
+        <span class="status-value" id="lastPoll">Never</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Trigger:</span>
+        <span class="status-value" id="lastTrigger">—</span>
       </div>
       <div class="status-row">
         <span class="status-label">Status:</span>
         <span class="status-value" id="lastStatus">—</span>
       </div>
       <div class="status-row">
-        <span class="status-label">Rows sent:</span>
-        <span class="status-value" id="lastRowCount">—</span>
+        <span class="status-label">Sailings:</span>
+        <span class="status-value" id="lastCount">—</span>
+      </div>
+    </div>
+
+    <div class="stats" id="statusCounts">
+      <div class="stat">
+        <div class="stat-value" id="countOnTime">—</div>
+        <div class="stat-label">On Time</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="countCanceled">—</div>
+        <div class="stat-label">Canceled</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="countDelayed">—</div>
+        <div class="stat-label">Delayed</div>
       </div>
     </div>
   </div>
