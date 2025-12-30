@@ -35,6 +35,10 @@ import {
   matchSailingToStatus,
   type SSAStatusResult,
 } from './ssa-status';
+import {
+  getCachedStatus,
+  getStatusForSailing,
+} from './status-cache';
 
 // SSA page URLs
 const SSA_BASE_URL = 'https://www.steamshipauthority.com';
@@ -363,10 +367,66 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
   }
 
   // LAYER 1: Fetch status overlay (sparse delta)
+  // First try automated scraping, then fall back to manual cache
   const statusResult = await getSSAStatus();
+  const manualCache = getCachedStatus();
 
-  // If status fetch failed, return template with no status overlay
+  // If automated fetch failed, check for manual cache
   if (!statusResult.success || statusResult.sailings.length === 0) {
+    if (manualCache && manualCache.sailings.length > 0) {
+      // Use manual cache - apply to template sailings
+      if (SCHEDULE_DEBUG) {
+        console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: using manual status cache (${manualCache.sailings.length} sailings)`);
+      }
+
+      const sailingsWithManualStatus = templateSailings.map((sailing) => {
+        const cachedStatus = getStatusForSailing(
+          sailing.direction.fromSlug,
+          sailing.direction.toSlug,
+          sailing.departureTimeDisplay
+        );
+
+        if (cachedStatus) {
+          return {
+            ...sailing,
+            status: cachedStatus.status,
+            statusMessage: cachedStatus.statusMessage,
+            statusFromOperator: true, // Manual input counts as operator status
+          };
+        }
+
+        return sailing;
+      });
+
+      if (SCHEDULE_DEBUG) {
+        const matchedCount = sailingsWithManualStatus.filter(s => s.statusFromOperator).length;
+        console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: ${matchedCount} sailings matched from manual cache`);
+      }
+
+      return {
+        success: true,
+        sailings: sailingsWithManualStatus,
+        provenance: {
+          source_type: 'operator_live', // Manual cache is treated as live
+          source_name: route.operatorName,
+          fetched_at: manualCache.updatedAt,
+          source_url: SSA_STATUS_URL,
+          parse_confidence: 'high', // Manual input is trusted
+          raw_status_supported: true,
+        },
+        scheduleDate: serviceDateLocal,
+        timezone,
+        operator: route.operatorName,
+        operatorScheduleUrl: SSA_STATUS_URL,
+        statusSource: {
+          source: 'operator_status_page',
+          url: SSA_STATUS_URL,
+          fetchedAt: manualCache.updatedAt,
+        },
+      };
+    }
+
+    // No manual cache either - return template only
     if (SCHEDULE_DEBUG) {
       console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: status unavailable (${statusResult.errorMessage}), using template only`);
     }

@@ -392,6 +392,10 @@ function parseAdvisories(html: string): SSAAdvisory[] {
  *
  * PHASE 22: This is THE authoritative source for today's sailings.
  * The status page defines what sailings exist, not a template.
+ *
+ * Queue-IT bypass: SSA uses Queue-IT to rate limit access. We need a valid
+ * QueueIT cookie to access the status page. This can be set via SSA_QUEUEIT_COOKIE
+ * environment variable.
  */
 export async function fetchSSAStatus(): Promise<SSAStatusResult> {
   const fetchedAt = new Date().toISOString();
@@ -400,20 +404,31 @@ export async function fetchSSAStatus(): Promise<SSAStatusResult> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
+    // Build headers with Queue-IT bypass cookie if available
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+    };
+
+    // Add Queue-IT cookie if available from environment
+    // Format: QueueITAccepted-SDFrts345E-V3_tfhs=<value>
+    const queueitCookie = process.env.SSA_QUEUEIT_COOKIE;
+    if (queueitCookie) {
+      headers['Cookie'] = `QueueITAccepted-SDFrts345E-V3_tfhs=${queueitCookie}`;
+      if (STATUS_DEBUG) {
+        console.log('[STATUS_DEBUG] Using Queue-IT cookie from environment');
+      }
+    }
+
     // Use fetch with redirect following and proper headers
-    // Key: Send accept-encoding and other headers that browsers send
     const response = await fetch(SSA_STATUS_URL, {
       method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-      },
+      headers,
       redirect: 'follow',
       signal: controller.signal,
     });
