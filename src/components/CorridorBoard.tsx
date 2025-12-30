@@ -68,9 +68,62 @@ function CloudIcon({ className }: { className?: string }) {
   );
 }
 
+function WindIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
+    </svg>
+  );
+}
+
 // ============================================================
 // HELPERS
 // ============================================================
+
+/**
+ * Get risk display properties
+ */
+function getRiskDisplay(sailing: TerminalBoardSailing): {
+  text: string;
+  className: string;
+  explanation: string | null;
+  show: boolean;
+} {
+  const risk = sailing.forecast_risk;
+  if (!risk) {
+    return { text: '', className: '', explanation: null, show: false };
+  }
+
+  const explanation = risk.explanation && risk.explanation.length > 0
+    ? risk.explanation[0]
+    : null;
+
+  switch (risk.level) {
+    case 'low':
+      return {
+        text: 'Low Risk',
+        className: 'bg-success-muted/50 text-success border-success/30',
+        explanation,
+        show: true,
+      };
+    case 'moderate':
+      return {
+        text: 'Moderate',
+        className: 'bg-warning-muted/50 text-warning border-warning/30',
+        explanation,
+        show: true,
+      };
+    case 'elevated':
+      return {
+        text: 'Elevated',
+        className: 'bg-accent-muted/50 text-accent border-accent/30',
+        explanation,
+        show: true,
+      };
+    default:
+      return { text: '', className: '', explanation: null, show: false };
+  }
+}
 
 /**
  * Get status display for a sailing
@@ -230,6 +283,7 @@ function AdvisoryBanner({ advisories }: { advisories: BoardAdvisory[] }) {
 function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const timeStatus = getTimeStatus(sailing);
   const statusDisplay = getStatusDisplay(sailing);
+  const riskDisplay = getRiskDisplay(sailing);
   const isDeparted = timeStatus === 'departed';
   const isCanceled = sailing.operator_status === 'canceled';
 
@@ -246,55 +300,70 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const routeId = getRouteIdForSailing(sailing);
 
   return (
-    <div className={`flex items-center gap-4 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors ${rowOpacity}`}>
-      {/* Time */}
-      <div className="w-20 flex-shrink-0">
-        <span className={`text-lg ${timeClass}`}>
-          {sailing.scheduled_departure_local}
-        </span>
+    <div className={`flex flex-col gap-2 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors ${rowOpacity}`}>
+      {/* Main row */}
+      <div className="flex items-center gap-4">
+        {/* Time */}
+        <div className="w-20 flex-shrink-0">
+          <span className={`text-lg ${timeClass}`}>
+            {sailing.scheduled_departure_local}
+          </span>
+        </div>
+
+        {/* Direction */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="text-muted-foreground truncate">
+            {sailing.origin_terminal.name}
+          </span>
+          <ArrowRightIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <span className="font-medium text-foreground truncate">
+            {sailing.destination_terminal.name}
+          </span>
+        </div>
+
+        {/* Status badge (operator confirmed) */}
+        {statusDisplay.show && (
+          <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
+            {statusDisplay.text}
+          </span>
+        )}
+
+        {/* Risk badge (weather-based) */}
+        {riskDisplay.show && !isCanceled && (
+          <span
+            className={`px-2 py-0.5 text-xs font-medium rounded border flex items-center gap-1 ${riskDisplay.className}`}
+            title={riskDisplay.explanation || undefined}
+          >
+            <WindIcon className="w-3 h-3" />
+            {riskDisplay.text}
+          </span>
+        )}
+
+        {/* Time status indicator */}
+        {isDeparted && !isCanceled && (
+          <span className="text-xs text-muted-foreground">Departed</span>
+        )}
+        {timeStatus === 'departing_soon' && !isCanceled && !isDeparted && (
+          <span className="text-xs text-accent font-medium">Boarding soon</span>
+        )}
+
+        {/* Weather context link */}
+        <Link
+          href={`/routes/${routeId}`}
+          className="text-muted-foreground hover:text-accent transition-colors"
+          title="View weather context"
+        >
+          <CloudIcon className="w-4 h-4" />
+        </Link>
       </div>
 
-      {/* Direction */}
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className="text-muted-foreground truncate">
-          {sailing.origin_terminal.name}
-        </span>
-        <ArrowRightIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-        <span className="font-medium text-foreground truncate">
-          {sailing.destination_terminal.name}
-        </span>
-      </div>
-
-      {/* Status badge (only if operator confirmed) */}
-      {statusDisplay.show && (
-        <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
-          {statusDisplay.text}
-        </span>
+      {/* Risk explanation row (if moderate or elevated) */}
+      {riskDisplay.show && riskDisplay.explanation && riskDisplay.text !== 'Low Risk' && !isCanceled && (
+        <div className="ml-24 text-xs text-muted-foreground flex items-center gap-1">
+          <WindIcon className="w-3 h-3" />
+          <span>{riskDisplay.explanation}</span>
+        </div>
       )}
-
-      {/* Status indicator for non-operator status */}
-      {!statusDisplay.show && sailing.status_overlay_applied === false && (
-        <span className="px-2 py-0.5 text-xs text-muted-foreground bg-secondary/50 rounded">
-          Scheduled
-        </span>
-      )}
-
-      {/* Time status indicator */}
-      {isDeparted && !isCanceled && (
-        <span className="text-xs text-muted-foreground">Departed</span>
-      )}
-      {timeStatus === 'departing_soon' && !isCanceled && !isDeparted && (
-        <span className="text-xs text-accent font-medium">Boarding soon</span>
-      )}
-
-      {/* Weather context link */}
-      <Link
-        href={`/routes/${routeId}`}
-        className="text-muted-foreground hover:text-accent transition-colors"
-        title="View weather context"
-      >
-        <CloudIcon className="w-4 h-4" />
-      </Link>
     </div>
   );
 }

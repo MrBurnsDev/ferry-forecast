@@ -2,17 +2,20 @@
  * Corridor Board API Endpoint
  *
  * Phase 21: Service Corridor Architecture
+ * Phase 22: Add weather context for risk scoring
  *
  * GET /api/corridor/[corridorId]
  *
  * Returns a DailyCorridorBoard with all sailings in both directions,
- * interleaved and ordered by time.
+ * interleaved and ordered by time, with per-sailing risk scores.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
-import { isValidCorridor } from '@/lib/config/corridors';
+import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
+import { fetchCurrentWeather } from '@/lib/weather/noaa';
 import type { CorridorBoardResponse } from '@/types/corridor';
+import type { WeatherContext } from '@/lib/scoring/sailing-risk';
 
 export async function GET(
   request: NextRequest,
@@ -33,9 +36,28 @@ export async function GET(
   }
 
   try {
-    // Generate corridor board
-    // Weather context could be passed here in future
-    const board = await getDailyCorridorBoard(corridorId);
+    // Phase 22: Fetch weather for risk scoring
+    const corridor = getCorridorById(corridorId);
+    let weather: WeatherContext | null = null;
+
+    if (corridor) {
+      try {
+        // Use the first terminal for weather (close enough for same corridor)
+        const weatherSnapshot = await fetchCurrentWeather(corridor.terminal_a);
+        weather = {
+          windSpeed: weatherSnapshot.wind_speed,
+          windGusts: weatherSnapshot.wind_gusts,
+          windDirection: weatherSnapshot.wind_direction,
+          advisoryLevel: weatherSnapshot.advisory_level,
+        };
+      } catch (weatherError) {
+        // Weather fetch failed - continue without risk scores
+        console.warn(`Weather fetch failed for corridor ${corridorId}:`, weatherError);
+      }
+    }
+
+    // Generate corridor board with weather context
+    const board = await getDailyCorridorBoard(corridorId, weather);
 
     if (!board) {
       return NextResponse.json(
