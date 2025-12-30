@@ -102,14 +102,15 @@ export function getOperatorById(operatorId: string): BoardOperator | null {
 /**
  * Get operators serving a terminal
  *
- * Computed from routes - any operator with a route originating from this terminal.
+ * Computed from routes - any operator with a route involving this terminal
+ * (either departing from or arriving at).
  */
 export function getOperatorsForTerminal(terminalId: string): BoardOperator[] {
-  // Find all operators that have routes departing from this terminal
+  // Find all operators that have routes involving this terminal
   const operatorIds = new Set<string>();
 
   for (const route of ROUTES) {
-    if (route.origin_port === terminalId && route.active) {
+    if ((route.origin_port === terminalId || route.destination_port === terminalId) && route.active) {
       operatorIds.add(route.operator);
     }
   }
@@ -142,6 +143,35 @@ export function getDestinationsFromTerminal(terminalId: string): Terminal[] {
 export function getRoutesFromTerminal(terminalId: string): string[] {
   return ROUTES
     .filter((r) => r.origin_port === terminalId && r.active)
+    .map((r) => r.route_id);
+}
+
+/**
+ * Get ALL routes involving a terminal (departures AND arrivals)
+ *
+ * For a terminal board that mirrors SSA's "Traveling Today" page,
+ * we need both directions - sailings departing FROM and arriving TO.
+ */
+export function getAllRoutesForTerminal(terminalId: string): string[] {
+  return ROUTES
+    .filter((r) => (r.origin_port === terminalId || r.destination_port === terminalId) && r.active)
+    .map((r) => r.route_id);
+}
+
+/**
+ * Get ALL routes involving a terminal for a specific operator
+ */
+export function getAllRoutesForTerminalByOperator(
+  terminalId: string,
+  operatorId: string
+): string[] {
+  return ROUTES
+    .filter(
+      (r) =>
+        (r.origin_port === terminalId || r.destination_port === terminalId) &&
+        r.operator === operatorId &&
+        r.active
+    )
     .map((r) => r.route_id);
 }
 

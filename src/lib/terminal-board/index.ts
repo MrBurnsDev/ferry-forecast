@@ -25,7 +25,7 @@ import type {
 import {
   getTerminalById,
   getOperatorsForTerminal,
-  getRoutesFromTerminalByOperator,
+  getAllRoutesForTerminalByOperator,
 } from '@/lib/config/terminals';
 import { getTodaySchedule } from '@/lib/schedules';
 import type { Sailing, ScheduleFetchResult } from '@/lib/schedules/types';
@@ -70,8 +70,9 @@ export async function getDailyTerminalBoard(
   let hasAnyStatusOverlay = false;
 
   // Fetch schedules for each operator serving this terminal
+  // Use ALL routes involving this terminal (departures AND arrivals)
   for (const operator of operators) {
-    const routeIds = getRoutesFromTerminalByOperator(terminalId, operator.id);
+    const routeIds = getAllRoutesForTerminalByOperator(terminalId, operator.id);
 
     for (const routeId of routeIds) {
       const scheduleResult = await getTodaySchedule(routeId);
