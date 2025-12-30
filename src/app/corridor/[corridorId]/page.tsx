@@ -46,8 +46,16 @@ function FerryIcon({ className }: { className?: string }) {
   );
 }
 
+interface WeatherContext {
+  wind_speed: number;
+  wind_gusts: number;
+  wind_direction: number;
+  advisory_level: string;
+}
+
 interface BoardState {
   data: DailyCorridorBoard | null;
+  weatherContext: WeatherContext | null;
   loading: boolean;
   error: string | null;
 }
@@ -58,6 +66,7 @@ export default function CorridorPage() {
 
   const [board, setBoard] = useState<BoardState>({
     data: null,
+    weatherContext: null,
     loading: true,
     error: null,
   });
@@ -71,6 +80,7 @@ export default function CorridorPage() {
         if (!response.ok || !result.success) {
           setBoard({
             data: null,
+            weatherContext: null,
             loading: false,
             error: result.error || `Error: ${response.status}`,
           });
@@ -79,12 +89,14 @@ export default function CorridorPage() {
 
         setBoard({
           data: result.board,
+          weatherContext: result.weather_context || null,
           loading: false,
           error: null,
         });
       } catch (err) {
         setBoard({
           data: null,
+          weatherContext: null,
           loading: false,
           error: err instanceof Error ? err.message : 'Failed to fetch corridor board',
         });
@@ -161,6 +173,7 @@ export default function CorridorPage() {
           <div className="max-w-3xl mx-auto">
             <CorridorBoard
               board={board.data}
+              weatherContext={board.weatherContext}
               loading={board.loading}
               error={board.error || undefined}
             />

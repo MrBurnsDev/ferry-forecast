@@ -4,8 +4,16 @@ import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
 import Link from 'next/link';
 
+interface WeatherContext {
+  wind_speed: number;
+  wind_gusts: number;
+  wind_direction: number;
+  advisory_level: string;
+}
+
 interface CorridorBoardProps {
   board: DailyCorridorBoard | null;
+  weatherContext?: WeatherContext | null;
   loading?: boolean;
   error?: string;
 }
@@ -192,6 +200,37 @@ function formatFetchedAt(isoString: string): string {
 }
 
 /**
+ * Convert wind direction degrees to cardinal direction
+ */
+function getWindCardinal(degrees: number): string {
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const index = Math.round(degrees / 22.5) % 16;
+  return directions[index];
+}
+
+/**
+ * Get exposure context for this corridor
+ */
+function getExposureExplanation(windDir: number, windSpeed: number): string {
+  const cardinal = getWindCardinal(windDir);
+  const isExposed = ['S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'].includes(cardinal);
+
+  if (windSpeed < 15) {
+    return 'Light winds - typical conditions for this crossing.';
+  } else if (windSpeed < 25) {
+    if (isExposed) {
+      return `${cardinal} winds at ${windSpeed} kt may cause moderate chop. This crossing is exposed to southwest through northwest winds.`;
+    }
+    return `${cardinal} winds at ${windSpeed} kt - conditions are manageable for this protected crossing.`;
+  } else {
+    if (isExposed) {
+      return `Strong ${cardinal} winds at ${windSpeed} kt. This crossing is exposed to these conditions. Watch for delays or cancellations.`;
+    }
+    return `${cardinal} winds at ${windSpeed} kt. While this crossing has some protection, expect rougher conditions.`;
+  }
+}
+
+/**
  * Get route ID for weather context link
  */
 function getRouteIdForSailing(sailing: TerminalBoardSailing): string {
@@ -273,6 +312,101 @@ function AdvisoryBanner({ advisories }: { advisories: BoardAdvisory[] }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Weather Context Panel
+ */
+function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
+  const cardinal = getWindCardinal(weather.wind_direction);
+  const exposureExplanation = getExposureExplanation(weather.wind_direction, weather.wind_speed);
+
+  const advisoryColor = weather.advisory_level === 'warning'
+    ? 'text-destructive'
+    : weather.advisory_level === 'watch'
+      ? 'text-warning'
+      : 'text-muted-foreground';
+
+  const advisoryText = weather.advisory_level === 'warning'
+    ? 'Weather Warning Active'
+    : weather.advisory_level === 'watch'
+      ? 'Weather Watch Active'
+      : 'No Active Advisories';
+
+  return (
+    <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <WindIcon className="w-5 h-5 text-accent" />
+        <h3 className="font-semibold text-foreground">Weather &amp; Conditions</h3>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+        {/* Wind Speed */}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Wind</p>
+          <p className="text-lg font-semibold text-foreground">{weather.wind_speed} kt</p>
+        </div>
+
+        {/* Gusts */}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Gusts</p>
+          <p className="text-lg font-semibold text-foreground">
+            {weather.wind_gusts > weather.wind_speed ? `${weather.wind_gusts} kt` : '—'}
+          </p>
+        </div>
+
+        {/* Direction */}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Direction</p>
+          <p className="text-lg font-semibold text-foreground">{cardinal} ({weather.wind_direction}°)</p>
+        </div>
+
+        {/* Advisory */}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Advisory</p>
+          <p className={`text-sm font-medium ${advisoryColor}`}>{advisoryText}</p>
+        </div>
+      </div>
+
+      {/* Exposure explanation */}
+      <p className="text-sm text-muted-foreground">{exposureExplanation}</p>
+    </div>
+  );
+}
+
+/**
+ * Status Unavailable Banner
+ */
+function StatusUnavailableBanner() {
+  return (
+    <div className="bg-accent-muted/30 border border-accent/30 rounded-lg p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <AlertIcon className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-foreground">Live operator status unavailable</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Earlier cancellations may not be reflected. Check the official SSA site for current service updates.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cancellation Summary
+ */
+function CancellationSummary({ canceledCount }: { canceledCount: number }) {
+  if (canceledCount === 0) return null;
+
+  return (
+    <div className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
+      <AlertIcon className="w-4 h-4 text-destructive" />
+      <span>
+        {canceledCount} sailing{canceledCount !== 1 ? 's' : ''} canceled earlier today
+      </span>
     </div>
   );
 }
@@ -372,7 +506,7 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
 // MAIN COMPONENT
 // ============================================================
 
-export function CorridorBoard({ board, loading, error }: CorridorBoardProps) {
+export function CorridorBoard({ board, weatherContext, loading, error }: CorridorBoardProps) {
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -394,6 +528,9 @@ export function CorridorBoard({ board, loading, error }: CorridorBoardProps) {
   // Split into upcoming and departed
   const upcomingSailings = sailings.filter((s) => getTimeStatus(s) !== 'departed');
   const departedSailings = sailings.filter((s) => getTimeStatus(s) === 'departed');
+
+  // Count canceled sailings
+  const canceledCount = sailings.filter((s) => s.operator_status === 'canceled').length;
 
   // Provenance display
   const hasLiveStatus = provenance.status_overlay_available;
@@ -441,8 +578,17 @@ export function CorridorBoard({ board, loading, error }: CorridorBoardProps) {
         </p>
       </div>
 
+      {/* Weather Context Panel */}
+      {weatherContext && <WeatherContextPanel weather={weatherContext} />}
+
+      {/* Status Unavailable Banner (when no live status) */}
+      {!hasLiveStatus && <StatusUnavailableBanner />}
+
       {/* Advisories */}
       <AdvisoryBanner advisories={advisories} />
+
+      {/* Cancellation Summary */}
+      <CancellationSummary canceledCount={canceledCount} />
 
       {/* Upcoming sailings */}
       {upcomingSailings.length > 0 ? (
