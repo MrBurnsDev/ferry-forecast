@@ -1,11 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * Terminal Discovery Page
+ *
+ * Phase 21: Service Corridor Architecture
+ *
+ * This page is now a DISCOVERY page that helps users find the right corridor.
+ * The actual operational view (all sailings) is on the Corridor Board.
+ *
+ * Flow: Home → Terminal → Corridor Board
+ */
+
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { TerminalBoard } from '@/components/TerminalBoard';
-import { getTerminalById, getDestinationsFromTerminal } from '@/lib/config/terminals';
-import type { DailyTerminalBoard, TerminalBoardResponse } from '@/types/terminal-board';
+import { getTerminalById } from '@/lib/config/terminals';
+import { getCorridorSummariesForTerminal } from '@/lib/config/corridors';
 
 // ============================================================
 // ICONS
@@ -29,11 +38,10 @@ function ArrowLeftIcon({ className }: { className?: string }) {
   );
 }
 
-function InfoIcon({ className }: { className?: string }) {
+function ArrowRightIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 16v-4M12 8h.01" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
     </svg>
   );
 }
@@ -47,14 +55,15 @@ function MapPinIcon({ className }: { className?: string }) {
   );
 }
 
-// ============================================================
-// STATE INTERFACE
-// ============================================================
-
-interface BoardState {
-  board: DailyTerminalBoard | null;
-  loading: boolean;
-  error: string | null;
+function FerryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M2 21l.5-2A2 2 0 0 1 4.4 17.5h15.2a2 2 0 0 1 1.9 1.5l.5 2" />
+      <path d="M4 17V11a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6" />
+      <path d="M6 9V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" />
+      <path d="M9 9V7h6v2" />
+    </svg>
+  );
 }
 
 // ============================================================
@@ -65,45 +74,6 @@ export default function TerminalPage() {
   const params = useParams();
   const terminalId = params.terminalId as string;
   const terminal = getTerminalById(terminalId);
-
-  const [boardState, setBoardState] = useState<BoardState>({
-    board: null,
-    loading: true,
-    error: null,
-  });
-
-  // Fetch terminal board data
-  useEffect(() => {
-    async function fetchBoard() {
-      try {
-        const response = await fetch(`/api/terminal/${terminalId}`);
-        const data: TerminalBoardResponse = await response.json();
-
-        if (!response.ok || !data.success) {
-          setBoardState({
-            board: null,
-            loading: false,
-            error: data.error || `Error: ${response.status}`,
-          });
-          return;
-        }
-
-        setBoardState({
-          board: data.board,
-          loading: false,
-          error: null,
-        });
-      } catch (err) {
-        setBoardState({
-          board: null,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Failed to fetch terminal board',
-        });
-      }
-    }
-
-    fetchBoard();
-  }, [terminalId]);
 
   // Terminal not found
   if (!terminal) {
@@ -127,8 +97,8 @@ export default function TerminalPage() {
     );
   }
 
-  // Get destinations for quick links
-  const destinations = getDestinationsFromTerminal(terminalId);
+  // Get corridors from this terminal
+  const corridorSummaries = getCorridorSummariesForTerminal(terminalId);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -174,7 +144,7 @@ export default function TerminalPage() {
               </h1>
             </div>
             <p className="text-muted-foreground text-lg">
-              Departures for today &middot; {boardState.board?.service_date_local || 'Loading...'}
+              Select your destination to view today&apos;s sailings
             </p>
           </div>
         </div>
@@ -183,101 +153,67 @@ export default function TerminalPage() {
       {/* Main Content */}
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
-          {/* Trust Statement */}
-          <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-8 flex items-start gap-3">
-            <InfoIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-muted-foreground">
-              This terminal board mirrors the operator&apos;s official schedule. Status updates come directly from the operator when available. Always verify before traveling.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Board */}
-            <div className="lg:col-span-2">
-              <TerminalBoard
-                board={boardState.board}
-                loading={boardState.loading}
-                error={boardState.error || undefined}
-              />
-            </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Destinations Card */}
-              <div className="card-maritime p-6">
-                <h3 className="text-lg font-semibold text-foreground mb-4">
-                  Destinations from {terminal.name}
-                </h3>
-                <div className="space-y-2">
-                  {destinations.map((dest) => (
-                    <Link
-                      key={dest.id}
-                      href={`/terminal/${dest.id}`}
-                      className="block p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                    >
-                      <span className="text-foreground font-medium">{dest.name}</span>
-                      <span className="text-muted-foreground text-sm ml-2">→ View board</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-
-              {/* Operators Card */}
-              {boardState.board?.operators && boardState.board.operators.length > 0 && (
-                <div className="card-maritime p-6">
-                  <h3 className="text-lg font-semibold text-foreground mb-4">
-                    Operators
-                  </h3>
-                  <div className="space-y-2">
-                    {boardState.board.operators.map((op) => (
-                      <div key={op.id} className="text-sm">
-                        <span className="text-foreground">{op.name}</span>
-                        {op.status_url && (
-                          <a
-                            href={op.status_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block text-accent hover:underline text-xs mt-1"
-                          >
-                            Official status page →
-                          </a>
-                        )}
+          <div className="max-w-2xl mx-auto">
+            {/* Corridor Selection */}
+            <div className="card-maritime p-6 mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-6">
+                Where are you going?
+              </h2>
+              <div className="space-y-4">
+                {corridorSummaries.map((corridor) => (
+                  <Link
+                    key={corridor.id}
+                    href={`/corridor/${corridor.id}`}
+                    className="group flex items-center justify-between p-5 rounded-xl bg-secondary/30 hover:bg-secondary/50 border border-transparent hover:border-accent/30 transition-all"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors">
+                        <FerryIcon className="w-6 h-6 text-accent" />
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* All Terminals Quick Links */}
-              <div className="card-maritime p-6">
-                <h3 className="text-lg font-semibold text-foreground mb-4">
-                  Other Terminals
-                </h3>
-                <div className="space-y-2">
-                  {['woods-hole', 'vineyard-haven', 'oak-bluffs', 'hyannis', 'nantucket']
-                    .filter((id) => id !== terminalId)
-                    .map((id) => {
-                      const t = getTerminalById(id);
-                      return t ? (
-                        <Link
-                          key={id}
-                          href={`/terminal/${id}`}
-                          className="block p-2 rounded text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/30 transition-colors"
-                        >
-                          {t.name}
-                        </Link>
-                      ) : null;
-                    })}
-                </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-foreground group-hover:text-accent transition-colors">
+                          {corridor.other_terminal.name}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {corridor.operators.map((op) => op.name).join(', ')}
+                        </p>
+                      </div>
+                    </div>
+                    <ArrowRightIcon className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
+                  </Link>
+                ))}
               </div>
             </div>
-          </div>
 
-          {/* Disclaimer */}
-          <div className="mt-8 bg-warning-muted border border-warning/30 rounded-xl p-6">
-            <p className="text-sm text-warning-foreground leading-relaxed">
-              <strong>Important:</strong> This terminal board displays scheduled departures with operator status when available. Weather conditions may affect service independently. Always verify with the ferry operator before traveling.
-            </p>
+            {/* Explanation */}
+            <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-8">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                <strong className="text-foreground">How it works:</strong> Select your destination to see all sailings in both directions between {terminal.name} and that destination. This includes departures and arrivals, ordered by time.
+              </p>
+            </div>
+
+            {/* Other Terminals */}
+            <div className="card-maritime p-6">
+              <h3 className="text-lg font-semibold text-foreground mb-4">
+                Other Terminals
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                {['woods-hole', 'vineyard-haven', 'oak-bluffs', 'hyannis', 'nantucket']
+                  .filter((id) => id !== terminalId)
+                  .map((id) => {
+                    const t = getTerminalById(id);
+                    return t ? (
+                      <Link
+                        key={id}
+                        href={`/terminal/${id}`}
+                        className="p-3 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors text-center"
+                      >
+                        {t.name}
+                      </Link>
+                    ) : null;
+                  })}
+              </div>
+            </div>
           </div>
         </div>
       </main>
@@ -291,7 +227,7 @@ export default function TerminalPage() {
               <span className="font-semibold text-foreground">Ferry Forecast</span>
             </div>
             <p className="text-sm text-muted-foreground text-center">
-              Not affiliated with any ferry operator. Data: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS Tides
+              Not affiliated with any ferry operator. Schedule data from operator websites.
             </p>
           </div>
         </div>
