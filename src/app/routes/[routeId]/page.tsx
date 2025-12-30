@@ -108,8 +108,16 @@ export default function RoutePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* Skip to main content link for keyboard users */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-lg"
+      >
+        Skip to main content
+      </a>
+
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50" aria-label="Main navigation">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-20">
             <Link href="/" className="flex items-center gap-2">
@@ -146,7 +154,7 @@ export default function RoutePage() {
       </section>
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
           {/* Error State */}
           {forecast.error && !forecast.loading && (
@@ -270,11 +278,11 @@ export default function RoutePage() {
       </main>
 
       {/* Footer */}
-      <footer className="py-8 lg:py-12 bg-secondary border-t border-border/50">
+      <footer className="py-8 lg:py-12 bg-secondary border-t border-border/50" role="contentinfo">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <WavesIcon className="w-6 h-6 text-accent" />
+              <WavesIcon className="w-6 h-6 text-accent" aria-hidden="true" />
               <span className="font-semibold text-foreground">Ferry Forecast</span>
             </div>
             <p className="text-sm text-muted-foreground text-center">

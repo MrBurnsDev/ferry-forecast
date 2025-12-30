@@ -85,23 +85,33 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full" role="region" aria-label="Disruption Risk Assessment">
       <div className="flex items-center justify-between mb-4">
-        <span className="text-lg font-semibold text-foreground">
+        <span className="text-lg font-semibold text-foreground" id="risk-label">
           Disruption Risk
         </span>
         <div className="flex items-center gap-3">
-          <span className={`text-2xl font-bold ${textColorClasses[risk.color]}`}>
+          <span
+            className={`text-2xl font-bold ${textColorClasses[risk.color]}`}
+            aria-label={`Risk score: ${score} out of 100`}
+          >
             {score}
           </span>
-          <span className={`status-badge ${badgeClasses[risk.color]}`}>
+          <span className={`status-badge ${badgeClasses[risk.color]}`} role="status">
             {risk.label}
           </span>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className={`w-full ${bgColorClasses[risk.color]} rounded-full h-3 overflow-hidden`}>
+      <div
+        className={`w-full ${bgColorClasses[risk.color]} rounded-full h-3 overflow-hidden`}
+        role="progressbar"
+        aria-valuenow={score}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-labelledby="risk-label"
+      >
         <div
           className={`${colorClasses[risk.color]} h-3 rounded-full transition-all duration-500`}
           style={{ width: `${score}%` }}
@@ -109,7 +119,7 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
       </div>
 
       {/* Scale labels */}
-      <div className="flex justify-between mt-2">
+      <div className="flex justify-between mt-2" aria-hidden="true">
         <span className="text-xs text-muted-foreground">Low Risk</span>
         <span className="text-xs text-muted-foreground">Moderate</span>
         <span className="text-xs text-muted-foreground">High Risk</span>

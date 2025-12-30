@@ -18,6 +18,7 @@ function WindDirectionArrow({ degrees }: { degrees: number }) {
       fill="none"
       stroke="currentColor"
       style={{ transform: `rotate(${degrees}deg)` }}
+      aria-hidden="true"
     >
       <path
         strokeLinecap="round"
@@ -109,11 +110,11 @@ export function ConditionsPanel({
   const advisory = getAdvisoryDisplay(weather.advisory_level);
 
   return (
-    <div className="card-maritime p-5 lg:p-6">
+    <div className="card-maritime p-5 lg:p-6" role="region" aria-label="Current Weather Conditions">
       <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
 
       {/* Advisory Banner */}
-      <div className={`rounded-lg px-4 py-3 mb-5 ${advisory.className}`}>
+      <div className={`rounded-lg px-4 py-3 mb-5 ${advisory.className}`} role="alert" aria-live="polite">
         <span className="text-sm font-semibold">{advisory.text}</span>
       </div>
 

@@ -319,14 +319,19 @@ export function RouteSelector({
 
         {/* Origin Port */}
         <div>
-          <label className="block text-sm font-medium text-muted-foreground mb-2">
+          <label
+            htmlFor="origin-port"
+            className="block text-sm font-medium text-muted-foreground mb-2"
+          >
             Departing From
           </label>
           <select
+            id="origin-port"
             value={selectedOrigin}
             onChange={(e) => setSelectedOrigin(e.target.value)}
-            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             disabled={!selectedRegion}
+            aria-describedby={!selectedRegion ? 'origin-hint' : undefined}
           >
             <option value="">Select departure port</option>
             {ports.map((port) => (
@@ -335,18 +340,26 @@ export function RouteSelector({
               </option>
             ))}
           </select>
+          {!selectedRegion && (
+            <p id="origin-hint" className="sr-only">Select a region first to enable this field</p>
+          )}
         </div>
 
         {/* Destination Port */}
         <div>
-          <label className="block text-sm font-medium text-muted-foreground mb-2">
+          <label
+            htmlFor="destination-port"
+            className="block text-sm font-medium text-muted-foreground mb-2"
+          >
             Arriving At
           </label>
           <select
+            id="destination-port"
             value={selectedDestination}
             onChange={(e) => setSelectedDestination(e.target.value)}
-            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             disabled={!selectedOrigin}
+            aria-describedby={!selectedOrigin ? 'destination-hint' : undefined}
           >
             <option value="">Select destination port</option>
             {destinations.map((port) => (
@@ -355,6 +368,9 @@ export function RouteSelector({
               </option>
             ))}
           </select>
+          {!selectedOrigin && (
+            <p id="destination-hint" className="sr-only">Select a departure port first to enable this field</p>
+          )}
         </div>
 
         {/* Operator - Hidden if only one */}
@@ -382,7 +398,8 @@ export function RouteSelector({
         <button
           onClick={handleNavigate}
           disabled={!isComplete}
-          className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
+          aria-disabled={!isComplete}
+          className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
             isComplete
               ? 'bg-primary text-primary-foreground hover:bg-navy-light shadow-soft hover:shadow-card'
               : 'bg-muted text-muted-foreground cursor-not-allowed'

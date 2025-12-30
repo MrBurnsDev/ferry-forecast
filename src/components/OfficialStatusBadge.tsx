@@ -68,25 +68,25 @@ function StatusIcon({ status }: { status: OfficialStatus | null }) {
   switch (status) {
     case 'on_time':
       return (
-        <svg className={`${baseClass} text-success`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`${baseClass} text-success`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       );
     case 'delayed':
       return (
-        <svg className={`${baseClass} text-warning`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`${baseClass} text-warning`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       );
     case 'canceled':
       return (
-        <svg className={`${baseClass} text-destructive`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`${baseClass} text-destructive`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       );
     default:
       return (
-        <svg className={`${baseClass} text-muted-foreground`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`${baseClass} text-muted-foreground`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       );
@@ -117,7 +117,7 @@ export function OfficialStatusBadge({
   const display = getStatusDisplay(status);
 
   return (
-    <div className="card-maritime p-6 lg:p-8">
+    <div className="card-maritime p-6 lg:p-8" role="region" aria-label="Official Operator Status">
       <div className="flex items-start gap-4">
         <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${display.bgClass}`}>
           <StatusIcon status={status} />
@@ -128,7 +128,7 @@ export function OfficialStatusBadge({
             <h3 className="text-xl lg:text-2xl font-semibold text-foreground">
               Operator Status
             </h3>
-            <span className={`status-badge ${display.className}`}>
+            <span className={`status-badge ${display.className}`} role="status" aria-live="polite">
               {display.text}
             </span>
           </div>
