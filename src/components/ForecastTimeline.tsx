@@ -15,10 +15,17 @@ export function ForecastTimeline({
   loading,
   error,
 }: ForecastTimelineProps) {
+  // Title and subtitle for the timeline - clarifies this is weather-based, not schedule-based
+  const timelineTitle = 'Weather Risk Timeline';
+  const timelineSubtitle = 'Next 24 hours';
+
   if (loading) {
     return (
       <div className="w-full">
-        <h3 className="text-xl font-semibold text-foreground mb-5">24-Hour Forecast</h3>
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold text-foreground">{timelineTitle}</h3>
+          <p className="text-xs text-muted-foreground">{timelineSubtitle}</p>
+        </div>
         <div className="flex gap-3 overflow-x-auto pb-2">
           {Array.from({ length: 12 }).map((_, i) => (
             <div
@@ -34,7 +41,10 @@ export function ForecastTimeline({
   if (error) {
     return (
       <div className="w-full">
-        <h3 className="text-xl font-semibold text-foreground mb-5">24-Hour Forecast</h3>
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold text-foreground">{timelineTitle}</h3>
+          <p className="text-xs text-muted-foreground">{timelineSubtitle}</p>
+        </div>
         <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-4">
           <p className="text-destructive text-sm font-medium">
             Unable to load forecast
@@ -48,7 +58,10 @@ export function ForecastTimeline({
   if (!forecasts || forecasts.length === 0) {
     return (
       <div className="w-full">
-        <h3 className="text-xl font-semibold text-foreground mb-5">24-Hour Forecast</h3>
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold text-foreground">{timelineTitle}</h3>
+          <p className="text-xs text-muted-foreground">{timelineSubtitle}</p>
+        </div>
         <div className="bg-secondary rounded-lg p-4">
           <p className="text-muted-foreground text-sm">
             Forecast data not yet available
@@ -78,7 +91,11 @@ export function ForecastTimeline({
 
   return (
     <div className="w-full">
-      <h3 className="text-xl font-semibold text-foreground mb-5">24-Hour Forecast</h3>
+      <div className="mb-4">
+        <h3 className="text-xl font-semibold text-foreground">{timelineTitle}</h3>
+        <p className="text-xs text-muted-foreground">{timelineSubtitle}</p>
+      </div>
+
       <div className="flex gap-3 overflow-x-auto pb-2">
         {forecasts.map((forecast, index) => {
           const risk = getRiskLevel(forecast.score);
@@ -108,8 +125,10 @@ export function ForecastTimeline({
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground mt-4">
-        Forecast confidence decreases for times further out. Check back for updates.
+
+      {/* Explanatory text - clarifies this is about conditions, not specific ferry trips */}
+      <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
+        Shows how weather conditions may change over time. Individual ferry sailings may be affected differently based on vessel and schedule.
       </p>
     </div>
   );

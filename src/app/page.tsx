@@ -41,17 +41,17 @@ const features = [
   {
     icon: ShieldIcon,
     title: 'Reliable Forecasts',
-    description: 'Data-driven predictions you can trust for planning your journey.',
+    description: 'Data-driven predictions combining weather, tides, and operator status for informed travel planning.',
   },
   {
     icon: CompassIcon,
     title: 'Route Intelligence',
-    description: 'Comprehensive coverage of Cape Cod ferry routes and conditions.',
+    description: 'Understands how specific routes are affected by wind, waves, and weather patterns.',
   },
   {
     icon: ClockIcon,
-    title: 'Real-time Updates',
-    description: 'Stay informed with the latest status changes and weather alerts.',
+    title: 'Continuous Monitoring',
+    description: 'Conditions change. We track weather and advisories so you can plan with confidence.',
   },
 ];
 
@@ -76,7 +76,6 @@ export default function Home() {
             </Link>
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="nav-link active">Home</Link>
-              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
             </div>
           </div>
         </div>

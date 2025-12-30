@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getRouteById, getOperatorDisplayName, getPortDisplayName } from '@/lib/config/routes';
+import { getRouteSensitivity } from '@/lib/utils/navigation';
 import { RiskBar } from '@/components/RiskBar';
 import { ForecastTimeline } from '@/components/ForecastTimeline';
 import { ConditionsPanel } from '@/components/ConditionsPanel';
@@ -233,18 +234,62 @@ export default function RoutePage() {
                       {getOperatorDisplayName(route.operator)}
                     </dd>
                   </div>
-                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                    <dt className="text-muted-foreground">Crossing Type</dt>
-                    <dd className="font-medium text-foreground capitalize">
-                      {route.crossing_type.replace('_', ' ')}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
-                    <dt className="text-muted-foreground">Route Bearing</dt>
-                    <dd className="font-medium text-foreground">{route.bearing_degrees}°</dd>
-                  </div>
+                  {(() => {
+                    const sensitivity = getRouteSensitivity(routeId);
+                    return sensitivity ? (
+                      <>
+                        <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                          <dt className="text-muted-foreground">General Heading</dt>
+                          <dd className="font-medium text-foreground">{sensitivity.generalHeading}</dd>
+                        </div>
+                        <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                          <dt className="text-muted-foreground">Water Body</dt>
+                          <dd className="font-medium text-foreground">{sensitivity.waterBody}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                        <dt className="text-muted-foreground">Crossing Type</dt>
+                        <dd className="font-medium text-foreground capitalize">
+                          {route.crossing_type.replace('_', ' ')}
+                        </dd>
+                      </div>
+                    );
+                  })()}
                 </dl>
               </div>
+
+              {/* Route Sensitivity */}
+              {(() => {
+                const sensitivity = getRouteSensitivity(routeId);
+                if (!sensitivity) return null;
+                return (
+                  <div className="card-maritime p-6">
+                    <h3 className="text-lg font-semibold text-foreground mb-3">Route Sensitivity</h3>
+                    <p className="text-muted-foreground text-sm leading-relaxed mb-4">
+                      {sensitivity.exposureDescription}
+                    </p>
+                    <div className="bg-secondary/50 rounded-lg p-4">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                        Most Affected By
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {sensitivity.sensitiveWindDirections.map((dir) => (
+                          <span
+                            key={dir}
+                            className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full"
+                          >
+                            {dir} winds
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-3 italic">
+                      This information helps explain why certain weather patterns may affect this route.
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Forecast Summary */}
               <div className="card-maritime p-6">

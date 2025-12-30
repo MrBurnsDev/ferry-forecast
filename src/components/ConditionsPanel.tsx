@@ -1,6 +1,7 @@
 'use client';
 
 import type { WeatherSnapshot, TideSwing, ContributingFactor } from '@/types/forecast';
+import { degreesToCompass } from '@/lib/utils/navigation';
 
 interface ConditionsPanelProps {
   weather: WeatherSnapshot | null;
@@ -138,7 +139,7 @@ export function ConditionsPanel({
         </div>
       </div>
 
-      {/* Wind Direction */}
+      {/* Wind Direction - Shows cardinal direction with degrees for clarity */}
       <div className="flex items-center gap-3 p-4 bg-secondary rounded-lg mb-5">
         <div className="w-10 h-10 rounded-lg bg-background flex items-center justify-center">
           <WindDirectionArrow degrees={weather.wind_direction} />
@@ -148,7 +149,8 @@ export function ConditionsPanel({
             Wind Direction
           </div>
           <div className="text-lg font-semibold text-foreground">
-            {weather.wind_direction}° <span className="text-muted-foreground font-normal">(from)</span>
+            {degreesToCompass(weather.wind_direction)}{' '}
+            <span className="text-muted-foreground font-normal">({weather.wind_direction}° from)</span>
           </div>
         </div>
       </div>
