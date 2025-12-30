@@ -2,22 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+    /* Base colors */
+    --background: 210 20% 98%;
+    --foreground: 213 35% 12%;
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+    /* Maritime palette - Deep Navy */
+    --navy: 210 65% 18%;
+    --navy-light: 210 50% 25%;
+
+    /* Maritime palette - Ocean Blue */
+    --ocean: 200 60% 50%;
+    --ocean-light: 200 50% 85%;
+
+    /* Status - Warning Amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 20%;
+
+    /* Status - Success Green */
+    --success: 152 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    /* Status - Danger Red */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Neutrals */
+    --muted: 210 15% 95%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 25% 90%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
 }
 
 @layer utilities {
