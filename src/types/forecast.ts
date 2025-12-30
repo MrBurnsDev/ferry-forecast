@@ -149,6 +149,15 @@ export interface HourlyForecast {
 
 // ============ API Response Types ============
 
+// Threshold source indicates where scoring thresholds came from
+export type ThresholdSource = 'vessel' | 'class' | 'operator';
+
+export interface VesselScoringMetadata {
+  vessel_used: string | null; // Name of vessel used for scoring, or null if none
+  vessel_class: VesselClass | null; // Class of vessel if known
+  threshold_source: ThresholdSource; // Where thresholds came from
+}
+
 export interface ForecastResponse {
   route: FerryRoute;
   vessel?: Vessel;
@@ -164,6 +173,7 @@ export interface ForecastResponse {
     updated_at: string | null;
     message?: string;
   };
+  vessel_scoring: VesselScoringMetadata;
   metadata: {
     generated_at: string;
     cache_expires_at: string;
