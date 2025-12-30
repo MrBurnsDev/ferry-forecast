@@ -12,12 +12,12 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
   if (loading) {
     return (
       <div className="w-full">
-        <div className="flex justify-between mb-2">
-          <span className="text-sm font-medium text-gray-600">
+        <div className="flex justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">
             Loading risk assessment...
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-4 animate-pulse" />
+        <div className="w-full bg-secondary rounded-full h-3 animate-pulse" />
       </div>
     );
   }
@@ -25,17 +25,17 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
   if (error) {
     return (
       <div className="w-full">
-        <div className="flex justify-between mb-2">
-          <span className="text-sm font-medium text-red-600">
+        <div className="flex justify-between mb-3">
+          <span className="text-sm font-medium text-destructive">
             Unable to calculate risk
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-4">
-          <div className="text-xs text-gray-500 text-center py-0.5">
+        <div className="w-full bg-destructive-muted rounded-full h-3">
+          <div className="text-xs text-muted-foreground text-center py-0.5">
             Data unavailable
           </div>
         </div>
-        <p className="text-xs text-red-500 mt-1">{error}</p>
+        <p className="text-xs text-destructive mt-2">{error}</p>
       </div>
     );
   }
@@ -43,14 +43,14 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
   if (score === null) {
     return (
       <div className="w-full">
-        <div className="flex justify-between mb-2">
-          <span className="text-sm font-medium text-gray-600">
+        <div className="flex justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">
             Disruption Risk
           </span>
-          <span className="text-sm text-gray-500">No data</span>
+          <span className="text-sm text-muted-foreground">No data</span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-4">
-          <div className="text-xs text-gray-500 text-center py-0.5">
+        <div className="w-full bg-secondary rounded-full h-3">
+          <div className="text-xs text-muted-foreground text-center py-0.5">
             Awaiting forecast data
           </div>
         </div>
@@ -61,43 +61,58 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
   const risk = getRiskLevel(score);
 
   const colorClasses: Record<string, string> = {
-    green: 'bg-green-500',
-    yellow: 'bg-yellow-500',
-    red: 'bg-red-500',
+    green: 'bg-success',
+    yellow: 'bg-warning',
+    red: 'bg-destructive',
   };
 
   const bgColorClasses: Record<string, string> = {
-    green: 'bg-green-100',
-    yellow: 'bg-yellow-100',
-    red: 'bg-red-100',
+    green: 'bg-success-muted',
+    yellow: 'bg-warning-muted',
+    red: 'bg-destructive-muted',
   };
 
   const textColorClasses: Record<string, string> = {
-    green: 'text-green-700',
-    yellow: 'text-yellow-700',
-    red: 'text-red-700',
+    green: 'text-success',
+    yellow: 'text-warning',
+    red: 'text-destructive',
+  };
+
+  const badgeClasses: Record<string, string> = {
+    green: 'status-badge-success',
+    yellow: 'status-badge-warning',
+    red: 'status-badge-danger',
   };
 
   return (
     <div className="w-full">
-      <div className="flex justify-between mb-2">
-        <span className="text-sm font-medium text-gray-600">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-lg font-semibold text-foreground">
           Disruption Risk
         </span>
-        <span className={`text-sm font-semibold ${textColorClasses[risk.color]}`}>
-          {score}/100 - {risk.label}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={`text-2xl font-bold ${textColorClasses[risk.color]}`}>
+            {score}
+          </span>
+          <span className={`status-badge ${badgeClasses[risk.color]}`}>
+            {risk.label}
+          </span>
+        </div>
       </div>
-      <div className={`w-full ${bgColorClasses[risk.color]} rounded-full h-4`}>
+
+      {/* Progress bar */}
+      <div className={`w-full ${bgColorClasses[risk.color]} rounded-full h-3 overflow-hidden`}>
         <div
-          className={`${colorClasses[risk.color]} h-4 rounded-full transition-all duration-500`}
+          className={`${colorClasses[risk.color]} h-3 rounded-full transition-all duration-500`}
           style={{ width: `${score}%` }}
         />
       </div>
-      <div className="flex justify-between mt-1">
-        <span className="text-xs text-gray-400">Low</span>
-        <span className="text-xs text-gray-400">Moderate</span>
-        <span className="text-xs text-gray-400">High</span>
+
+      {/* Scale labels */}
+      <div className="flex justify-between mt-2">
+        <span className="text-xs text-muted-foreground">Low Risk</span>
+        <span className="text-xs text-muted-foreground">Moderate</span>
+        <span className="text-xs text-muted-foreground">High Risk</span>
       </div>
     </div>
   );

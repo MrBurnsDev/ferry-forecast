@@ -2,45 +2,132 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @layer base {
   :root {
-    /* Base colors */
+    /* Maritime Color Palette */
     --background: 210 20% 98%;
     --foreground: 213 35% 12%;
 
-    /* Maritime palette - Deep Navy */
-    --navy: 210 65% 18%;
-    --navy-light: 210 50% 25%;
+    --card: 0 0% 100%;
+    --card-foreground: 213 35% 12%;
 
-    /* Maritime palette - Ocean Blue */
-    --ocean: 200 60% 50%;
-    --ocean-light: 200 50% 85%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 213 35% 12%;
 
-    /* Status - Warning Amber */
-    --warning: 38 92% 50%;
-    --warning-foreground: 38 92% 20%;
+    /* Deep Navy Primary */
+    --primary: 210 65% 18%;
+    --primary-foreground: 210 20% 98%;
 
-    /* Status - Success Green */
-    --success: 152 60% 40%;
-    --success-foreground: 0 0% 100%;
+    /* Ocean Blue Secondary */
+    --secondary: 200 45% 94%;
+    --secondary-foreground: 210 65% 18%;
 
-    /* Status - Danger Red */
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* Neutrals */
+    /* Soft Gray Muted */
     --muted: 210 15% 95%;
     --muted-foreground: 215 16% 47%;
+
+    /* Teal Accent */
+    --accent: 187 60% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Warning Amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 20%;
+    --warning-muted: 38 60% 95%;
+
+    /* Success Green */
+    --success: 152 60% 40%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 152 40% 95%;
+
+    /* Danger Red */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-muted: 0 60% 97%;
+
     --border: 214 25% 90%;
+    --input: 214 25% 90%;
+    --ring: 187 60% 42%;
+
+    --radius: 0.75rem;
+
+    /* Custom Maritime Colors */
+    --navy: 210 65% 18%;
+    --navy-light: 210 50% 25%;
+    --ocean: 200 60% 50%;
+    --ocean-light: 200 50% 85%;
+    --seafoam: 170 40% 75%;
+    --coastal: 210 25% 96%;
+    --sand: 40 30% 94%;
+
+    /* Shadows */
+    --shadow-soft: 0 2px 8px -2px hsl(210 65% 18% / 0.08);
+    --shadow-card: 0 4px 20px -4px hsl(210 65% 18% / 0.1);
+    --shadow-elevated: 0 8px 30px -6px hsl(210 65% 18% / 0.15);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium;
+  }
+
+  .status-badge-success {
+    @apply bg-success-muted text-success;
+  }
+
+  .status-badge-warning {
+    @apply bg-warning-muted text-warning-foreground;
+  }
+
+  .status-badge-danger {
+    @apply bg-destructive-muted text-destructive;
+  }
+
+  .card-maritime {
+    @apply bg-card rounded-xl border border-border/50 shadow-card transition-all duration-300;
+  }
+
+  .card-maritime:hover {
+    @apply shadow-elevated;
+  }
+
+  .nav-link {
+    @apply text-muted-foreground hover:text-foreground transition-colors duration-200 font-medium text-sm;
+  }
+
+  .nav-link-active {
+    @apply text-primary font-semibold;
+  }
+
+  .bathymetric-bg {
+    background: linear-gradient(180deg, hsl(210 20% 98% / 0.95) 0%, hsl(210 25% 96% / 0.98) 100%);
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent;
   }
 }

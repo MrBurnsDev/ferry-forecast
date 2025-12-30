@@ -13,7 +13,7 @@ interface ConditionsPanelProps {
 function WindDirectionArrow({ degrees }: { degrees: number }) {
   return (
     <svg
-      className="w-6 h-6 text-gray-600"
+      className="w-6 h-6 text-primary"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -34,27 +34,27 @@ function getAdvisoryDisplay(level: string): { text: string; className: string } 
     case 'hurricane_warning':
       return {
         text: 'Hurricane Warning',
-        className: 'bg-purple-100 text-purple-800 border-purple-300',
+        className: 'bg-destructive text-destructive-foreground',
       };
     case 'storm_warning':
       return {
         text: 'Storm Warning',
-        className: 'bg-red-100 text-red-800 border-red-300',
+        className: 'bg-destructive text-destructive-foreground',
       };
     case 'gale_warning':
       return {
         text: 'Gale Warning',
-        className: 'bg-orange-100 text-orange-800 border-orange-300',
+        className: 'bg-warning text-warning-foreground',
       };
     case 'small_craft_advisory':
       return {
         text: 'Small Craft Advisory',
-        className: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+        className: 'bg-warning-muted text-warning-foreground',
       };
     default:
       return {
         text: 'No Active Advisories',
-        className: 'bg-green-100 text-green-800 border-green-300',
+        className: 'bg-success-muted text-success',
       };
   }
 }
@@ -68,12 +68,12 @@ export function ConditionsPanel({
 }: ConditionsPanelProps) {
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="text-lg font-semibold mb-4">Current Conditions</h3>
-        <div className="space-y-3">
-          <div className="h-6 bg-gray-200 rounded animate-pulse" />
-          <div className="h-6 bg-gray-200 rounded animate-pulse" />
-          <div className="h-6 bg-gray-200 rounded animate-pulse" />
+      <div className="card-maritime p-5 lg:p-6">
+        <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
+        <div className="space-y-4">
+          <div className="h-8 bg-secondary rounded-lg animate-pulse" />
+          <div className="h-8 bg-secondary rounded-lg animate-pulse" />
+          <div className="h-8 bg-secondary rounded-lg animate-pulse" />
         </div>
       </div>
     );
@@ -81,13 +81,13 @@ export function ConditionsPanel({
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="text-lg font-semibold mb-4">Current Conditions</h3>
-        <div className="bg-red-50 border border-red-200 rounded p-3">
-          <p className="text-red-600 text-sm font-medium">
+      <div className="card-maritime p-5 lg:p-6">
+        <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
+        <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-4">
+          <p className="text-destructive text-sm font-medium">
             Unable to load conditions
           </p>
-          <p className="text-red-500 text-xs mt-1">{error}</p>
+          <p className="text-destructive/80 text-xs mt-1">{error}</p>
         </div>
       </div>
     );
@@ -95,10 +95,10 @@ export function ConditionsPanel({
 
   if (!weather) {
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="text-lg font-semibold mb-4">Current Conditions</h3>
-        <div className="bg-gray-50 border border-gray-200 rounded p-3">
-          <p className="text-gray-600 text-sm">
+      <div className="card-maritime p-5 lg:p-6">
+        <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
+        <div className="bg-secondary rounded-lg p-4">
+          <p className="text-muted-foreground text-sm">
             Weather data not yet available
           </p>
         </div>
@@ -109,58 +109,65 @@ export function ConditionsPanel({
   const advisory = getAdvisoryDisplay(weather.advisory_level);
 
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <h3 className="text-lg font-semibold mb-4">Current Conditions</h3>
+    <div className="card-maritime p-5 lg:p-6">
+      <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
 
       {/* Advisory Banner */}
-      <div className={`rounded border p-2 mb-4 ${advisory.className}`}>
-        <span className="text-sm font-medium">{advisory.text}</span>
+      <div className={`rounded-lg px-4 py-3 mb-5 ${advisory.className}`}>
+        <span className="text-sm font-semibold">{advisory.text}</span>
       </div>
 
       {/* Wind Conditions */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <div className="text-xs text-gray-500 uppercase tracking-wide">
+      <div className="grid grid-cols-2 gap-4 mb-5">
+        <div className="p-4 bg-secondary rounded-lg">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
             Wind Speed
           </div>
-          <div className="text-2xl font-bold text-gray-800">
-            {weather.wind_speed} <span className="text-sm font-normal">mph</span>
+          <div className="text-2xl font-bold text-foreground">
+            {weather.wind_speed} <span className="text-sm font-normal text-muted-foreground">mph</span>
           </div>
         </div>
-        <div>
-          <div className="text-xs text-gray-500 uppercase tracking-wide">
+        <div className="p-4 bg-secondary rounded-lg">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
             Gusts
           </div>
-          <div className="text-2xl font-bold text-gray-800">
-            {weather.wind_gusts} <span className="text-sm font-normal">mph</span>
+          <div className="text-2xl font-bold text-foreground">
+            {weather.wind_gusts} <span className="text-sm font-normal text-muted-foreground">mph</span>
           </div>
         </div>
       </div>
 
       {/* Wind Direction */}
-      <div className="flex items-center gap-2 mb-4">
-        <WindDirectionArrow degrees={weather.wind_direction} />
-        <span className="text-sm text-gray-600">
-          {weather.wind_direction}° (from)
-        </span>
+      <div className="flex items-center gap-3 p-4 bg-secondary rounded-lg mb-5">
+        <div className="w-10 h-10 rounded-lg bg-background flex items-center justify-center">
+          <WindDirectionArrow degrees={weather.wind_direction} />
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wider">
+            Wind Direction
+          </div>
+          <div className="text-lg font-semibold text-foreground">
+            {weather.wind_direction}° <span className="text-muted-foreground font-normal">(from)</span>
+          </div>
+        </div>
       </div>
 
       {/* Tide Info */}
       {tide && (
-        <div className="border-t pt-4 mt-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">
+        <div className="border-t border-border/50 pt-5 mt-5">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">
             Tide Conditions
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-gray-600">Swing</div>
-              <div className="text-lg font-semibold">
+            <div className="p-3 bg-secondary rounded-lg">
+              <div className="text-sm text-muted-foreground">Swing</div>
+              <div className="text-xl font-bold text-foreground">
                 {tide.swing_feet.toFixed(1)} ft
               </div>
             </div>
-            <div>
-              <div className="text-sm text-gray-600">Phase</div>
-              <div className="text-lg font-semibold capitalize">
+            <div className="p-3 bg-secondary rounded-lg">
+              <div className="text-sm text-muted-foreground">Phase</div>
+              <div className="text-xl font-bold text-foreground capitalize">
                 {tide.current_phase}
               </div>
             </div>
@@ -170,14 +177,15 @@ export function ConditionsPanel({
 
       {/* Contributing Factors */}
       {factors && factors.length > 0 && (
-        <div className="border-t pt-4 mt-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">
+        <div className="border-t border-border/50 pt-5 mt-5">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">
             Why This Forecast?
           </div>
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {factors.slice(0, 3).map((factor, index) => (
-              <li key={index} className="text-sm text-gray-600">
-                • {factor.description}
+              <li key={index} className="flex items-start gap-2 text-sm text-foreground">
+                <span className="text-accent mt-0.5">•</span>
+                <span>{factor.description}</span>
               </li>
             ))}
           </ul>

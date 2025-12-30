@@ -10,6 +10,24 @@ import { ConditionsPanel } from '@/components/ConditionsPanel';
 import { OfficialStatusBadge } from '@/components/OfficialStatusBadge';
 import type { ForecastResponse } from '@/types/forecast';
 
+function WavesIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+      <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+      <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+    </svg>
+  );
+}
+
+function ArrowLeftIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 12H5M12 19l-7-7 7-7" />
+    </svg>
+  );
+}
+
 interface ForecastState {
   data: ForecastResponse | null;
   loading: boolean;
@@ -34,7 +52,6 @@ export default function RoutePage() {
         const data = await response.json();
 
         if (!response.ok) {
-          // Handle expected "not implemented" state
           if (response.status === 503) {
             setForecast({
               data: null,
@@ -70,17 +87,17 @@ export default function RoutePage() {
 
   if (!route) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow p-8 max-w-md text-center">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="card-maritime p-8 max-w-md text-center">
+          <h1 className="text-2xl font-bold text-foreground mb-4">
             Route Not Found
           </h1>
-          <p className="text-gray-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             The route &ldquo;{routeId}&rdquo; does not exist.
           </p>
           <Link
             href="/"
-            className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
+            className="inline-block bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:bg-navy-light transition-colors"
           >
             Return Home
           </Link>
@@ -90,138 +107,180 @@ export default function RoutePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Navigation */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="flex items-center justify-between h-16 lg:h-20">
+            <Link href="/" className="flex items-center gap-2">
+              <WavesIcon className="w-8 h-8 text-accent" />
+              <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
+            </Link>
+            <div className="hidden md:flex items-center gap-8">
+              <Link href="/" className="nav-link">Home</Link>
+              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
       {/* Header */}
-      <header className="bg-navy text-white py-6">
-        <div className="max-w-4xl mx-auto px-4">
+      <section className="pt-24 lg:pt-28 py-8 lg:py-12 bathymetric-bg">
+        <div className="container mx-auto px-4 lg:px-8">
           <Link
             href="/"
-            className="text-ocean-light hover:text-white text-sm mb-2 inline-block"
+            className="inline-flex items-center gap-2 text-accent hover:text-accent/80 text-sm font-medium mb-4 transition-colors"
           >
-            ← Back to Route Selection
+            <ArrowLeftIcon className="w-4 h-4" />
+            Back to Route Selection
           </Link>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {getPortDisplayName(route.origin_port)} →{' '}
-            {getPortDisplayName(route.destination_port)}
-          </h1>
-          <p className="text-ocean-light">
-            {getOperatorDisplayName(route.operator)}
-          </p>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Error State */}
-        {forecast.error && !forecast.loading && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-            <h3 className="font-medium text-amber-800 mb-1">
-              Forecast Data Unavailable
-            </h3>
-            <p className="text-amber-700 text-sm">{forecast.error}</p>
-            <p className="text-amber-600 text-xs mt-2">
-              This feature is under development. Check back soon for live
-              forecasts.
+          <div className="max-w-2xl">
+            <h1 className="text-3xl lg:text-4xl font-bold text-foreground mb-3">
+              {getPortDisplayName(route.origin_port)} → {getPortDisplayName(route.destination_port)}
+            </h1>
+            <p className="text-muted-foreground text-lg">
+              {getOperatorDisplayName(route.operator)}
             </p>
           </div>
-        )}
-
-        {/* Risk Score */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <RiskBar
-            score={forecast.data?.current_risk?.score ?? null}
-            loading={forecast.loading}
-            error={forecast.error && !forecast.data ? undefined : undefined}
-          />
         </div>
+      </section>
 
-        {/* Official Status */}
-        <div className="mb-6">
-          <OfficialStatusBadge
-            status={forecast.data?.official_status?.status ?? null}
-            source={forecast.data?.official_status?.source ?? null}
-            updatedAt={forecast.data?.official_status?.updated_at ?? null}
-            message={forecast.data?.official_status?.message}
-            loading={forecast.loading}
-          />
-        </div>
+      {/* Main Content */}
+      <main className="flex-1">
+        <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
+          {/* Error State */}
+          {forecast.error && !forecast.loading && (
+            <div className="bg-warning-muted border border-warning/30 rounded-xl p-5 mb-6">
+              <h3 className="font-semibold text-warning-foreground mb-1">
+                Forecast Data Unavailable
+              </h3>
+              <p className="text-warning-foreground/80 text-sm">{forecast.error}</p>
+              <p className="text-warning-foreground/60 text-xs mt-2">
+                This feature is under development. Check back soon for live forecasts.
+              </p>
+            </div>
+          )}
 
-        {/* Two Column Layout */}
-        <div className="grid md:grid-cols-2 gap-6 mb-6">
-          {/* Conditions Panel */}
-          <ConditionsPanel
-            weather={forecast.data?.current_conditions?.weather ?? null}
-            tide={forecast.data?.current_conditions?.tide ?? null}
-            factors={forecast.data?.current_risk?.factors ?? null}
-            loading={forecast.loading}
-            error={forecast.error && !forecast.data ? forecast.error : undefined}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Main Content Area */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Risk Score */}
+              <div className="card-maritime p-6 lg:p-8">
+                <RiskBar
+                  score={forecast.data?.current_risk?.score ?? null}
+                  loading={forecast.loading}
+                  error={forecast.error && !forecast.data ? undefined : undefined}
+                />
+              </div>
 
-          {/* Route Info */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-semibold mb-4">Route Information</h3>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Origin</dt>
-                <dd className="font-medium">
-                  {getPortDisplayName(route.origin_port)}
-                </dd>
+              {/* Official Status */}
+              <OfficialStatusBadge
+                status={forecast.data?.official_status?.status ?? null}
+                source={forecast.data?.official_status?.source ?? null}
+                updatedAt={forecast.data?.official_status?.updated_at ?? null}
+                message={forecast.data?.official_status?.message}
+                loading={forecast.loading}
+              />
+
+              {/* 24-Hour Timeline */}
+              <div className="card-maritime p-6 lg:p-8">
+                <ForecastTimeline
+                  forecasts={forecast.data?.hourly_forecast ?? null}
+                  loading={forecast.loading}
+                  error={forecast.error && !forecast.data ? forecast.error : undefined}
+                />
               </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Destination</dt>
-                <dd className="font-medium">
-                  {getPortDisplayName(route.destination_port)}
-                </dd>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Conditions Panel */}
+              <ConditionsPanel
+                weather={forecast.data?.current_conditions?.weather ?? null}
+                tide={forecast.data?.current_conditions?.tide ?? null}
+                factors={forecast.data?.current_risk?.factors ?? null}
+                loading={forecast.loading}
+                error={forecast.error && !forecast.data ? forecast.error : undefined}
+              />
+
+              {/* Route Info */}
+              <div className="card-maritime p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4">Route Information</h3>
+                <dl className="space-y-3 text-sm">
+                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                    <dt className="text-muted-foreground">Origin</dt>
+                    <dd className="font-medium text-foreground">
+                      {getPortDisplayName(route.origin_port)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                    <dt className="text-muted-foreground">Destination</dt>
+                    <dd className="font-medium text-foreground">
+                      {getPortDisplayName(route.destination_port)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                    <dt className="text-muted-foreground">Operator</dt>
+                    <dd className="font-medium text-foreground">
+                      {getOperatorDisplayName(route.operator)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                    <dt className="text-muted-foreground">Crossing Type</dt>
+                    <dd className="font-medium text-foreground capitalize">
+                      {route.crossing_type.replace('_', ' ')}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between p-3 rounded-lg bg-secondary/50">
+                    <dt className="text-muted-foreground">Route Bearing</dt>
+                    <dd className="font-medium text-foreground">{route.bearing_degrees}°</dd>
+                  </div>
+                </dl>
               </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Operator</dt>
-                <dd className="font-medium">
-                  {getOperatorDisplayName(route.operator)}
-                </dd>
+
+              {/* Forecast Summary */}
+              <div className="card-maritime p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4">Forecast Summary</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {forecast.loading
+                    ? 'Loading forecast data...'
+                    : forecast.error
+                    ? 'Unable to generate summary.'
+                    : 'Conditions are being monitored continuously. Check the 24-hour timeline for detailed predictions.'}
+                </p>
+                {forecast.data?.metadata && (
+                  <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/50">
+                    Last updated: {new Date(forecast.data.metadata.generated_at).toLocaleString()}
+                  </p>
+                )}
               </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Crossing Type</dt>
-                <dd className="font-medium capitalize">
-                  {route.crossing_type.replace('_', ' ')}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Route Bearing</dt>
-                <dd className="font-medium">{route.bearing_degrees}°</dd>
-              </div>
-            </dl>
+            </div>
           </div>
-        </div>
 
-        {/* 24-Hour Timeline */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <ForecastTimeline
-            forecasts={forecast.data?.hourly_forecast ?? null}
-            loading={forecast.loading}
-            error={forecast.error && !forecast.data ? forecast.error : undefined}
-          />
-        </div>
-
-        {/* Disclaimer */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          <strong>Important:</strong> This forecast shows the predicted{' '}
-          <em>risk of disruption</em> based on weather conditions. It is not a
-          guarantee of delays or cancellations. Always verify with{' '}
-          {getOperatorDisplayName(route.operator)} for official status before
-          traveling.
+          {/* Disclaimer */}
+          <div className="mt-8 bg-warning-muted border border-warning/30 rounded-xl p-6">
+            <p className="text-sm text-warning-foreground leading-relaxed">
+              <strong>Important:</strong> This forecast shows the predicted{' '}
+              <em>risk of disruption</em> based on weather conditions. It is not a
+              guarantee of delays or cancellations. Always verify with{' '}
+              {getOperatorDisplayName(route.operator)} for official status before traveling.
+            </p>
+          </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="bg-gray-100 py-6 mt-12">
-        <div className="max-w-4xl mx-auto px-4 text-center text-sm text-gray-600">
-          <p>Ferry Forecast is not affiliated with any ferry operator.</p>
-          {forecast.data?.metadata && (
-            <p className="mt-1 text-xs text-gray-400">
-              Last updated:{' '}
-              {new Date(forecast.data.metadata.generated_at).toLocaleString()}
+      <footer className="py-8 lg:py-12 bg-secondary border-t border-border/50">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <WavesIcon className="w-6 h-6 text-accent" />
+              <span className="font-semibold text-foreground">Ferry Forecast</span>
+            </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Not affiliated with any ferry operator. Data: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS Tides
             </p>
-          )}
+          </div>
         </div>
       </footer>
     </div>

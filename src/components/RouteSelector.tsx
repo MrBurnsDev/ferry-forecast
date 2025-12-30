@@ -273,39 +273,39 @@ export function RouteSelector({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Select Your Route</h2>
+      <div className="card-maritime p-6 lg:p-8">
+        <h2 className="text-xl font-semibold text-foreground mb-6">Select Your Route</h2>
         <div className="space-y-4">
-          <div className="h-10 bg-gray-200 rounded animate-pulse" />
-          <div className="h-10 bg-gray-200 rounded animate-pulse" />
-          <div className="h-10 bg-gray-200 rounded animate-pulse" />
+          <div className="h-12 bg-secondary rounded-lg animate-pulse" />
+          <div className="h-12 bg-secondary rounded-lg animate-pulse" />
+          <div className="h-12 bg-secondary rounded-lg animate-pulse" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-semibold mb-4">Select Your Route</h2>
+    <div className="card-maritime p-6 lg:p-8">
+      <h2 className="text-xl font-semibold text-foreground mb-6">Select Your Route</h2>
 
       {/* Fallback indicator */}
       {usingFallback && (
-        <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+        <div className="mb-4 px-3 py-2 bg-warning-muted border border-warning/30 rounded-lg text-xs text-warning-foreground">
           Using fallback route config
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {/* Region Selector - Hidden if only one */}
         {regions.length > 1 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               Region
             </label>
             <select
               value={selectedRegion}
               onChange={(e) => setSelectedRegion(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all"
             >
               <option value="">Select a region</option>
               {regions.map((region) => (
@@ -319,13 +319,13 @@ export function RouteSelector({
 
         {/* Origin Port */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-muted-foreground mb-2">
             Departing From
           </label>
           <select
             value={selectedOrigin}
             onChange={(e) => setSelectedOrigin(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             disabled={!selectedRegion}
           >
             <option value="">Select departure port</option>
@@ -339,13 +339,13 @@ export function RouteSelector({
 
         {/* Destination Port */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-muted-foreground mb-2">
             Arriving At
           </label>
           <select
             value={selectedDestination}
             onChange={(e) => setSelectedDestination(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
             disabled={!selectedOrigin}
           >
             <option value="">Select destination port</option>
@@ -360,13 +360,13 @@ export function RouteSelector({
         {/* Operator - Hidden if only one */}
         {operators.length > 1 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               Ferry Operator
             </label>
             <select
               value={selectedOperator}
               onChange={(e) => setSelectedOperator(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-4 py-3 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-accent transition-all"
             >
               <option value="">Select operator</option>
               {operators.map((op) => (
@@ -382,13 +382,13 @@ export function RouteSelector({
         <button
           onClick={handleNavigate}
           disabled={!isComplete}
-          className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
+          className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all duration-200 ${
             isComplete
-              ? 'bg-ocean text-white hover:bg-navy'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              ? 'bg-primary text-primary-foreground hover:bg-navy-light shadow-soft hover:shadow-card'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
           }`}
         >
-          Check Forecast
+          View Forecast
         </button>
       </div>
     </div>

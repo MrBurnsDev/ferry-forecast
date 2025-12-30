@@ -1,78 +1,170 @@
 import { RouteSelector } from '@/components/RouteSelector';
+import Link from 'next/link';
+
+function ShieldIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
+  );
+}
+
+function CompassIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  );
+}
+
+function WavesIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+      <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+      <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+    </svg>
+  );
+}
+
+const features = [
+  {
+    icon: ShieldIcon,
+    title: 'Reliable Forecasts',
+    description: 'Data-driven predictions you can trust for planning your journey.',
+  },
+  {
+    icon: CompassIcon,
+    title: 'Route Intelligence',
+    description: 'Comprehensive coverage of Cape Cod ferry routes and conditions.',
+  },
+  {
+    icon: ClockIcon,
+    title: 'Real-time Updates',
+    description: 'Stay informed with the latest status changes and weather alerts.',
+  },
+];
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-navy text-white py-8">
-        <div className="max-w-4xl mx-auto px-4">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
-            Will the ferry run today?
-          </h1>
-          <p className="text-ocean-light text-lg">
-            Predict ferry delays and cancellations before they happen
-          </p>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Route Selector */}
-        <div className="mb-8">
-          <RouteSelector />
-        </div>
-
-        {/* Info Section */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">How It Works</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div>
-              <div className="text-2xl mb-2">🌊</div>
-              <h3 className="font-medium mb-1">Real-Time Weather</h3>
-              <p className="text-sm text-gray-600">
-                We analyze NOAA marine forecasts, wind conditions, and active
-                advisories for your route.
-              </p>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Navigation */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="flex items-center justify-between h-16 lg:h-20">
+            <Link href="/" className="flex items-center gap-2">
+              <WavesIcon className="w-8 h-8 text-accent" />
+              <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
+            </Link>
+            <div className="hidden md:flex items-center gap-8">
+              <Link href="/" className="nav-link active">Home</Link>
+              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
             </div>
-            <div>
-              <div className="text-2xl mb-2">📊</div>
-              <h3 className="font-medium mb-1">Risk Assessment</h3>
-              <p className="text-sm text-gray-600">
-                Our system calculates a 0-100 disruption risk score based on
-                conditions and historical patterns.
-              </p>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="relative pt-24 lg:pt-32 pb-16 lg:pb-24 bathymetric-bg overflow-hidden">
+        <div className="container mx-auto px-4 lg:px-8 relative">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border/50 mb-6">
+              <WavesIcon className="w-4 h-4 text-accent" />
+              <span className="text-sm font-medium text-muted-foreground">Maritime Travel Status</span>
             </div>
-            <div>
-              <div className="text-2xl mb-2">⚠️</div>
-              <h3 className="font-medium mb-1">Official Status</h3>
-              <p className="text-sm text-gray-600">
-                We also display operator-reported status when available, clearly
-                separated from predictions.
+
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
+              Know Before You Go
+            </h1>
+
+            <p className="text-lg lg:text-xl text-muted-foreground mb-8 leading-relaxed">
+              Reliable ferry status forecasts for safer, more predictable maritime travel.
+              Check conditions before your journey.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Route Selector Section */}
+      <section className="py-12 lg:py-16 bg-coastal">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="max-w-2xl mx-auto">
+            <RouteSelector />
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-16 lg:py-24">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-2xl lg:text-3xl font-bold text-foreground mb-3">
+              How It Works
+            </h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">
+              We combine multiple data sources to predict ferry disruption risk.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className="text-center lg:text-left p-8 rounded-2xl bg-card border border-border/30 hover:border-border hover:shadow-card transition-all duration-300"
+              >
+                <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center mb-5 mx-auto lg:mx-0">
+                  <feature.icon className="w-7 h-7 text-primary" />
+                </div>
+                <h3 className="text-xl font-semibold text-foreground mb-3">
+                  {feature.title}
+                </h3>
+                <p className="text-muted-foreground leading-relaxed">
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Disclaimer Section */}
+      <section className="py-8 lg:py-12">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="max-w-3xl mx-auto">
+            <div className="bg-warning-muted border border-warning/30 rounded-xl p-6">
+              <p className="text-sm text-warning-foreground leading-relaxed">
+                <strong>Important:</strong> This is a prediction tool, not an official
+                source. Always check with your ferry operator for confirmed schedules
+                and cancellations. We show the <em>risk of disruption</em> based on
+                weather conditions, not definitive outcomes.
               </p>
             </div>
           </div>
         </div>
-
-        {/* Disclaimer */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          <strong>Important:</strong> This is a prediction tool, not an official
-          source. Always check with your ferry operator for confirmed schedules
-          and cancellations. We show the{' '}
-          <em>risk of disruption</em> based on weather conditions, not
-          definitive outcomes.
-        </div>
-      </main>
+      </section>
 
       {/* Footer */}
-      <footer className="bg-gray-100 py-6 mt-12">
-        <div className="max-w-4xl mx-auto px-4 text-center text-sm text-gray-600">
-          <p>
-            Ferry Forecast is not affiliated with any ferry operator.
-          </p>
-          <p className="mt-1">
-            Data sources: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS
-            Tides
-          </p>
+      <footer className="mt-auto py-8 lg:py-12 bg-secondary border-t border-border/50">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <WavesIcon className="w-6 h-6 text-accent" />
+              <span className="font-semibold text-foreground">Ferry Forecast</span>
+            </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Not affiliated with any ferry operator. Data: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS Tides
+            </p>
+          </div>
         </div>
       </footer>
     </div>
