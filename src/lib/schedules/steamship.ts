@@ -32,7 +32,7 @@ import {
 import {
   fetchSSAStatus,
   getAdvisoriesForRoute,
-  getSailingsFromStatus,
+  matchSailingToStatus,
   type SSAStatusResult,
 } from './ssa-status';
 
@@ -298,21 +298,29 @@ async function getSSAStatus(): Promise<SSAStatusResult> {
 /**
  * Fetch SSA schedule for a route
  *
- * PHASE 18 CORE RULE (NON-NEGOTIABLE):
- * The "Traveling Today" status table IS the canonical list of today's sailings.
+ * PHASE 18 CORRECTED – THREE-LAYER TRUTH MODEL:
  *
- * If status page is available and parseable:
- * - Return sailings DIRECTLY from status table
- * - Do NOT use template schedule
- * - Do NOT merge - status table is complete and authoritative
+ * Layer 0: Canonical Schedule (template) = BASE TRUTH
+ *          Contains all scheduled sailings for the day
  *
- * If status page fails:
- * - Fall back to template schedule
- * - Mark clearly as "Template – not live"
+ * Layer 1: Operator Status Overlay = SPARSE delta
+ *          Status page provides updates for SOME sailings
+ *          Applied to matching sailings only (by port pair + time)
+ *          Does NOT create new sailings or delete scheduled ones
  *
- * Returns source_type: "operator_live" if using status page (authoritative)
- * Returns source_type: "template" if using known schedule data (fallback only)
- * Returns source_type: "unavailable" if both fail
+ * Layer 2: Risk Overlay (computed elsewhere) = interpretive only
+ *
+ * MATCHING RULES:
+ * - Direction (fromSlug → toSlug)
+ * - Departure time (normalized, case-insensitive)
+ *
+ * UNMATCHED SAILINGS:
+ * - Remain visible with status: "scheduled"
+ * - statusFromOperator: false (no live status reported)
+ *
+ * Returns source_type: "operator_live" if status overlay was applied
+ * Returns source_type: "template" if no status available
+ * Returns source_type: "unavailable" if schedule fails entirely
  */
 export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchResult> {
   const route = SSA_ROUTES[routeId];
@@ -328,110 +336,118 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
   const timezone = getPortTimezone(route.from);
   const serviceDateLocal = getTodayInTimezone(timezone);
 
-  // PHASE 18: Fetch status page FIRST - it's the canonical source
-  const statusResult = await getSSAStatus();
+  // LAYER 0: Start with canonical schedule (template) as BASE TRUTH
+  const templateSailings = createSailingsFromKnownSchedule(
+    routeId,
+    direction,
+    serviceDateLocal,
+    timezone
+  );
 
-  // If status page succeeded, use it as the ONLY source of sailings
-  if (statusResult.success && statusResult.sailings.length > 0) {
-    // Convert status table rows to Sailing objects for this route
-    const sailingsFromStatus = getSailingsFromStatus(statusResult, routeId);
-
-    // Get advisories for this route
-    const advisories = getAdvisoriesForRoute(routeId, statusResult.advisories);
-    const operatorAdvisories: OperatorAdvisory[] = advisories.map((adv) => ({
-      title: adv.title,
-      text: adv.text,
-      fetchedAt: statusResult.fetchedAt,
-    }));
-
-    if (SCHEDULE_DEBUG) {
-      const canceledCount = sailingsFromStatus.filter((s) => s.status === 'canceled').length;
-      const onTimeCount = sailingsFromStatus.filter((s) => s.status === 'on_time').length;
-      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: PHASE 18 canonical - ${sailingsFromStatus.length} sailings from status page (${canceledCount} canceled, ${onTimeCount} on_time)`);
-    }
-
-    // Build provenance for operator_live from status page
-    const provenance: ScheduleProvenance = {
-      source_type: 'operator_live',
-      source_name: route.operatorName,
-      fetched_at: statusResult.fetchedAt,
-      source_url: SSA_STATUS_URL,
-      parse_confidence: 'high', // Status table is authoritative
-      raw_status_supported: true,
-    };
-
-    return {
-      success: true,
-      sailings: sailingsFromStatus,
-      provenance,
-      scheduleDate: serviceDateLocal,
-      timezone,
-      operator: route.operatorName,
-      operatorScheduleUrl: SSA_STATUS_URL, // Point to status page, not schedule page
-      advisories: operatorAdvisories.length > 0 ? operatorAdvisories : undefined,
-      statusSource: {
-        source: 'operator_status_page',
-        url: SSA_STATUS_URL,
-        fetchedAt: statusResult.fetchedAt,
-      },
-    };
-  }
-
-  // Status page failed - fall back to template schedule
-  if (SCHEDULE_DEBUG) {
-    console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: status page unavailable (${statusResult.errorMessage}), falling back to template`);
-  }
-
-  // Use template as fallback only
-  const templateResult = createTemplateResult(routeId, route, direction, serviceDateLocal, timezone);
-
-  // Mark status as unavailable
-  return {
-    ...templateResult,
-    statusSource: {
-      source: 'unavailable',
-      fetchedAt: statusResult.fetchedAt,
-    },
-  };
-}
-
-/**
- * Create a template result using known schedule data
- * Explicitly marked as "template" so UI shows warning
- */
-function createTemplateResult(
-  routeId: string,
-  route: SSARouteInfo,
-  direction: SailingDirection,
-  serviceDateLocal: string,
-  timezone: string
-): ScheduleFetchResult {
-  const sailings = createSailingsFromKnownSchedule(routeId, direction, serviceDateLocal, timezone);
-
-  if (sailings.length === 0) {
+  if (templateSailings.length === 0) {
     return createUnavailableResult(
       routeId,
       'No schedule data available for this route'
     );
   }
 
+  // LAYER 1: Fetch status overlay (sparse delta)
+  const statusResult = await getSSAStatus();
+
+  // If status fetch failed, return template with no status overlay
+  if (!statusResult.success || statusResult.sailings.length === 0) {
+    if (SCHEDULE_DEBUG) {
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: status unavailable (${statusResult.errorMessage}), using template only`);
+    }
+
+    return {
+      success: true,
+      sailings: templateSailings,
+      provenance: {
+        source_type: 'template',
+        source_name: route.operatorName,
+        fetched_at: new Date().toISOString(),
+        source_url: SSA_STATUS_URL,
+        parse_confidence: 'medium',
+        raw_status_supported: false,
+      },
+      scheduleDate: serviceDateLocal,
+      timezone,
+      operator: route.operatorName,
+      operatorScheduleUrl: SSA_STATUS_URL,
+      statusSource: {
+        source: 'unavailable',
+        fetchedAt: statusResult.fetchedAt,
+      },
+    };
+  }
+
+  // APPLY STATUS OVERLAY to matching sailings
+  // Unmatched sailings remain as-is (visible, statusFromOperator: false)
+  let matchedCount = 0;
+  const sailingsWithStatus = templateSailings.map((sailing) => {
+    const matchingStatus = matchSailingToStatus(
+      {
+        fromSlug: sailing.direction.fromSlug,
+        toSlug: sailing.direction.toSlug,
+        departureTimeDisplay: sailing.departureTimeDisplay,
+      },
+      statusResult.sailings
+    );
+
+    if (matchingStatus) {
+      matchedCount++;
+      return {
+        ...sailing,
+        status: matchingStatus.status,
+        statusMessage: matchingStatus.statusMessage,
+        statusFromOperator: true, // Status came from operator status page
+      };
+    }
+
+    // No matching status - sailing remains scheduled, not operator-confirmed
+    return sailing;
+  });
+
+  // Get advisories for this route
+  const advisories = getAdvisoriesForRoute(routeId, statusResult.advisories);
+  const operatorAdvisories: OperatorAdvisory[] = advisories.map((adv) => ({
+    title: adv.title,
+    text: adv.text,
+    fetchedAt: statusResult.fetchedAt,
+  }));
+
+  if (SCHEDULE_DEBUG) {
+    const canceledCount = sailingsWithStatus.filter((s) => s.status === 'canceled').length;
+    const onTimeCount = sailingsWithStatus.filter((s) => s.status === 'on_time').length;
+    const unmatchedCount = templateSailings.length - matchedCount;
+    console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: ${templateSailings.length} scheduled, ${matchedCount} matched to status (${canceledCount} canceled, ${onTimeCount} on_time), ${unmatchedCount} unmatched`);
+  }
+
+  // Build provenance - "operator_live" means we successfully overlaid status
   const provenance: ScheduleProvenance = {
-    source_type: 'template',
+    source_type: 'operator_live',
     source_name: route.operatorName,
-    fetched_at: new Date().toISOString(),
-    source_url: SSA_STATUS_URL, // Point to status page even for template
-    parse_confidence: 'medium',
-    raw_status_supported: false,
+    fetched_at: statusResult.fetchedAt,
+    source_url: SSA_STATUS_URL,
+    parse_confidence: matchedCount > 0 ? 'high' : 'medium',
+    raw_status_supported: true,
   };
 
   return {
     success: true,
-    sailings,
+    sailings: sailingsWithStatus,
     provenance,
     scheduleDate: serviceDateLocal,
     timezone,
     operator: route.operatorName,
     operatorScheduleUrl: SSA_STATUS_URL,
+    advisories: operatorAdvisories.length > 0 ? operatorAdvisories : undefined,
+    statusSource: {
+      source: 'operator_status_page',
+      url: SSA_STATUS_URL,
+      fetchedAt: statusResult.fetchedAt,
+    },
   };
 }
 

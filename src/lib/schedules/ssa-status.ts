@@ -2,22 +2,21 @@
  * SSA Status Page Scraper
  *
  * Phase 17: Authoritative Sailing Status Integration
- * Phase 18: Status Page as Canonical Daily Schedule
+ * Phase 18 CORRECTED: Status as Overlay, Not Canonical Source
  *
  * Scrapes https://www.steamshipauthority.com/traveling_today/status
  * for real-time per-sailing status (Operating, Cancelled, Delayed).
  *
- * PHASE 18 CORE RULE (NON-NEGOTIABLE):
- * The "Traveling Today" status table IS the canonical list of today's sailings.
- * If the status page is available and parseable:
- * - Do NOT display template schedule sailings
- * - Do NOT merge status into template sailings
- * - Instead, derive sailings DIRECTLY from the status table
+ * THREE-LAYER TRUTH MODEL:
+ * - Layer 0: Canonical Schedule (template) = BASE TRUTH (all sailings)
+ * - Layer 1: Operator Status Overlay = SPARSE delta (updates matching sailings)
+ * - Layer 2: Risk Overlay = interpretive only (never overrides operator status)
  *
- * IMPORTANT DISTINCTIONS:
- * - Status Page = what is actually running TODAY (authoritative for SSA)
- * - Schedule Page / Template = fallback ONLY if status page unavailable
- * - Risk = Ferry Forecast's weather interpretation (never overrides operator status)
+ * STATUS PAGE IS NOT CANONICAL:
+ * - It provides status UPDATES for some sailings, not a complete schedule
+ * - Template schedule defines which sailings exist
+ * - Status page overlays onto matching sailings by port + time
+ * - Unmatched sailings remain visible with statusFromOperator: false
  */
 
 import type { Sailing, SailingStatus, SailingDirection } from './types';
