@@ -2,22 +2,26 @@
  * SSA Status Page Scraper
  *
  * Phase 17: Authoritative Sailing Status Integration
+ * Phase 18: Status Page as Canonical Daily Schedule
  *
  * Scrapes https://www.steamshipauthority.com/traveling_today/status
  * for real-time per-sailing status (Operating, Cancelled, Delayed).
  *
- * IMPORTANT DISTINCTIONS:
- * - Schedule = what is planned (times, routes) from /schedules
- * - Status = what operator declares (on_time, delayed, canceled) from /traveling_today/status
- * - Risk = Ferry Forecast's weather interpretation (never overrides operator status)
+ * PHASE 18 CORE RULE (NON-NEGOTIABLE):
+ * The "Traveling Today" status table IS the canonical list of today's sailings.
+ * If the status page is available and parseable:
+ * - Do NOT display template schedule sailings
+ * - Do NOT merge status into template sailings
+ * - Instead, derive sailings DIRECTLY from the status table
  *
- * PRECEDENCE (strict):
- * 1. Operator Status Page → authoritative, display as-is
- * 2. Schedule Page → if status not available, show "scheduled"
- * 3. Weather Risk → overlay only, never changes status
+ * IMPORTANT DISTINCTIONS:
+ * - Status Page = what is actually running TODAY (authoritative for SSA)
+ * - Schedule Page / Template = fallback ONLY if status page unavailable
+ * - Risk = Ferry Forecast's weather interpretation (never overrides operator status)
  */
 
-import type { SailingStatus } from './types';
+import type { Sailing, SailingStatus, SailingDirection } from './types';
+import { parseTimeInTimezone, getTodayInTimezone, DEFAULT_TIMEZONE } from './time';
 
 // SSA status page URL
 const SSA_STATUS_URL = 'https://www.steamshipauthority.com/traveling_today/status';
@@ -86,6 +90,17 @@ const PORT_SLUG_MAP: Record<string, string> = {
   'oak bluffs': 'oak-bluffs',
   'hyannis': 'hyannis',
   'nantucket': 'nantucket',
+};
+
+/**
+ * Port slug to display name mapping
+ */
+const PORT_DISPLAY_NAMES: Record<string, string> = {
+  'woods-hole': 'Woods Hole',
+  'vineyard-haven': 'Vineyard Haven',
+  'oak-bluffs': 'Oak Bluffs',
+  'hyannis': 'Hyannis',
+  'nantucket': 'Nantucket',
 };
 
 /**
@@ -515,4 +530,145 @@ export function getAdvisoriesForRoute(
     if (advisory.appliesTo === 'nantucket' && isNantucket) return true;
     return false;
   });
+}
+
+// ============================================================
+// PHASE 18: Convert Status Table to Canonical Sailings
+// ============================================================
+
+/**
+ * Convert SSASailingStatus objects to full Sailing objects.
+ *
+ * Phase 18: The status page IS the canonical list of today's sailings.
+ * Each row in the status table becomes a Sailing with:
+ * - Full timezone-aware timestamps
+ * - Direction information
+ * - Operator status (statusFromOperator = true)
+ *
+ * @param statusSailings - Parsed rows from SSA status tables
+ * @param routeId - Route ID to filter for (e.g., 'wh-vh-ssa')
+ * @returns Array of Sailing objects for the specified route direction
+ */
+export function convertStatusToSailings(
+  statusSailings: SSASailingStatus[],
+  routeId: string
+): Sailing[] {
+  const timezone = DEFAULT_TIMEZONE;
+  const serviceDateLocal = getTodayInTimezone(timezone);
+
+  // Parse route ID to determine which direction we want
+  // e.g., 'wh-vh-ssa' = Woods Hole → Vineyard Haven
+  const routeParts = routeId.split('-');
+  if (routeParts.length < 3) return [];
+
+  const fromSlugFromRoute = expandPortSlug(routeParts[0]);
+  const toSlugFromRoute = expandPortSlug(routeParts[1]);
+
+  if (!fromSlugFromRoute || !toSlugFromRoute) return [];
+
+  // Filter status sailings to match this route direction
+  const matchingSailings = statusSailings.filter(s => {
+    return s.fromSlug === fromSlugFromRoute && s.toSlug === toSlugFromRoute;
+  });
+
+  // Convert to Sailing objects
+  return matchingSailings.map(statusSailing => {
+    // Parse time into proper timestamp
+    const parsed = parseTimeInTimezone(
+      statusSailing.departureTimeDisplay,
+      serviceDateLocal,
+      timezone
+    );
+
+    // Build direction object
+    const direction: SailingDirection = {
+      from: PORT_DISPLAY_NAMES[statusSailing.fromSlug] || statusSailing.from,
+      fromSlug: statusSailing.fromSlug,
+      to: PORT_DISPLAY_NAMES[statusSailing.toSlug] || statusSailing.to,
+      toSlug: statusSailing.toSlug,
+    };
+
+    // Normalize the display time format
+    const normalizedTimeDisplay = normalizeTimeDisplay(statusSailing.departureTimeDisplay);
+
+    const sailing: Sailing = {
+      departureTime: parsed.utc,
+      departureTimestampMs: parsed.timestampMs,
+      departureTimeDisplay: normalizedTimeDisplay,
+      serviceDateLocal,
+      timezone,
+      direction,
+      operator: 'Steamship Authority',
+      operatorSlug: 'ssa',
+      status: statusSailing.status,
+      statusMessage: statusSailing.statusMessage,
+      statusFromOperator: true, // Always true - this came from operator status page
+    };
+
+    // Add arrival time if available
+    if (statusSailing.arrivalTimeDisplay) {
+      const arrivalParsed = parseTimeInTimezone(
+        statusSailing.arrivalTimeDisplay,
+        serviceDateLocal,
+        timezone
+      );
+      sailing.arrivalTime = arrivalParsed.utc;
+      sailing.arrivalTimestampMs = arrivalParsed.timestampMs;
+    }
+
+    // Add vessel type if available (for Nantucket high-speed vs traditional)
+    if (statusSailing.vesselType) {
+      sailing.vesselName = statusSailing.vesselType;
+    }
+
+    return sailing;
+  });
+}
+
+/**
+ * Expand abbreviated port slug to full slug
+ * e.g., 'wh' → 'woods-hole', 'vh' → 'vineyard-haven'
+ */
+function expandPortSlug(abbrev: string): string | null {
+  const expansions: Record<string, string> = {
+    'wh': 'woods-hole',
+    'vh': 'vineyard-haven',
+    'ob': 'oak-bluffs',
+    'hy': 'hyannis',
+    'nan': 'nantucket',
+  };
+  return expansions[abbrev] || null;
+}
+
+/**
+ * Normalize time display format for consistency
+ * e.g., "9:30 am" → "9:30 AM", "6:00 pm" → "6:00 PM"
+ */
+function normalizeTimeDisplay(time: string): string {
+  return time
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/am$/i, 'AM')
+    .replace(/pm$/i, 'PM');
+}
+
+/**
+ * Get all sailings for a route from the status page result.
+ *
+ * Phase 18: This is the primary entry point for getting SSA sailings.
+ * Returns sailings ONLY if the status page was successfully fetched.
+ *
+ * @param statusResult - Result from fetchSSAStatus()
+ * @param routeId - Route ID (e.g., 'wh-vh-ssa')
+ * @returns Array of Sailing objects, or empty array if status unavailable
+ */
+export function getSailingsFromStatus(
+  statusResult: SSAStatusResult,
+  routeId: string
+): Sailing[] {
+  if (!statusResult.success || statusResult.sailings.length === 0) {
+    return [];
+  }
+
+  return convertStatusToSailings(statusResult.sailings, routeId);
 }

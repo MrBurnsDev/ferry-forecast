@@ -105,7 +105,7 @@ function formatFetchedAt(isoString: string): string {
 
 /**
  * Get source type display info
- * PHASE 16: "Schedule only" vs "Live status" distinction
+ * PHASE 18: "Live from operator" vs "Template schedule" distinction
  */
 function getSourceTypeDisplay(
   sourceType: ScheduleSourceType,
@@ -116,25 +116,22 @@ function getSourceTypeDisplay(
   showSailings: boolean;
   scheduleLabel: string;
 } {
-  // If we have operator status, show "Live status"
-  // Otherwise show schedule source type
-  const statusLabel = hasOperatorStatus ? 'Live status' : 'Schedule only';
-  const statusClassName = hasOperatorStatus
-    ? 'bg-success-muted/50 text-success'
-    : 'bg-secondary/50 text-muted-foreground';
-
   switch (sourceType) {
     case 'operator_live':
+      // Phase 18: operator_live now means directly from status page
       return {
-        label: statusLabel,
-        className: statusClassName,
+        label: 'Live from operator',
+        className: 'bg-success-muted/50 text-success',
         showSailings: true,
         scheduleLabel: 'Live schedule',
       };
     case 'template':
+      // Template only used as fallback when status page unavailable
       return {
-        label: statusLabel,
-        className: statusClassName,
+        label: hasOperatorStatus ? 'Live status' : 'Template schedule',
+        className: hasOperatorStatus
+          ? 'bg-success-muted/50 text-success'
+          : 'bg-warning-muted/50 text-warning',
         showSailings: true,
         scheduleLabel: 'Template schedule',
       };
@@ -411,14 +408,15 @@ export function TodaySailings({
         </div>
       )}
 
-      {/* Template Warning */}
-      {isTemplate && (
+      {/* Template Warning - only show if NOT using status page */}
+      {isTemplate && statusSource?.source !== 'operator_status_page' && (
         <div className="bg-warning-muted/50 border border-warning/30 rounded-lg p-3 mb-4">
           <p className="text-sm text-warning font-medium">
             Template schedule - not live
           </p>
           <p className="text-xs text-warning/80 mt-1">
             These times are approximate and may not reflect today&apos;s actual schedule.
+            Check with the operator for current sailing times.
           </p>
         </div>
       )}
