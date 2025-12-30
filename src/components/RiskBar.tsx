@@ -124,6 +124,12 @@ export function RiskBar({ score, loading, error }: RiskBarProps) {
         <span className="text-xs text-muted-foreground">Moderate</span>
         <span className="text-xs text-muted-foreground">High Risk</span>
       </div>
+
+      {/* Confidence explanation */}
+      <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
+        Based on current weather conditions. Predictions are more reliable for the next few hours
+        and become less certain further out as weather patterns can change.
+      </p>
     </div>
   );
 }

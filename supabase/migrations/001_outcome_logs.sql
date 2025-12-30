@@ -1,8 +1,27 @@
--- Outcome Logs Table for Ground Truth Collection
+-- ============================================================================
+-- OUTCOME LOGS TABLE - Ground Truth Collection for Future Learning
+-- ============================================================================
 -- Run this in the Supabase SQL Editor AFTER schema-isolated.sql
 --
--- Purpose: Store observed ferry outcomes to compare against predictions
--- This enables future model tuning based on real-world accuracy.
+-- PURPOSE:
+-- Store observed ferry outcomes (ran, delayed, canceled) alongside the
+-- predictions that were made at that time. This creates a dataset for
+-- future accuracy analysis and potential model improvement.
+--
+-- CRITICAL: LEARNING STATUS
+-- ┌──────────────────────────────────────────────────────────────────────────┐
+-- │ This data is COLLECTED but NOT YET USED in predictions.                 │
+-- │ Current predictions are WEATHER-ONLY using deterministic scoring.       │
+-- │ Learning/ML will be introduced later via offline analysis.              │
+-- │ No outcome data currently influences the scoring engine.                │
+-- └──────────────────────────────────────────────────────────────────────────┘
+--
+-- SECURITY MODEL:
+-- - Table is APPEND-ONLY by design
+-- - Writes require SUPABASE_SERVICE_ROLE_KEY (server-side only)
+-- - Public can READ for transparency (research, analysis, verification)
+-- - NO client-side inserts, updates, or deletes are possible
+-- - RLS enforces this at the database level
 --
 -- Design Decision: Using observed_time (timestamptz) instead of observed_date
 -- Rationale: Ferries run multiple times per day, and weather conditions can
@@ -52,8 +71,29 @@ CREATE INDEX IF NOT EXISTS idx_ff_outcome_logs_outcome ON ferry_forecast.outcome
 CREATE INDEX IF NOT EXISTS idx_ff_outcome_logs_route_time ON ferry_forecast.outcome_logs(route_id, observed_time DESC);
 
 -- ============================================
--- ROW LEVEL SECURITY
+-- ROW LEVEL SECURITY - APPEND-ONLY ENFORCEMENT
 -- ============================================
+--
+-- SECURITY ARCHITECTURE:
+-- This table implements an append-only log pattern for data integrity.
+--
+-- WHY APPEND-ONLY?
+-- 1. Outcome data is ground truth - it should never be altered after recording
+-- 2. Historical integrity is essential for future learning/analysis
+-- 3. Prevents accidental or malicious data modification
+-- 4. Audit trail remains intact for verification
+--
+-- HOW IT'S ENFORCED:
+-- - RLS blocks all INSERT/UPDATE/DELETE from anon and authenticated roles
+-- - Only service_role (server-side, via SUPABASE_SERVICE_ROLE_KEY) can write
+-- - The API endpoint /api/outcomes/log is the only write path
+-- - That endpoint requires the service role key (not exposed to clients)
+--
+-- RESULT:
+-- - Clients can READ (for transparency)
+-- - Clients CANNOT write, modify, or delete (enforced at DB level)
+-- - Server can INSERT new records only
+-- - Even server doesn't UPDATE or DELETE (by application design)
 
 ALTER TABLE ferry_forecast.outcome_logs ENABLE ROW LEVEL SECURITY;
 
@@ -63,13 +103,17 @@ CREATE POLICY "Public read outcome_logs"
   FOR SELECT
   USING (true);
 
--- NO insert/update/delete for anon or authenticated
--- Writes must come from service role (server-side only)
--- These policies prevent any direct client writes
-
--- Note: We intentionally do NOT create INSERT/UPDATE/DELETE policies for anon/authenticated
--- The service_role bypasses RLS entirely, so server-side writes will work
--- Client-side writes will be blocked by RLS
+-- INTENTIONALLY NO INSERT/UPDATE/DELETE POLICIES FOR ANON OR AUTHENTICATED
+--
+-- This is a security feature, not an oversight.
+--
+-- The service_role bypasses RLS entirely, so server-side writes work.
+-- Client-side writes are blocked because there's no policy allowing them.
+--
+-- To verify this is working:
+-- 1. Try INSERT from client with anon key → should fail with RLS error
+-- 2. Try INSERT from server with service key → should succeed
+-- 3. Try UPDATE/DELETE from anywhere → should fail (no policy + app doesn't do this)
 
 -- ============================================
 -- GRANT PERMISSIONS

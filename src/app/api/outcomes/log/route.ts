@@ -6,7 +6,29 @@ import type { ObservedOutcome, WeatherSnapshot, ConfidenceRating } from '@/types
  * POST /api/outcomes/log
  *
  * Server-side endpoint for logging ferry outcome observations.
- * Used to collect ground truth data for model accuracy analysis.
+ * Collects ground truth data for future accuracy analysis.
+ *
+ * ============================================================================
+ * LEARNING BOUNDARY - CRITICAL ARCHITECTURAL NOTE
+ * ============================================================================
+ *
+ * CURRENT STATE:
+ * - This endpoint COLLECTS outcome data
+ * - Data is stored in outcome_logs table
+ * - Predictions are WEATHER-ONLY (deterministic scoring engine)
+ * - Outcome logs are NOT used in current predictions
+ *
+ * FUTURE STATE (not yet implemented):
+ * - Offline analysis will compare predictions vs. outcomes
+ * - Model weights may be tuned based on accuracy metrics
+ * - Learning will be introduced via explicit retraining, not live inference
+ *
+ * WHY THIS MATTERS:
+ * - Users should not expect the system to "learn" from their feedback yet
+ * - No claims of ML or adaptive behavior should be made
+ * - The data collection is preparation for future improvement
+ *
+ * ============================================================================
  *
  * SECURITY:
  * - Uses SUPABASE_SERVICE_ROLE_KEY (server-only, NOT exposed to browser)

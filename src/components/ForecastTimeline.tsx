@@ -130,6 +130,11 @@ export function ForecastTimeline({
       <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
         Shows how weather conditions may change over time. Individual ferry sailings may be affected differently based on vessel and schedule.
       </p>
+
+      {/* Confidence note for time-based uncertainty */}
+      <p className="text-xs text-muted-foreground mt-2 italic">
+        Note: Predictions for later hours are based on weather forecasts, which become less certain over time.
+      </p>
     </div>
   );
 }

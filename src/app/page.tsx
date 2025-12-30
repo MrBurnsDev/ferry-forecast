@@ -144,6 +144,43 @@ export default function Home() {
         </div>
       </section>
 
+      {/* What This Tool Does NOT Do */}
+      <section className="py-12 lg:py-16 bg-secondary/30">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-xl lg:text-2xl font-bold text-foreground mb-6 text-center">
+              What This Tool Does NOT Do
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
+                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">Not a schedule.</strong> We do not show ferry departure times or booking availability.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
+                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">Not official status.</strong> Always verify with the ferry operator before traveling.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
+                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">Not a guarantee.</strong> Predictions show risk, not certainty. Ferries may run or cancel regardless.
+                </p>
+              </div>
+              <div className="flex items-start gap-3 p-4 bg-card rounded-lg">
+                <span className="text-muted-foreground text-lg" aria-hidden="true">-</span>
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">Not authoritative.</strong> This is an advisory tool for planning, not a replacement for operator announcements.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Disclaimer Section */}
       <section className="py-8 lg:py-12">
         <div className="container mx-auto px-4 lg:px-8">

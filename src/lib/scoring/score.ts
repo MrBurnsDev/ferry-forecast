@@ -1,5 +1,6 @@
-// Deterministic Scoring Engine
-// Calculates disruption risk based on weather, tides, and historical patterns
+// ============================================================================
+// DETERMINISTIC SCORING ENGINE - Weather-Only Predictions
+// ============================================================================
 //
 // SCORING PHILOSOPHY:
 // - Score 0-30: Low risk - conditions favorable, disruptions unlikely
@@ -7,11 +8,34 @@
 // - Score 61-100: High risk - significant factors present, disruptions likely
 //
 // The engine is fully deterministic - same inputs always produce same outputs.
-// This allows for transparency and debugging.
+// This allows for transparency, debugging, and user trust.
 //
-// FUTURE LEARNING HOOKS:
-// The historicalMatches parameter allows for correlation with past disruptions.
-// As real disruption data is collected, the weights can be tuned to improve accuracy.
+// ============================================================================
+// LEARNING BOUNDARY - CRITICAL ARCHITECTURAL NOTE
+// ============================================================================
+//
+// CURRENT STATE (v1.0):
+// - Predictions are based ONLY on weather data (wind, gusts, advisories, tides)
+// - Scoring uses FIXED weights defined in weights.ts
+// - NO learning, ML, or adaptive behavior is active
+// - NO outcome data is used in predictions
+//
+// DATA COLLECTION (active but not used):
+// - Outcome logs are being collected via /api/outcomes/log
+// - This data will enable FUTURE accuracy analysis
+// - The historicalMatches parameter exists but receives no data currently
+//
+// FUTURE STATE (not yet implemented):
+// - Offline analysis will compare predictions vs. actual outcomes
+// - Weight adjustments may be derived from accuracy metrics
+// - Any model changes will be explicit, versioned, and announced
+//
+// WHY THIS MATTERS:
+// - Users see weather-based predictions, not learned patterns
+// - No false claims of "AI" or "learning" should be made
+// - Transparency builds trust
+//
+// ============================================================================
 
 import type {
   FerryRoute,
@@ -393,10 +417,23 @@ export function getRiskLevel(score: number): {
 // ============================================
 // LEARNING HOOKS - For Future ML Integration
 // ============================================
+//
+// IMPORTANT: These functions exist for FUTURE use.
+// They are NOT currently integrated into the prediction pipeline.
+//
+// Purpose:
+// - createScoringSnapshot: Creates a record of prediction + inputs
+// - evaluatePrediction: Compares prediction to actual outcome
+// - These will be used in OFFLINE analysis, not live inference
+//
+// Current Status: INACTIVE
+// Future Status: Will be used for weight tuning after data collection
 
 /**
  * Snapshot the current scoring state for later analysis
  * This creates a record that can be compared against actual outcomes
+ *
+ * NOTE: This is infrastructure for future learning, not active functionality.
  */
 export interface ScoringSnapshot {
   input: ScoringInput;
