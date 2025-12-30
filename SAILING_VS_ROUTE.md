@@ -1,6 +1,6 @@
 # Sailing vs Route: UX Distinction
 
-**Ferry Forecast v1.3**
+**Ferry Forecast v1.4**
 **Date**: December 2024
 
 ---
@@ -90,6 +90,66 @@ The route page is now split into two clear sections:
 
 ---
 
+## Schedule Provenance Rules (Phase 15)
+
+### Core Principle
+**We NEVER silently substitute made-up schedules.** Every schedule response must declare its source.
+
+### Source Types
+
+| source_type | Meaning | UI Display |
+|-------------|---------|------------|
+| `operator_live` | Parsed from operator website/API | Green "Live" badge with timestamp |
+| `template` | User-configured template (NOT live) | Yellow "Template (not live)" warning |
+| `unavailable` | Could not fetch, no data | "Schedule unavailable" with link to operator |
+
+### Provenance Metadata
+
+Every schedule response includes:
+
+```typescript
+interface ScheduleProvenance {
+  source_type: 'operator_live' | 'template' | 'unavailable';
+  source_name: string;        // e.g., "Steamship Authority"
+  fetched_at: string;         // ISO timestamp
+  source_url: string;         // Link to operator schedule
+  parse_confidence: 'high' | 'medium' | 'low';
+  raw_status_supported: boolean;
+  error_message?: string;     // If unavailable
+}
+```
+
+### UI Behavior by Source Type
+
+#### When `source_type: "operator_live"`
+- Show sailings with green "Live" badge
+- Display: "Source: Steamship Authority - fetched at 6:12 AM"
+- Full sailing list with times and directions
+
+#### When `source_type: "template"`
+- Show sailings with yellow warning banner
+- Display: "Template schedule - not live"
+- Warning: "These times are approximate and may not reflect today's actual schedule"
+- Still show sailings but with clear caveat
+
+#### When `source_type: "unavailable"`
+- Do NOT show any sailing times
+- Display: "Live schedule unavailable"
+- Show error message if available
+- Prominent button: "Open operator schedule" (links to operator website)
+- Note: "We only show schedules we can verify from the operator. No made-up times."
+
+### Why This Matters
+
+Users who see a schedule and then find it's wrong will lose trust. By being honest about:
+- What we **verified** (operator_live)
+- What we **approximated** (template)
+- What we **don't know** (unavailable)
+
+We maintain credibility and set appropriate expectations.
+
+---
+
 ## Data Flow
 
 ```
@@ -103,20 +163,81 @@ The route page is now split into two clear sections:
 │  Source:                    │  Source:                      │
 │  - /api/schedule/:routeId   │  - /api/forecast/route/:id    │
 │  - Operator websites        │  - NOAA Weather API           │
-│  - Static fallback          │  - NWS Alerts API             │
+│  - Provenance metadata      │  - NWS Alerts API             │
 │                             │  - NOAA CO-OPS Tides          │
 │                             │                               │
 │  Shows:                     │  Shows:                       │
-│  - Departure times          │  - Risk score (0-100)         │
-│  - Direction                │  - 24h weather timeline       │
-│  - Operator status          │  - Wind, tide, advisories     │
-│                             │  - Route exposure             │
+│  - Source type badge        │  - Risk score (0-100)         │
+│  - Fetch timestamp          │  - 24h weather timeline       │
+│  - Departure times          │  - Wind, tide, advisories     │
+│  - Direction                │  - Route exposure             │
+│  - Operator status          │                               │
 │                             │                               │
-│  Does NOT predict:          │  Does NOT predict:            │
-│  - Future cancellations     │  - Per-sailing outcomes       │
+│  Does NOT:                  │  Does NOT predict:            │
+│  - Show made-up times       │  - Per-sailing outcomes       │
+│  - Predict cancellations    │                               │
 │                             │                               │
 └─────────────────────────────┴───────────────────────────────┘
 ```
+
+---
+
+## API Response Shape
+
+### /api/schedule/:routeId
+
+```json
+{
+  "routeId": "wh-vh-ssa",
+  "scheduleDate": "2024-12-30",
+  "operator": "Steamship Authority",
+  "operatorScheduleUrl": "https://www.steamshipauthority.com/schedules",
+  "sailings": [...],
+  "provenance": {
+    "source_type": "unavailable",
+    "source_name": "Steamship Authority",
+    "fetched_at": "2024-12-30T11:12:34.567Z",
+    "source_url": "https://www.steamshipauthority.com/schedules",
+    "parse_confidence": "low",
+    "raw_status_supported": false,
+    "error_message": "Could not parse schedule from SSA website."
+  },
+  "operatorStatus": {
+    "status": null,
+    "source": null,
+    "message": null
+  }
+}
+```
+
+---
+
+## Rate Limiting & Caching
+
+To protect operator websites:
+
+- **Cache TTL**: 5 minutes
+- **Rate limit**: 10 seconds between requests to same operator
+- **Request coalescing**: Concurrent requests share one fetch
+- **Graceful degradation**: If blocked, return "unavailable" (never fake data)
+
+---
+
+## Debug Mode
+
+For development/troubleshooting:
+
+```bash
+SCHEDULE_DEBUG=true npm run dev
+```
+
+Logs (server-side only):
+- Parse counts
+- HTML size
+- Parse duration
+- Failure reasons
+
+**Never logs**: User data, secrets, PII
 
 ---
 
@@ -129,30 +250,19 @@ Users who see a high risk score but then observe ferries running will lose trust
 
 We set appropriate expectations.
 
+### Schedule Trust
+Users who see schedule times and then find them wrong will lose trust. By clearly showing:
+- **Live**: We verified this from the operator
+- **Template**: This is approximate, check with operator
+- **Unavailable**: We don't know, here's the operator link
+
+We maintain credibility.
+
 ### Operator Alignment
 Ferry operators communicate per-sailing, not per-route. Our UI now mirrors this reality.
 
 ### Future-Proofing
-When we eventually add per-sailing predictions (Phase 15+), we'll have a clean conceptual foundation to build on.
-
----
-
-## Schedule Data
-
-### Current Implementation
-- Static schedule templates with approximate departure times
-- Best-effort parsing of operator websites (designed to fail gracefully)
-- Operator-level status applied to sailings when available
-
-### Limitations
-- Schedules vary by season (templates are approximate)
-- Live per-sailing status requires operator API or more robust scraping
-- We do NOT predict per-sailing cancellations
-
-### Future Improvements
-- Parse operator mobile/API endpoints for real-time schedules
-- Add per-sailing status parsing
-- Correlation between weather and per-sailing outcomes (ML-based)
+When we eventually add per-sailing predictions, we'll have a clean conceptual foundation to build on.
 
 ---
 
@@ -162,8 +272,11 @@ When we eventually add per-sailing predictions (Phase 15+), we'll have a clean c
 |---------|------------|--------------|------------------|
 | **Sailing** | A specific departure (7:00 AM VH→WH) | Time, direction, operator status | Predict cancellation |
 | **Route** | A port-to-port connection | Weather risk, conditions, exposure | Guarantee outcomes |
+| **Schedule** | Today's sailing times | Only verified or clearly labeled data | Invent times silently |
 
-The key insight: **Elevated weather risk ≠ All sailings canceled**
+The key insights:
+- **Elevated weather risk ≠ All sailings canceled**
+- **No data is better than false data**
 
 ---
 

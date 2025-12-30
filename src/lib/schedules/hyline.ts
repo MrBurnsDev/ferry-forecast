@@ -1,8 +1,12 @@
 /**
  * Hy-Line Cruises Schedule Fetch
  *
- * Best-effort fetching of today's sailing schedule from Hy-Line website.
- * Designed for graceful degradation - returns static fallback if fetch fails.
+ * Fetches today's sailing schedule from Hy-Line website.
+ *
+ * PHASE 15 RULES:
+ * - NO silent static fallback. If fetch fails, return source_type: "unavailable"
+ * - Every response includes full provenance metadata
+ * - Users see "Schedule unavailable" with link to operator, NOT made-up times
  *
  * IMPORTANT: This is DISPLAY ONLY. We show what the operator publishes.
  * We do NOT predict or infer sailing-level cancellations.
@@ -11,43 +15,56 @@
 import type {
   Sailing,
   SailingDirection,
-  SailingStatus,
   ScheduleFetchResult,
-  StaticScheduleTemplate,
+  ScheduleProvenance,
 } from './types';
 
+// Hy-Line schedule page URL
 const HYLINE_SCHEDULE_URL = 'https://www.hylinecruises.com/schedules';
 const REQUEST_TIMEOUT = 8000;
 
+// Debug mode from environment
+const SCHEDULE_DEBUG = process.env.SCHEDULE_DEBUG === 'true';
+
 /**
- * Static schedule templates for Hy-Line routes
- * These are approximate times - actual varies by season
- * Hy-Line runs high-speed ferries with shorter crossing times
+ * Operator info for Hy-Line routes
  */
-const HYLINE_STATIC_SCHEDULES: Record<string, StaticScheduleTemplate> = {
+interface HyLineRouteInfo {
+  operatorName: string;
+  operatorSlug: string;
+  operatorUrl: string;
+  from: string;
+  to: string;
+}
+
+const HYLINE_ROUTES: Record<string, HyLineRouteInfo> = {
   'hy-nan-hlc': {
-    operator: 'Hy-Line Cruises',
+    operatorName: 'Hy-Line Cruises',
     operatorSlug: 'hlc',
-    operatorUrl: 'https://www.hylinecruises.com/schedules',
-    departureTimes: ['06:30', '08:00', '09:30', '11:00', '13:00', '15:00', '17:00', '19:00'],
+    operatorUrl: HYLINE_SCHEDULE_URL,
+    from: 'hyannis',
+    to: 'nantucket',
   },
   'nan-hy-hlc': {
-    operator: 'Hy-Line Cruises',
+    operatorName: 'Hy-Line Cruises',
     operatorSlug: 'hlc',
-    operatorUrl: 'https://www.hylinecruises.com/schedules',
-    departureTimes: ['07:30', '09:00', '10:30', '12:00', '14:00', '16:00', '18:00', '20:00'],
+    operatorUrl: HYLINE_SCHEDULE_URL,
+    from: 'nantucket',
+    to: 'hyannis',
   },
   'hy-vh-hlc': {
-    operator: 'Hy-Line Cruises',
+    operatorName: 'Hy-Line Cruises',
     operatorSlug: 'hlc',
-    operatorUrl: 'https://www.hylinecruises.com/schedules',
-    departureTimes: ['09:15', '13:30', '17:45'],
+    operatorUrl: HYLINE_SCHEDULE_URL,
+    from: 'hyannis',
+    to: 'vineyard-haven',
   },
   'vh-hy-hlc': {
-    operator: 'Hy-Line Cruises',
+    operatorName: 'Hy-Line Cruises',
     operatorSlug: 'hlc',
-    operatorUrl: 'https://www.hylinecruises.com/schedules',
-    departureTimes: ['10:45', '15:00', '19:15'],
+    operatorUrl: HYLINE_SCHEDULE_URL,
+    from: 'vineyard-haven',
+    to: 'hyannis',
   },
 };
 
@@ -64,42 +81,15 @@ const PORT_NAMES: Record<string, string> = {
  * Get direction info for a route
  */
 function getDirectionForRoute(routeId: string): SailingDirection | null {
-  const routeParts: Record<string, { from: string; to: string }> = {
-    'hy-nan-hlc': { from: 'hyannis', to: 'nantucket' },
-    'nan-hy-hlc': { from: 'nantucket', to: 'hyannis' },
-    'hy-vh-hlc': { from: 'hyannis', to: 'vineyard-haven' },
-    'vh-hy-hlc': { from: 'vineyard-haven', to: 'hyannis' },
-  };
-
-  const parts = routeParts[routeId];
-  if (!parts) return null;
+  const route = HYLINE_ROUTES[routeId];
+  if (!route) return null;
 
   return {
-    from: PORT_NAMES[parts.from] || parts.from,
-    fromSlug: parts.from,
-    to: PORT_NAMES[parts.to] || parts.to,
-    toSlug: parts.to,
+    from: PORT_NAMES[route.from] || route.from,
+    fromSlug: route.from,
+    to: PORT_NAMES[route.to] || route.to,
+    toSlug: route.to,
   };
-}
-
-/**
- * Format time string (HH:MM) to display format (h:mm AM/PM)
- */
-function formatTimeForDisplay(time24: string): string {
-  const [hours, minutes] = time24.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hours12 = hours % 12 || 12;
-  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
-}
-
-/**
- * Create ISO datetime from time string for today
- */
-function createISOTime(time24: string): string {
-  const today = new Date();
-  const [hours, minutes] = time24.split(':').map(Number);
-  today.setHours(hours, minutes, 0, 0);
-  return today.toISOString();
 }
 
 /**
@@ -110,68 +100,121 @@ function getTodayString(): string {
 }
 
 /**
- * Generate static fallback schedule
+ * Create unavailable result with proper provenance
  */
-function generateStaticSchedule(routeId: string): ScheduleFetchResult {
-  const template = HYLINE_STATIC_SCHEDULES[routeId];
-  const direction = getDirectionForRoute(routeId);
+function createUnavailableResult(
+  routeId: string,
+  errorMessage: string,
+  debugInfo?: ScheduleProvenance['debug']
+): ScheduleFetchResult {
+  const route = HYLINE_ROUTES[routeId];
+  const now = new Date().toISOString();
 
-  if (!template || !direction) {
-    return {
-      success: false,
-      sailings: [],
-      fetchedAt: new Date().toISOString(),
-      scheduleDate: getTodayString(),
-      error: `Unknown Hy-Line route: ${routeId}`,
-      operator: 'Hy-Line Cruises',
-      isStaticFallback: true,
-    };
+  const provenance: ScheduleProvenance = {
+    source_type: 'unavailable',
+    source_name: route?.operatorName || 'Hy-Line Cruises',
+    fetched_at: now,
+    source_url: route?.operatorUrl || HYLINE_SCHEDULE_URL,
+    parse_confidence: 'low',
+    raw_status_supported: false,
+    error_message: errorMessage,
+  };
+
+  if (SCHEDULE_DEBUG && debugInfo) {
+    provenance.debug = debugInfo;
   }
 
-  const sailings: Sailing[] = template.departureTimes.map((time) => ({
-    departureTime: createISOTime(time),
-    departureTimeDisplay: formatTimeForDisplay(time),
-    direction,
-    operator: template.operator,
-    operatorSlug: template.operatorSlug,
-    status: 'scheduled' as SailingStatus,
-    statusFromOperator: false,
-  }));
-
   return {
-    success: true,
-    sailings,
-    fetchedAt: new Date().toISOString(),
+    success: false,
+    sailings: [],
+    provenance,
     scheduleDate: getTodayString(),
-    operator: template.operator,
-    operatorScheduleUrl: template.operatorUrl,
-    isStaticFallback: true,
+    operator: route?.operatorName || 'Hy-Line Cruises',
+    operatorScheduleUrl: route?.operatorUrl || HYLINE_SCHEDULE_URL,
   };
+}
+
+/**
+ * Parse sailing times from HTML response
+ *
+ * TODO: Implement actual HTML parsing when Hy-Line page structure is analyzed.
+ */
+function parseHyLineSchedule(
+  html: string,
+  routeId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _direction: SailingDirection
+): { sailings: Sailing[]; confidence: 'high' | 'medium' | 'low'; parseCount: number } {
+  const route = HYLINE_ROUTES[routeId];
+  if (!route) {
+    return { sailings: [], confidence: 'low', parseCount: 0 };
+  }
+
+  // Hy-Line's website may also use JavaScript rendering
+  // Look for any embedded schedule data
+
+  // Check for JSON-LD structured data
+  const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  if (jsonLdMatch) {
+    try {
+      const jsonData = JSON.parse(jsonLdMatch[1]);
+      if (SCHEDULE_DEBUG) {
+        console.log('[SCHEDULE_DEBUG] Found JSON-LD data:', typeof jsonData);
+      }
+    } catch {
+      // JSON parse failed
+    }
+  }
+
+  // Look for time patterns
+  const timePattern = /\b(\d{1,2}):(\d{2})\s*(AM|PM)\b/gi;
+  const times: string[] = [];
+  let match;
+
+  while ((match = timePattern.exec(html)) !== null) {
+    const hour = parseInt(match[1]);
+    const minute = match[2];
+    const period = match[3].toUpperCase();
+
+    let hour24 = hour;
+    if (period === 'PM' && hour !== 12) hour24 += 12;
+    if (period === 'AM' && hour === 12) hour24 = 0;
+
+    const time24 = `${hour24.toString().padStart(2, '0')}:${minute}`;
+    if (!times.includes(time24)) {
+      times.push(time24);
+    }
+  }
+
+  if (SCHEDULE_DEBUG && times.length > 0) {
+    console.log(`[SCHEDULE_DEBUG] Found ${times.length} time patterns, but cannot confirm they are schedule times`);
+  }
+
+  // Return empty - we cannot reliably parse without more work
+  return { sailings: [], confidence: 'low', parseCount: 0 };
 }
 
 /**
  * Fetch Hy-Line schedule for a route
  *
- * Currently returns static fallback - live parsing to be added
- * when Hy-Line schedule page structure is analyzed.
+ * Returns source_type: "operator_live" if successfully parsed
+ * Returns source_type: "unavailable" if fetch or parse fails
+ *
+ * NEVER returns silent static fallback schedules
  */
 export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetchResult> {
-  const template = HYLINE_STATIC_SCHEDULES[routeId];
+  const route = HYLINE_ROUTES[routeId];
+  const direction = getDirectionForRoute(routeId);
 
-  if (!template) {
-    return {
-      success: false,
-      sailings: [],
-      fetchedAt: new Date().toISOString(),
-      scheduleDate: getTodayString(),
-      error: `Route ${routeId} is not a Hy-Line route`,
-      operator: 'Hy-Line Cruises',
-      isStaticFallback: true,
-    };
+  if (!route || !direction) {
+    return createUnavailableResult(
+      routeId,
+      `Route ${routeId} is not a recognized Hy-Line route`
+    );
   }
 
-  // TODO: Implement live schedule parsing from Hy-Line website
-  // Similar to SSA, the website may use JS rendering
+  const startTime = Date.now();
+  let htmlSize = 0;
 
   try {
     const controller = new AbortController();
@@ -179,8 +222,8 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
 
     const response = await fetch(HYLINE_SCHEDULE_URL, {
       headers: {
-        'User-Agent': 'FerryForecast/1.0 (github.com/ferryforecast)',
-        'Accept': 'text/html',
+        'User-Agent': 'FerryForecast/1.0 (weather risk advisory tool)',
+        'Accept': 'text/html,application/xhtml+xml',
       },
       signal: controller.signal,
     });
@@ -188,14 +231,77 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      return generateStaticSchedule(routeId);
+      return createUnavailableResult(
+        routeId,
+        `Hy-Line returned HTTP ${response.status}`,
+        SCHEDULE_DEBUG ? { failure_reason: `HTTP ${response.status}` } : undefined
+      );
     }
 
-    // TODO: Parse the response HTML for actual schedule
-    return generateStaticSchedule(routeId);
+    const html = await response.text();
+    htmlSize = html.length;
 
-  } catch {
-    return generateStaticSchedule(routeId);
+    // Attempt to parse schedule from HTML
+    const parseResult = parseHyLineSchedule(html, routeId, direction);
+    const parseDuration = Date.now() - startTime;
+
+    if (parseResult.sailings.length > 0) {
+      // Successfully parsed sailings
+      const provenance: ScheduleProvenance = {
+        source_type: 'operator_live',
+        source_name: route.operatorName,
+        fetched_at: new Date().toISOString(),
+        source_url: HYLINE_SCHEDULE_URL,
+        parse_confidence: parseResult.confidence,
+        raw_status_supported: false,
+      };
+
+      if (SCHEDULE_DEBUG) {
+        provenance.debug = {
+          parse_count: parseResult.parseCount,
+          raw_html_size: htmlSize,
+          parse_duration_ms: parseDuration,
+        };
+        console.log(`[SCHEDULE_DEBUG] Hy-Line ${routeId}: parsed ${parseResult.sailings.length} sailings in ${parseDuration}ms`);
+      }
+
+      return {
+        success: true,
+        sailings: parseResult.sailings,
+        provenance,
+        scheduleDate: getTodayString(),
+        operator: route.operatorName,
+        operatorScheduleUrl: HYLINE_SCHEDULE_URL,
+      };
+    }
+
+    // Could not parse schedule - return unavailable
+    return createUnavailableResult(
+      routeId,
+      'Could not parse schedule from Hy-Line website. The page may use JavaScript rendering.',
+      SCHEDULE_DEBUG ? {
+        raw_html_size: htmlSize,
+        parse_duration_ms: parseDuration,
+        failure_reason: 'No schedule data found in HTML',
+      } : undefined
+    );
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isTimeout = errorMessage.includes('abort');
+
+    if (SCHEDULE_DEBUG) {
+      console.log(`[SCHEDULE_DEBUG] Hy-Line ${routeId}: fetch failed - ${errorMessage}`);
+    }
+
+    return createUnavailableResult(
+      routeId,
+      isTimeout ? 'Request timed out' : `Fetch failed: ${errorMessage}`,
+      SCHEDULE_DEBUG ? {
+        failure_reason: errorMessage,
+        parse_duration_ms: Date.now() - startTime,
+      } : undefined
+    );
   }
 }
 
@@ -203,5 +309,12 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
  * Check if a route is a Hy-Line route
  */
 export function isHyLineScheduleRoute(routeId: string): boolean {
-  return routeId in HYLINE_STATIC_SCHEDULES;
+  return routeId in HYLINE_ROUTES;
+}
+
+/**
+ * Get Hy-Line route info
+ */
+export function getHyLineRouteInfo(routeId: string): HyLineRouteInfo | null {
+  return HYLINE_ROUTES[routeId] || null;
 }

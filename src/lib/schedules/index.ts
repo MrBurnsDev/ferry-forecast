@@ -2,7 +2,13 @@
  * Unified Schedule Service
  *
  * Fetches today's sailing schedule for any supported route.
- * Aggregates SSA and Hy-Line schedules with graceful degradation.
+ * Aggregates SSA and Hy-Line schedules with honest provenance.
+ *
+ * PHASE 15 RULES:
+ * - Every schedule response includes source_type and fetched_at
+ * - source_type: "operator_live" = parsed from operator website
+ * - source_type: "unavailable" = could not fetch, no sailings shown
+ * - We NEVER silently substitute made-up static schedules
  *
  * IMPORTANT DISTINCTION:
  * - Schedule = individual sailings (what this module provides)
@@ -16,61 +22,150 @@
 
 import { fetchSSASchedule, isSSAScheduleRoute } from './steamship';
 import { fetchHyLineSchedule, isHyLineScheduleRoute } from './hyline';
-import type { ScheduleFetchResult, Sailing, SailingStatus } from './types';
+import type { ScheduleFetchResult, Sailing, SailingStatus, ScheduleProvenance } from './types';
 
 // Re-export types
-export type { Sailing, SailingDirection, SailingStatus, ScheduleFetchResult } from './types';
+export type {
+  Sailing,
+  SailingDirection,
+  SailingStatus,
+  ScheduleFetchResult,
+  ScheduleProvenance,
+  ScheduleSourceType,
+  ParseConfidence,
+} from './types';
 
-// Cache for schedules (short TTL since schedules can change during disruptions)
+// ============================================================
+// RATE LIMITING & REQUEST COALESCING
+// ============================================================
+
+// Cache for schedules with TTL
 interface ScheduleCacheEntry {
   result: ScheduleFetchResult;
   expiresAt: number;
 }
 
 const scheduleCache = new Map<string, ScheduleCacheEntry>();
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (increased from 3)
+
+// In-flight requests for coalescing
+const inFlightRequests = new Map<string, Promise<ScheduleFetchResult>>();
+
+// Rate limiting: track last fetch time per operator
+const lastFetchTime = new Map<string, number>();
+const MIN_FETCH_INTERVAL_MS = 10 * 1000; // 10 seconds between requests to same operator
+
+/**
+ * Check if we should rate-limit a request
+ */
+function shouldRateLimit(operatorSlug: string): boolean {
+  const lastTime = lastFetchTime.get(operatorSlug);
+  if (!lastTime) return false;
+  return Date.now() - lastTime < MIN_FETCH_INTERVAL_MS;
+}
+
+/**
+ * Record a fetch time for rate limiting
+ */
+function recordFetchTime(operatorSlug: string): void {
+  lastFetchTime.set(operatorSlug, Date.now());
+}
+
+// ============================================================
+// SCHEDULE FETCHING
+// ============================================================
 
 /**
  * Get today's sailing schedule for a route
  *
- * Returns all scheduled sailings for both directions if the route
- * represents a bidirectional pair (e.g., wh-vh-ssa gets VH↔WH sailings)
+ * Features:
+ * - Caching with 5-minute TTL
+ * - Request coalescing (concurrent requests share one fetch)
+ * - Rate limiting (10 seconds between requests to same operator)
  */
 export async function getTodaySchedule(routeId: string): Promise<ScheduleFetchResult> {
   const now = Date.now();
   const cacheKey = `schedule:${routeId}`;
 
-  // Check cache
+  // Check cache first
   const cached = scheduleCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     return cached.result;
   }
 
-  let result: ScheduleFetchResult;
-
-  if (isSSAScheduleRoute(routeId)) {
-    result = await fetchSSASchedule(routeId);
-  } else if (isHyLineScheduleRoute(routeId)) {
-    result = await fetchHyLineSchedule(routeId);
-  } else {
-    result = {
-      success: false,
-      sailings: [],
-      fetchedAt: new Date().toISOString(),
-      scheduleDate: new Date().toISOString().split('T')[0],
-      error: `Unknown route: ${routeId}`,
-      operator: 'Unknown',
-      isStaticFallback: true,
-    };
+  // Check if there's an in-flight request we can reuse
+  const inFlight = inFlightRequests.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
   }
 
-  // Cache result
-  scheduleCache.set(cacheKey, {
-    result,
-    expiresAt: now + CACHE_TTL_MS,
-  });
+  // Determine operator for rate limiting
+  const operatorSlug = isSSAScheduleRoute(routeId) ? 'ssa' :
+                       isHyLineScheduleRoute(routeId) ? 'hlc' : null;
 
-  return result;
+  // Check rate limit
+  if (operatorSlug && shouldRateLimit(operatorSlug)) {
+    // Return cached result even if stale, or create unavailable
+    if (cached) {
+      return cached.result;
+    }
+    return createUnavailableResult(routeId, 'Rate limited - please try again shortly');
+  }
+
+  // Create the fetch promise
+  const fetchPromise = (async () => {
+    let result: ScheduleFetchResult;
+
+    if (isSSAScheduleRoute(routeId)) {
+      recordFetchTime('ssa');
+      result = await fetchSSASchedule(routeId);
+    } else if (isHyLineScheduleRoute(routeId)) {
+      recordFetchTime('hlc');
+      result = await fetchHyLineSchedule(routeId);
+    } else {
+      result = createUnavailableResult(routeId, `Unknown route: ${routeId}`);
+    }
+
+    // Cache result
+    scheduleCache.set(cacheKey, {
+      result,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+
+    // Remove from in-flight
+    inFlightRequests.delete(cacheKey);
+
+    return result;
+  })();
+
+  // Store in-flight for coalescing
+  inFlightRequests.set(cacheKey, fetchPromise);
+
+  return fetchPromise;
+}
+
+/**
+ * Create an unavailable result for unknown routes
+ */
+function createUnavailableResult(routeId: string, errorMessage: string): ScheduleFetchResult {
+  const provenance: ScheduleProvenance = {
+    source_type: 'unavailable',
+    source_name: 'Unknown',
+    fetched_at: new Date().toISOString(),
+    source_url: '',
+    parse_confidence: 'low',
+    raw_status_supported: false,
+    error_message: errorMessage,
+  };
+
+  return {
+    success: false,
+    sailings: [],
+    provenance,
+    scheduleDate: new Date().toISOString().split('T')[0],
+    operator: 'Unknown',
+    operatorScheduleUrl: '',
+  };
 }
 
 /**
@@ -167,4 +262,5 @@ export function getScheduleOperator(routeId: string): string | null {
  */
 export function clearScheduleCache(): void {
   scheduleCache.clear();
+  inFlightRequests.clear();
 }

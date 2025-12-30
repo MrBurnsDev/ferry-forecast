@@ -1,16 +1,16 @@
 'use client';
 
-import type { Sailing, SailingStatus } from '@/lib/schedules';
+import type { Sailing, SailingStatus, ScheduleProvenance, ScheduleSourceType } from '@/lib/schedules';
 import type { OfficialStatus } from '@/types/forecast';
 
 interface TodaySailingsProps {
   sailings: Sailing[] | null;
   loading?: boolean;
   error?: string;
+  provenance?: ScheduleProvenance | null;
   operatorStatus?: OfficialStatus | null;
   operatorStatusSource?: string | null;
   operatorScheduleUrl?: string;
-  isStaticSchedule?: boolean;
   routeDisplayName: string;
 }
 
@@ -51,6 +51,53 @@ function getSailingStatusDisplay(status: SailingStatus, fromOperator: boolean): 
   }
 }
 
+/**
+ * Format the provenance timestamp for display
+ */
+function formatFetchedAt(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return 'Unknown time';
+  }
+}
+
+/**
+ * Get source type display info
+ */
+function getSourceTypeDisplay(sourceType: ScheduleSourceType): {
+  label: string;
+  className: string;
+  showSailings: boolean;
+} {
+  switch (sourceType) {
+    case 'operator_live':
+      return {
+        label: 'Live',
+        className: 'bg-success-muted/50 text-success',
+        showSailings: true,
+      };
+    case 'template':
+      return {
+        label: 'Template (not live)',
+        className: 'bg-warning-muted/50 text-warning',
+        showSailings: true,
+      };
+    case 'unavailable':
+    default:
+      return {
+        label: 'Unavailable',
+        className: 'bg-secondary/50 text-muted-foreground',
+        showSailings: false,
+      };
+  }
+}
+
 function ClockIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -76,11 +123,12 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
-function InfoIcon({ className }: { className?: string }) {
+function AlertCircleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <circle cx="12" cy="12" r="10" />
-      <path d="M12 16v-4M12 8h.01" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
   );
 }
@@ -96,12 +144,16 @@ export function TodaySailings({
   sailings,
   loading,
   error,
+  provenance,
   operatorStatus,
   operatorStatusSource,
   operatorScheduleUrl,
-  isStaticSchedule,
   routeDisplayName,
 }: TodaySailingsProps) {
+  // Determine source type display
+  const sourceType = provenance?.source_type || 'unavailable';
+  const sourceDisplay = getSourceTypeDisplay(sourceType);
+
   if (loading) {
     return (
       <div className="card-maritime p-6">
@@ -115,36 +167,73 @@ export function TodaySailings({
     );
   }
 
-  if (error) {
+  // Handle unavailable state (no static fallback anymore)
+  if (sourceType === 'unavailable' || error) {
     return (
       <div className="card-maritime p-6">
-        <h2 className="text-xl font-semibold text-foreground mb-4">Today&apos;s Sailings</h2>
-        <div className="bg-secondary/50 rounded-lg p-4">
-          <p className="text-muted-foreground text-sm">
-            Unable to load schedule. Please check the operator&apos;s website directly.
+        <h2 className="text-xl font-semibold text-foreground mb-2">Today&apos;s Sailings</h2>
+        <p className="text-sm text-muted-foreground mb-4">{routeDisplayName}</p>
+
+        {/* Source Info - Always show even when unavailable */}
+        {provenance && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
+            <span className={`px-2 py-0.5 rounded ${sourceDisplay.className}`}>
+              {sourceDisplay.label}
+            </span>
+            {provenance.source_name && (
+              <span>Source: {provenance.source_name}</span>
+            )}
+          </div>
+        )}
+
+        <div className="bg-secondary/50 rounded-lg p-6 text-center">
+          <AlertCircleIcon className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-foreground font-medium mb-2">
+            Live schedule unavailable
+          </p>
+          <p className="text-muted-foreground text-sm mb-4">
+            {provenance?.error_message || error || 'Could not load schedule from operator website.'}
           </p>
           {operatorScheduleUrl && (
             <a
               href={operatorScheduleUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-2 text-accent text-sm hover:underline"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
             >
-              View operator schedule <ExternalLinkIcon className="w-4 h-4" />
+              Open operator schedule <ExternalLinkIcon className="w-4 h-4" />
             </a>
           )}
         </div>
+
+        <p className="text-xs text-muted-foreground mt-4 text-center italic">
+          We only show schedules we can verify from the operator. No made-up times.
+        </p>
       </div>
     );
   }
 
+  // Handle template schedule (explicit labeling)
+  const isTemplate = sourceType === 'template';
+
   if (!sailings || sailings.length === 0) {
     return (
       <div className="card-maritime p-6">
-        <h2 className="text-xl font-semibold text-foreground mb-4">Today&apos;s Sailings</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-2">Today&apos;s Sailings</h2>
+        <p className="text-sm text-muted-foreground mb-4">{routeDisplayName}</p>
+
+        {provenance && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
+            <span className={`px-2 py-0.5 rounded ${sourceDisplay.className}`}>
+              {sourceDisplay.label}
+            </span>
+            <span>Checked at {formatFetchedAt(provenance.fetched_at)}</span>
+          </div>
+        )}
+
         <div className="bg-secondary/50 rounded-lg p-4">
           <p className="text-muted-foreground text-sm">
-            No sailings scheduled for today. This may be due to seasonal service or weather conditions.
+            No sailings found for today. This may be due to seasonal service or check the operator directly.
           </p>
         </div>
       </div>
@@ -158,7 +247,7 @@ export function TodaySailings({
   return (
     <div className="card-maritime p-6">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-2">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Today&apos;s Sailings</h2>
           <p className="text-sm text-muted-foreground mt-1">{routeDisplayName}</p>
@@ -174,6 +263,30 @@ export function TodaySailings({
           </a>
         )}
       </div>
+
+      {/* Source Provenance Line - REQUIRED */}
+      {provenance && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4 flex-wrap">
+          <span className={`px-2 py-0.5 rounded ${sourceDisplay.className}`}>
+            {sourceDisplay.label}
+          </span>
+          <span>Source: {provenance.source_name}</span>
+          <span>-</span>
+          <span>fetched at {formatFetchedAt(provenance.fetched_at)}</span>
+        </div>
+      )}
+
+      {/* Template Warning */}
+      {isTemplate && (
+        <div className="bg-warning-muted/50 border border-warning/30 rounded-lg p-3 mb-4">
+          <p className="text-sm text-warning font-medium">
+            Template schedule - not live
+          </p>
+          <p className="text-xs text-warning/80 mt-1">
+            These times are approximate and may not reflect today&apos;s actual schedule.
+          </p>
+        </div>
+      )}
 
       {/* Status Summary */}
       {operatorStatus && operatorStatus !== 'unknown' && (
@@ -254,16 +367,6 @@ export function TodaySailings({
 
       {/* Footer Notes */}
       <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
-        {isStaticSchedule && (
-          <div className="flex items-start gap-2 text-xs text-muted-foreground">
-            <InfoIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <p>
-              Schedule shown is approximate. Actual times may vary by season.
-              Check with the operator for confirmed times.
-            </p>
-          </div>
-        )}
-
         {canceledCount > 0 && canceledCount < sailings.length && (
           <p className="text-xs text-muted-foreground">
             {canceledCount} of {sailings.length} sailings affected today.
@@ -272,7 +375,7 @@ export function TodaySailings({
         )}
 
         <p className="text-xs text-muted-foreground italic">
-          Live sailing status is published by the operator. Always verify before traveling.
+          Always verify with the operator before traveling.
         </p>
       </div>
     </div>

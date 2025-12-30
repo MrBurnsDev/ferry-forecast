@@ -11,7 +11,7 @@ import { ForecastTimeline } from '@/components/ForecastTimeline';
 import { ConditionsPanel } from '@/components/ConditionsPanel';
 import { TodaySailings } from '@/components/TodaySailings';
 import type { ForecastResponse } from '@/types/forecast';
-import type { Sailing } from '@/lib/schedules';
+import type { Sailing, ScheduleProvenance } from '@/lib/schedules';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -51,7 +51,7 @@ interface ScheduleState {
   loading: boolean;
   error: string | null;
   operatorScheduleUrl?: string;
-  isStaticFallback: boolean;
+  provenance?: ScheduleProvenance | null;
   operatorStatus?: {
     status: string | null;
     source: string | null;
@@ -73,7 +73,6 @@ export default function RoutePage() {
     sailings: null,
     loading: true,
     error: null,
-    isStaticFallback: true,
   });
 
   // Fetch forecast data
@@ -121,7 +120,7 @@ export default function RoutePage() {
             sailings: null,
             loading: false,
             error: data.message || 'Failed to load schedule',
-            isStaticFallback: true,
+            provenance: data.provenance || null,
           });
           return;
         }
@@ -131,7 +130,7 @@ export default function RoutePage() {
           loading: false,
           error: null,
           operatorScheduleUrl: data.operatorScheduleUrl,
-          isStaticFallback: data.isStaticFallback,
+          provenance: data.provenance,
           operatorStatus: data.operatorStatus,
         });
       } catch (err) {
@@ -139,7 +138,6 @@ export default function RoutePage() {
           sailings: null,
           loading: false,
           error: err instanceof Error ? err.message : 'Failed to fetch schedule',
-          isStaticFallback: true,
         });
       }
     }
@@ -237,10 +235,10 @@ export default function RoutePage() {
                 sailings={schedule.sailings}
                 loading={schedule.loading}
                 error={schedule.error || undefined}
+                provenance={schedule.provenance}
                 operatorStatus={schedule.operatorStatus?.status as 'on_time' | 'delayed' | 'canceled' | 'unknown' | undefined}
                 operatorStatusSource={schedule.operatorStatus?.source}
                 operatorScheduleUrl={schedule.operatorScheduleUrl}
-                isStaticSchedule={schedule.isStaticFallback}
                 routeDisplayName={routeDisplayName}
               />
             </div>
