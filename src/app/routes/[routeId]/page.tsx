@@ -12,6 +12,7 @@ import { ConditionsPanel } from '@/components/ConditionsPanel';
 import { TodaySailings } from '@/components/TodaySailings';
 import type { ForecastResponse } from '@/types/forecast';
 import type { Sailing, ScheduleProvenance } from '@/lib/schedules';
+import type { WeatherContext } from '@/lib/scoring/sailing-risk';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -168,6 +169,16 @@ export default function RoutePage() {
 
   const routeDisplayName = `${getPortDisplayName(route.origin_port)} ↔ ${getPortDisplayName(route.destination_port)}`;
 
+  // Extract weather context for per-sailing risk computation
+  const weatherContext: WeatherContext | null = forecast.data?.current_conditions?.weather
+    ? {
+        windSpeed: forecast.data.current_conditions.weather.wind_speed,
+        windGusts: forecast.data.current_conditions.weather.wind_gusts,
+        windDirection: forecast.data.current_conditions.weather.wind_direction,
+        advisoryLevel: forecast.data.current_conditions.weather.advisory_level,
+      }
+    : null;
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Skip to main content link for keyboard users */}
@@ -240,6 +251,8 @@ export default function RoutePage() {
                 operatorStatusSource={schedule.operatorStatus?.source}
                 operatorScheduleUrl={schedule.operatorScheduleUrl}
                 routeDisplayName={routeDisplayName}
+                routeId={routeId}
+                weather={weatherContext}
               />
             </div>
 

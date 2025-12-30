@@ -1,8 +1,15 @@
 'use client';
 
 import type { Sailing, SailingStatus, ScheduleProvenance, ScheduleSourceType } from '@/lib/schedules';
-import { hasSailingDeparted, getSailingTimeStatus } from '@/lib/schedules';
+import { getSailingTimeStatus } from '@/lib/schedules';
 import type { OfficialStatus } from '@/types/forecast';
+import {
+  computeSailingRisk,
+  getSailingRiskDisplay,
+  type WeatherContext,
+  type SailingRisk,
+} from '@/lib/scoring/sailing-risk';
+import { degreesToCompassBucket } from '@/lib/config/exposure';
 
 interface TodaySailingsProps {
   sailings: Sailing[] | null;
@@ -13,34 +20,53 @@ interface TodaySailingsProps {
   operatorStatusSource?: string | null;
   operatorScheduleUrl?: string;
   routeDisplayName: string;
+  /** Route ID for exposure lookup */
+  routeId?: string;
+  /** Weather context for per-sailing risk computation */
+  weather?: WeatherContext | null;
 }
 
 /**
  * Get status display for a sailing
+ * PHASE 16: Only show operator-confirmed statuses
  */
 function getSailingStatusDisplay(status: SailingStatus, fromOperator: boolean): {
   text: string;
   className: string;
   iconClassName: string;
+  show: boolean;
 } {
+  // Only show status if operator explicitly reports it
+  if (!fromOperator && status === 'scheduled') {
+    return {
+      text: '',
+      className: '',
+      iconClassName: '',
+      show: false,
+    };
+  }
+
   switch (status) {
     case 'on_time':
       return {
         text: 'Running',
         className: 'bg-success-muted/50 text-success border-success/30',
         iconClassName: 'text-success',
+        show: true,
       };
     case 'delayed':
       return {
         text: 'Delayed',
         className: 'bg-warning-muted/50 text-warning border-warning/30',
         iconClassName: 'text-warning',
+        show: true,
       };
     case 'canceled':
       return {
-        text: fromOperator ? 'Canceled' : 'Likely Canceled',
+        text: 'Canceled',
         className: 'bg-destructive-muted/50 text-destructive border-destructive/30',
         iconClassName: 'text-destructive',
+        show: true,
       };
     case 'scheduled':
     default:
@@ -48,6 +74,7 @@ function getSailingStatusDisplay(status: SailingStatus, fromOperator: boolean): 
         text: 'Scheduled',
         className: 'bg-secondary/50 text-muted-foreground border-border/30',
         iconClassName: 'text-muted-foreground',
+        show: fromOperator,
       };
   }
 }
@@ -70,24 +97,38 @@ function formatFetchedAt(isoString: string): string {
 
 /**
  * Get source type display info
+ * PHASE 16: "Schedule only" vs "Live status" distinction
  */
-function getSourceTypeDisplay(sourceType: ScheduleSourceType): {
+function getSourceTypeDisplay(
+  sourceType: ScheduleSourceType,
+  hasOperatorStatus: boolean
+): {
   label: string;
   className: string;
   showSailings: boolean;
+  scheduleLabel: string;
 } {
+  // If we have operator status, show "Live status"
+  // Otherwise show schedule source type
+  const statusLabel = hasOperatorStatus ? 'Live status' : 'Schedule only';
+  const statusClassName = hasOperatorStatus
+    ? 'bg-success-muted/50 text-success'
+    : 'bg-secondary/50 text-muted-foreground';
+
   switch (sourceType) {
     case 'operator_live':
       return {
-        label: 'Live',
-        className: 'bg-success-muted/50 text-success',
+        label: statusLabel,
+        className: statusClassName,
         showSailings: true,
+        scheduleLabel: 'Live schedule',
       };
     case 'template':
       return {
-        label: 'Template (not live)',
-        className: 'bg-warning-muted/50 text-warning',
+        label: statusLabel,
+        className: statusClassName,
         showSailings: true,
+        scheduleLabel: 'Template schedule',
       };
     case 'unavailable':
     default:
@@ -95,6 +136,7 @@ function getSourceTypeDisplay(sourceType: ScheduleSourceType): {
         label: 'Unavailable',
         className: 'bg-secondary/50 text-muted-foreground',
         showSailings: false,
+        scheduleLabel: 'Schedule unavailable',
       };
   }
 }
@@ -134,12 +176,12 @@ function AlertCircleIcon({ className }: { className?: string }) {
   );
 }
 
-/**
- * Check if a sailing has already departed
- * Uses timezone-aware timestamp comparison with 5-minute grace period
- */
-function checkSailingDeparted(sailing: Sailing): boolean {
-  return hasSailingDeparted(sailing.departureTimestampMs);
+function WindIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" />
+    </svg>
+  );
 }
 
 /**
@@ -147,6 +189,42 @@ function checkSailingDeparted(sailing: Sailing): boolean {
  */
 function getSailingStatus(sailing: Sailing): 'departed' | 'boarding' | 'upcoming' {
   return getSailingTimeStatus(sailing.departureTimestampMs);
+}
+
+/**
+ * Sailing Risk Badge - shows per-sailing weather risk
+ */
+function SailingRiskBadge({
+  risk,
+  windDirection,
+}: {
+  risk: SailingRisk;
+  windDirection?: number;
+}) {
+  const display = getSailingRiskDisplay(risk.level);
+
+  // Don't show badge for low risk unless there's a direction effect
+  if (risk.level === 'low' && !risk.directionAffected) {
+    return null;
+  }
+
+  const windCompass = windDirection !== undefined ? degreesToCompassBucket(windDirection) : null;
+
+  return (
+    <div className="flex items-center gap-1">
+      <span
+        className={`text-xs px-2 py-0.5 rounded border ${display.bgClassName}`}
+        title={risk.reason || `${display.label} risk for this sailing`}
+      >
+        <span className={display.className}>{display.label}</span>
+      </span>
+      {risk.windRelation && windCompass && (
+        <span className="text-xs text-muted-foreground" title={`${windCompass} ${risk.windRelation}`}>
+          <WindIcon className="w-3 h-3 inline" />
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function TodaySailings({
@@ -158,10 +236,22 @@ export function TodaySailings({
   operatorStatusSource,
   operatorScheduleUrl,
   routeDisplayName,
+  routeId,
+  weather,
 }: TodaySailingsProps) {
   // Determine source type display
   const sourceType = provenance?.source_type || 'unavailable';
-  const sourceDisplay = getSourceTypeDisplay(sourceType);
+  const hasOperatorStatus = !!(operatorStatus && operatorStatus !== 'unknown');
+  const sourceDisplay = getSourceTypeDisplay(sourceType, hasOperatorStatus);
+
+  // Compute per-sailing risks if we have weather and sailings
+  const sailingRisks = new Map<number, SailingRisk>();
+  if (sailings && weather && routeId) {
+    sailings.forEach((sailing, index) => {
+      const risk = computeSailingRisk(sailing, weather, routeId);
+      sailingRisks.set(index, risk);
+    });
+  }
 
   if (loading) {
     return (
@@ -176,8 +266,11 @@ export function TodaySailings({
     );
   }
 
-  // Handle unavailable state (no static fallback anymore)
-  if (sourceType === 'unavailable' || error) {
+  // PHASE 16: Only show "unavailable" if we truly have no sailings
+  // Even if live status failed, we may have schedule times to show
+  const hasSailings = sailings && sailings.length > 0;
+
+  if (!hasSailings && (sourceType === 'unavailable' || error)) {
     return (
       <div className="card-maritime p-6">
         <h2 className="text-xl font-semibold text-foreground mb-2">Today&apos;s Sailings</h2>
@@ -198,7 +291,7 @@ export function TodaySailings({
         <div className="bg-secondary/50 rounded-lg p-6 text-center">
           <AlertCircleIcon className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-foreground font-medium mb-2">
-            Live schedule unavailable
+            Schedule unavailable
           </p>
           <p className="text-muted-foreground text-sm mb-4">
             {provenance?.error_message || error || 'Could not load schedule from operator website.'}
@@ -250,7 +343,7 @@ export function TodaySailings({
   }
 
   // Count upcoming vs departed
-  const upcomingSailings = sailings.filter((s) => !checkSailingDeparted(s));
+  const upcomingSailings = sailings.filter((s) => getSailingStatus(s) !== 'departed');
   const canceledCount = sailings.filter((s) => s.status === 'canceled').length;
 
   return (
@@ -297,7 +390,16 @@ export function TodaySailings({
         </div>
       )}
 
-      {/* Status Summary */}
+      {/* Live Status Unavailable Notice */}
+      {!hasOperatorStatus && sourceType !== 'unavailable' && (
+        <div className="bg-secondary/50 border border-border/30 rounded-lg p-3 mb-4">
+          <p className="text-sm text-muted-foreground">
+            Live status unavailable - schedule shown below
+          </p>
+        </div>
+      )}
+
+      {/* Operator Status Summary */}
       {operatorStatus && operatorStatus !== 'unknown' && (
         <div className={`rounded-lg p-3 mb-4 ${
           operatorStatus === 'canceled'
@@ -332,34 +434,40 @@ export function TodaySailings({
           const departed = timeStatus === 'departed';
           const boarding = timeStatus === 'boarding';
           const statusDisplay = getSailingStatusDisplay(sailing.status, sailing.statusFromOperator);
+          const risk = sailingRisks.get(index);
 
           return (
             <div
               key={index}
-              className={`flex items-center gap-4 p-3 rounded-lg border ${
+              className={`flex items-center gap-3 p-3 rounded-lg border ${
                 departed
                   ? 'bg-secondary/30 border-border/20 opacity-60'
                   : 'bg-card border-border/50'
               }`}
             >
               {/* Time */}
-              <div className="flex items-center gap-2 w-24 flex-shrink-0">
+              <div className="flex items-center gap-2 w-20 flex-shrink-0">
                 <ClockIcon className={`w-4 h-4 ${departed ? 'text-muted-foreground' : 'text-foreground'}`} />
-                <span className={`font-mono font-medium ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
+                <span className={`font-mono font-medium text-sm ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
                   {sailing.departureTimeDisplay}
                 </span>
               </div>
 
               {/* Direction */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className={`truncate ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span className={`truncate text-sm ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
                   {sailing.direction.from}
                 </span>
-                <ArrowRightIcon className={`w-4 h-4 flex-shrink-0 ${departed ? 'text-muted-foreground' : 'text-muted-foreground'}`} />
-                <span className={`truncate ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
+                <ArrowRightIcon className={`w-3 h-3 flex-shrink-0 ${departed ? 'text-muted-foreground' : 'text-muted-foreground'}`} />
+                <span className={`truncate text-sm ${departed ? 'text-muted-foreground' : 'text-foreground'}`}>
                   {sailing.direction.to}
                 </span>
               </div>
+
+              {/* Per-Sailing Risk Badge (only for upcoming sailings) */}
+              {!departed && risk && (
+                <SailingRiskBadge risk={risk} windDirection={weather?.windDirection} />
+              )}
 
               {/* Status */}
               <div className="flex-shrink-0">
@@ -369,16 +477,29 @@ export function TodaySailings({
                   <span className="text-xs px-2 py-1 rounded-full border bg-accent-muted/50 text-accent border-accent/30">
                     Boarding
                   </span>
-                ) : (
+                ) : statusDisplay.show ? (
                   <span className={`text-xs px-2 py-1 rounded-full border ${statusDisplay.className}`}>
                     {statusDisplay.text}
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Risk Explanation - only show if we have weather data and elevated risks */}
+      {weather && sailingRisks.size > 0 && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          {Array.from(sailingRisks.values()).some(r => r.reason) && (
+            <div className="text-xs text-muted-foreground mb-2">
+              <WindIcon className="w-3 h-3 inline mr-1" />
+              Risk badges show weather exposure for each sailing direction.
+              {' '}Higher risk does NOT predict cancellation.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer Notes */}
       <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
