@@ -2,6 +2,7 @@
  * Manual Status Cache
  *
  * Phase 22: Single-Corridor Truth Lock
+ * Phase 24: SSA Observer Extension support
  *
  * In-memory cache for manually submitted SSA status data.
  * Used when automated scraping is blocked by Queue-IT.
@@ -17,12 +18,29 @@ export interface CachedSailingStatus {
   departureTime: string;
   status: 'on_time' | 'delayed' | 'canceled';
   statusMessage?: string;
+  boardId?: string; // Phase 24: which board this came from (vineyard_trips, nantucket_trips)
+}
+
+export interface StatusCacheMetadata {
+  source?: string;
+  observedAt?: string;
+  operatorId?: string;
+  serviceDateLocal?: string;
+  timezone?: string;
+  pageHash?: string;
 }
 
 export interface StatusCacheData {
   sailings: CachedSailingStatus[];
   updatedAt: string;
   expiresAt: number;
+  // Phase 24: Extended metadata from extension
+  source?: string;
+  observedAt?: string;
+  operatorId?: string;
+  serviceDateLocal?: string;
+  timezone?: string;
+  pageHash?: string;
 }
 
 // Global cache instance
@@ -42,13 +60,33 @@ export function getCachedStatus(): StatusCacheData | null {
 }
 
 /**
- * Set cached status
+ * Set cached status (basic)
  */
 export function setCachedStatus(sailings: CachedSailingStatus[]): void {
   statusCache = {
     sailings,
     updatedAt: new Date().toISOString(),
     expiresAt: Date.now() + CACHE_TTL_MS,
+  };
+}
+
+/**
+ * Set cached status with extended metadata (Phase 24)
+ */
+export function setExtendedCachedStatus(
+  sailings: CachedSailingStatus[],
+  metadata: StatusCacheMetadata
+): void {
+  statusCache = {
+    sailings,
+    updatedAt: new Date().toISOString(),
+    expiresAt: Date.now() + CACHE_TTL_MS,
+    source: metadata.source,
+    observedAt: metadata.observedAt,
+    operatorId: metadata.operatorId,
+    serviceDateLocal: metadata.serviceDateLocal,
+    timezone: metadata.timezone,
+    pageHash: metadata.pageHash,
   };
 }
 

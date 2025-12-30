@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "SSA Observer",
+  "version": "1.0.0",
+  "description": "Captures SSA ferry status and sends to Ferry Forecast",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.steamshipauthority.com/*",
+    "https://ferry-forecast.vercel.app/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
