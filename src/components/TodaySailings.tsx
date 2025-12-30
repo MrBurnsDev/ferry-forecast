@@ -1,6 +1,7 @@
 'use client';
 
 import type { Sailing, SailingStatus, ScheduleProvenance, ScheduleSourceType } from '@/lib/schedules';
+import { hasSailingDeparted, getSailingTimeStatus } from '@/lib/schedules';
 import type { OfficialStatus } from '@/types/forecast';
 
 interface TodaySailingsProps {
@@ -135,9 +136,17 @@ function AlertCircleIcon({ className }: { className?: string }) {
 
 /**
  * Check if a sailing has already departed
+ * Uses timezone-aware timestamp comparison with 5-minute grace period
  */
-function hasDeparted(departureTime: string): boolean {
-  return new Date(departureTime) < new Date();
+function checkSailingDeparted(sailing: Sailing): boolean {
+  return hasSailingDeparted(sailing.departureTimestampMs);
+}
+
+/**
+ * Get time status for a sailing (departed, boarding, upcoming)
+ */
+function getSailingStatus(sailing: Sailing): 'departed' | 'boarding' | 'upcoming' {
+  return getSailingTimeStatus(sailing.departureTimestampMs);
 }
 
 export function TodaySailings({
@@ -241,7 +250,7 @@ export function TodaySailings({
   }
 
   // Count upcoming vs departed
-  const upcomingSailings = sailings.filter((s) => !hasDeparted(s.departureTime));
+  const upcomingSailings = sailings.filter((s) => !checkSailingDeparted(s));
   const canceledCount = sailings.filter((s) => s.status === 'canceled').length;
 
   return (
@@ -319,7 +328,9 @@ export function TodaySailings({
       {/* Sailings List */}
       <div className="space-y-2">
         {sailings.map((sailing, index) => {
-          const departed = hasDeparted(sailing.departureTime);
+          const timeStatus = getSailingStatus(sailing);
+          const departed = timeStatus === 'departed';
+          const boarding = timeStatus === 'boarding';
           const statusDisplay = getSailingStatusDisplay(sailing.status, sailing.statusFromOperator);
 
           return (
@@ -354,6 +365,10 @@ export function TodaySailings({
               <div className="flex-shrink-0">
                 {departed ? (
                   <span className="text-xs text-muted-foreground italic">Departed</span>
+                ) : boarding ? (
+                  <span className="text-xs px-2 py-1 rounded-full border bg-accent-muted/50 text-accent border-accent/30">
+                    Boarding
+                  </span>
                 ) : (
                   <span className={`text-xs px-2 py-1 rounded-full border ${statusDisplay.className}`}>
                     {statusDisplay.text}

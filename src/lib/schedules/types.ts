@@ -10,6 +10,11 @@
  * - source_type: "template" = user-configured template (must be labeled in UI)
  * - source_type: "unavailable" = could not fetch, no sailings shown
  * - We NEVER silently substitute made-up schedules
+ *
+ * TIMEZONE RULES (Phase 15 - Schedule Correctness):
+ * - All times must be parsed in the correct IANA timezone
+ * - DST is handled automatically via Intl APIs
+ * - Each sailing stores both UTC timestamp and local display string
  */
 
 /**
@@ -86,11 +91,20 @@ export interface SailingDirection {
  * A single scheduled sailing
  */
 export interface Sailing {
-  /** Scheduled departure time (ISO string) */
+  /** Scheduled departure time in UTC (ISO string) */
   departureTime: string;
 
-  /** Formatted departure time for display (e.g., "7:00 AM") */
+  /** Departure timestamp in milliseconds (for accurate comparisons) */
+  departureTimestampMs: number;
+
+  /** Formatted departure time for display (e.g., "7:00 AM") - LOCAL TIME */
   departureTimeDisplay: string;
+
+  /** Service date in local timezone (YYYY-MM-DD) */
+  serviceDateLocal: string;
+
+  /** IANA timezone for this sailing (e.g., "America/New_York") */
+  timezone: string;
 
   /** Direction of this sailing */
   direction: SailingDirection;
@@ -112,6 +126,12 @@ export interface Sailing {
 
   /** Vessel name if known */
   vesselName?: string;
+
+  /** Arrival time in UTC (ISO string) if available */
+  arrivalTime?: string;
+
+  /** Arrival timestamp in milliseconds if available */
+  arrivalTimestampMs?: number;
 }
 
 /**
@@ -127,8 +147,11 @@ export interface ScheduleFetchResult {
   /** Schedule provenance metadata (REQUIRED in Phase 15+) */
   provenance: ScheduleProvenance;
 
-  /** Date the schedule is for (YYYY-MM-DD) */
+  /** Date the schedule is for (YYYY-MM-DD in local timezone) */
   scheduleDate: string;
+
+  /** IANA timezone for the schedule */
+  timezone: string;
 
   /** Operator name for display */
   operator: string;

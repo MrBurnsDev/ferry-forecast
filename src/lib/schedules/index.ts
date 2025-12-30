@@ -23,6 +23,7 @@
 import { fetchSSASchedule, isSSAScheduleRoute } from './steamship';
 import { fetchHyLineSchedule, isHyLineScheduleRoute } from './hyline';
 import type { ScheduleFetchResult, Sailing, SailingStatus, ScheduleProvenance } from './types';
+import { DEFAULT_TIMEZONE, getTodayInTimezone, hasSailingDeparted } from './time';
 
 // Re-export types
 export type {
@@ -34,6 +35,13 @@ export type {
   ScheduleSourceType,
   ParseConfidence,
 } from './types';
+
+// Re-export time utilities for components
+export {
+  hasSailingDeparted,
+  getSailingTimeStatus,
+  DEFAULT_TIMEZONE,
+} from './time';
 
 // ============================================================
 // RATE LIMITING & REQUEST COALESCING
@@ -162,7 +170,8 @@ function createUnavailableResult(routeId: string, errorMessage: string): Schedul
     success: false,
     sailings: [],
     provenance,
-    scheduleDate: new Date().toISOString().split('T')[0],
+    scheduleDate: getTodayInTimezone(DEFAULT_TIMEZONE),
+    timezone: DEFAULT_TIMEZONE,
     operator: 'Unknown',
     operatorScheduleUrl: '',
   };
@@ -212,10 +221,10 @@ export async function getBidirectionalSchedule(routeId: string): Promise<{
 
 /**
  * Filter sailings to only show upcoming ones (not departed)
+ * Uses timezone-aware timestamp comparison with grace period
  */
 export function filterUpcomingSailings(sailings: Sailing[]): Sailing[] {
-  const now = new Date();
-  return sailings.filter((s) => new Date(s.departureTime) > now);
+  return sailings.filter((s) => !hasSailingDeparted(s.departureTimestampMs));
 }
 
 /**
