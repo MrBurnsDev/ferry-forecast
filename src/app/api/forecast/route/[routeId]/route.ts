@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRouteById } from '@/lib/config/routes';
-import { fetchRouteBySlug, fetchVesselsForRoute, type DbVessel, type DbVesselThreshold } from '@/lib/supabase/queries';
+import { fetchRouteBySlug } from '@/lib/supabase/queries';
 import { fetchHourlyForecast, WeatherFetchError } from '@/lib/weather/noaa';
 import { getActiveAdvisoryLevel, AlertFetchError } from '@/lib/weather/nws';
 import { getCurrentTideSwing, TideFetchError, hasTideStation } from '@/lib/tides/noaaCoops';
@@ -13,11 +13,6 @@ import type {
   AdvisoryLevel,
   TideSwing,
   HourlyForecast,
-  Vessel,
-  VesselThreshold,
-  VesselScoringMetadata,
-  ThresholdSource,
-  VesselClass,
 } from '@/types/forecast';
 
 // Cache configuration
@@ -27,93 +22,6 @@ interface RouteParams {
   params: Promise<{
     routeId: string;
   }>;
-}
-
-// Result of vessel selection for scoring
-interface VesselSelectionResult {
-  vessel: Vessel | null;
-  vesselThreshold: VesselThreshold | null;
-  thresholdSource: ThresholdSource;
-  vesselClass: VesselClass | null;
-}
-
-/**
- * Select the most conservative vessel for scoring
- * Strategy: Pick the vessel with the lowest wind_limit (most sensitive to conditions)
- * This ensures predictions err on the side of caution
- */
-function selectMostConservativeVessel(
-  vessels: (DbVessel & { is_primary: boolean; threshold?: DbVesselThreshold })[]
-): VesselSelectionResult {
-  if (!vessels || vessels.length === 0) {
-    return {
-      vessel: null,
-      vesselThreshold: null,
-      thresholdSource: 'operator',
-      vesselClass: null,
-    };
-  }
-
-  // Sort by conservativeness:
-  // 1. Vessels with thresholds, sorted by lowest wind_limit
-  // 2. Primary vessels preferred when thresholds are equal
-  // 3. Fall back to vessel class defaults
-  const sortedVessels = [...vessels].sort((a, b) => {
-    // Both have thresholds - compare wind limits (lower = more conservative)
-    if (a.threshold && b.threshold) {
-      const windDiff = a.threshold.wind_limit_mph - b.threshold.wind_limit_mph;
-      if (windDiff !== 0) return windDiff;
-      // Same wind limit - prefer primary
-      if (a.is_primary && !b.is_primary) return -1;
-      if (!a.is_primary && b.is_primary) return 1;
-      return 0;
-    }
-    // Only one has threshold - prefer the one with threshold
-    if (a.threshold && !b.threshold) return -1;
-    if (!a.threshold && b.threshold) return 1;
-    // Neither has threshold - prefer primary
-    if (a.is_primary && !b.is_primary) return -1;
-    if (!a.is_primary && b.is_primary) return 1;
-    return 0;
-  });
-
-  const selectedDbVessel = sortedVessels[0];
-  const dbThreshold = selectedDbVessel.threshold;
-
-  // Convert to API types
-  const vessel: Vessel = {
-    vessel_id: selectedDbVessel.vessel_id,
-    name: selectedDbVessel.name,
-    operator: selectedDbVessel.operator_id,
-    vessel_class: selectedDbVessel.vessel_class,
-    active: selectedDbVessel.active,
-  };
-
-  // Determine threshold source
-  let thresholdSource: ThresholdSource = 'operator';
-  let vesselThreshold: VesselThreshold | null = null;
-
-  if (dbThreshold) {
-    thresholdSource = 'vessel';
-    vesselThreshold = {
-      id: dbThreshold.threshold_id,
-      vessel_id: dbThreshold.vessel_id,
-      wind_limit: dbThreshold.wind_limit_mph,
-      gust_limit: dbThreshold.gust_limit_mph,
-      directional_sensitivity: dbThreshold.directional_sensitivity,
-      advisory_sensitivity: dbThreshold.advisory_sensitivity,
-    };
-  } else {
-    // No vessel-specific threshold, will use class defaults
-    thresholdSource = 'class';
-  }
-
-  return {
-    vessel,
-    vesselThreshold,
-    thresholdSource,
-    vesselClass: selectedDbVessel.vessel_class,
-  };
 }
 
 interface DataFetchResult {
@@ -263,24 +171,7 @@ export async function GET(
     );
   }
 
-  // Load vessels for this route (if available from Supabase)
-  // This is done separately from external data fetching as it's internal DB query
-  let vesselSelection: VesselSelectionResult = {
-    vessel: null,
-    vesselThreshold: null,
-    thresholdSource: 'operator',
-    vesselClass: null,
-  };
-
-  if (supabaseResult.data) {
-    // Route came from Supabase, try to load vessels
-    const vesselsResult = await fetchVesselsForRoute(supabaseResult.data.route_id);
-    if (vesselsResult.data && vesselsResult.data.length > 0) {
-      vesselSelection = selectMostConservativeVessel(vesselsResult.data);
-    }
-  }
-
-  // Fetch real data from external APIs
+  // Fetch real data from external APIs (weather-only MVP - no vessel data)
   const data = await fetchAllData(originPortSlug || route.origin_port, regionSlug, route.route_id);
 
   // If weather data is unavailable, we cannot calculate a forecast
@@ -312,25 +203,20 @@ export async function GET(
     advisory_level: data.advisoryLevel !== 'none' ? data.advisoryLevel : currentWeather.advisory_level,
   };
 
-  // Calculate risk score with vessel-aware thresholds
-  // dataPointCount is increased when we have vessel-specific data
-  const baseDataPoints = data.dataSources.length;
-  const vesselDataPoints = vesselSelection.thresholdSource === 'vessel' ? 2 :
-                           vesselSelection.thresholdSource === 'class' ? 1 : 0;
-
+  // Calculate risk score using WEATHER-ONLY model
+  // Inputs: wind speed, gusts, wind direction, advisory level, tide swing, route exposure
+  // NO vessel thresholds - MVP uses fixed thresholds based on route type
   const scoringInput: ScoringInput = {
     route,
-    vessel: vesselSelection.vessel || undefined,
-    vesselThreshold: vesselSelection.vesselThreshold || undefined,
     weather: weatherWithAdvisory,
     tide: data.tideSwing || undefined,
-    dataPointCount: baseDataPoints + vesselDataPoints,
+    dataPointCount: data.dataSources.length,
   };
 
   const riskScore = calculateRiskScore(scoringInput);
   const riskLevel = getRiskLevel(riskScore.score);
 
-  // Build hourly forecast with risk scores (using same vessel thresholds)
+  // Build hourly forecast with risk scores (weather-only)
   const hourlyForecast: HourlyForecast[] = data.weather.slice(0, 24).map((hourWeather) => {
     // Apply advisory level to each hour
     const hourWithAdvisory: WeatherSnapshot = {
@@ -340,11 +226,9 @@ export async function GET(
 
     const hourInput: ScoringInput = {
       route,
-      vessel: vesselSelection.vessel || undefined,
-      vesselThreshold: vesselSelection.vesselThreshold || undefined,
       weather: hourWithAdvisory,
       tide: data.tideSwing || undefined,
-      dataPointCount: baseDataPoints + vesselDataPoints,
+      dataPointCount: data.dataSources.length,
     };
 
     const hourRisk = calculateRiskScore(hourInput);
@@ -358,17 +242,9 @@ export async function GET(
     };
   });
 
-  // Build vessel scoring metadata
-  const vesselScoringMetadata: VesselScoringMetadata = {
-    vessel_used: vesselSelection.vessel?.name || null,
-    vessel_class: vesselSelection.vesselClass,
-    threshold_source: vesselSelection.thresholdSource,
-  };
-
-  // Build response
+  // Build response (weather-only MVP - no vessel data)
   const response: ForecastResponse = {
     route,
-    vessel: vesselSelection.vessel || undefined,
     current_conditions: {
       weather: weatherWithAdvisory,
       tide: data.tideSwing || undefined,
@@ -381,7 +257,6 @@ export async function GET(
       updated_at: data.operatorStatus?.updated_at || null,
       message: data.operatorStatus?.message || data.operatorStatus?.fetchError || undefined,
     },
-    vessel_scoring: vesselScoringMetadata,
     metadata: {
       generated_at: new Date().toISOString(),
       cache_expires_at: new Date(Date.now() + CACHE_MAX_AGE * 1000).toISOString(),

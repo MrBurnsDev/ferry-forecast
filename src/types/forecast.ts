@@ -149,18 +149,8 @@ export interface HourlyForecast {
 
 // ============ API Response Types ============
 
-// Threshold source indicates where scoring thresholds came from
-export type ThresholdSource = 'vessel' | 'class' | 'operator';
-
-export interface VesselScoringMetadata {
-  vessel_used: string | null; // Name of vessel used for scoring, or null if none
-  vessel_class: VesselClass | null; // Class of vessel if known
-  threshold_source: ThresholdSource; // Where thresholds came from
-}
-
 export interface ForecastResponse {
   route: FerryRoute;
-  vessel?: Vessel;
   current_conditions: {
     weather: WeatherSnapshot;
     tide?: TideSwing;
@@ -173,13 +163,31 @@ export interface ForecastResponse {
     updated_at: string | null;
     message?: string;
   };
-  vessel_scoring: VesselScoringMetadata;
   metadata: {
     generated_at: string;
     cache_expires_at: string;
     data_sources: string[];
     warnings?: string[];
   };
+}
+
+// ============ Outcome Logging Types ============
+
+export type ObservedOutcome = 'ran' | 'delayed' | 'canceled' | 'unknown';
+
+export interface OutcomeLogEntry {
+  id?: string;
+  route_id: string;
+  observed_time: string; // ISO timestamp - when the sailing was scheduled
+  observed_outcome: ObservedOutcome;
+  operator_reported_status?: string;
+  notes?: string;
+  predicted_score?: number;
+  predicted_confidence?: ConfidenceRating;
+  weather_snapshot?: WeatherSnapshot;
+  advisory_level?: AdvisoryLevel;
+  tide_swing_ft?: number;
+  created_at?: string;
 }
 
 // ============ UI Selection Types ============

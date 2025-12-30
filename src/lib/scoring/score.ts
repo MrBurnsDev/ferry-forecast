@@ -15,8 +15,6 @@
 
 import type {
   FerryRoute,
-  Vessel,
-  VesselThreshold,
   WeatherSnapshot,
   TideSwing,
   DisruptionHistory,
@@ -38,10 +36,21 @@ import {
   OPERATOR_DEFAULTS,
 } from './weights';
 
+/**
+ * Scoring Input for Weather-Only MVP
+ *
+ * The scoring engine uses these inputs:
+ * - route: crossing type (open_water/protected) and bearing for wind direction impact
+ * - weather: wind speed, gusts, direction, advisory level
+ * - tide: swing height (if available)
+ * - historicalMatches: past disruptions in similar conditions (future use)
+ * - dataPointCount: number of data sources available (affects confidence)
+ *
+ * NOTE: Vessel-specific thresholds are NOT used in the MVP.
+ * The engine uses fixed thresholds from VESSEL_CLASS_DEFAULTS.traditional_ferry
+ */
 export interface ScoringInput {
   route: FerryRoute;
-  vessel?: Vessel;
-  vesselThreshold?: VesselThreshold;
   weather: WeatherSnapshot;
   tide?: TideSwing;
   historicalMatches?: DisruptionHistory[];
@@ -115,39 +124,18 @@ function getAdvisoryWeight(level: AdvisoryLevel): number {
 }
 
 /**
- * Get vessel-specific modifiers or fall back to class/operator defaults
+ * Get weather threshold modifiers for scoring
+ * Weather-Only MVP: Uses fixed defaults based on traditional ferry class
+ * These thresholds represent conservative estimates for general ferry operations
  */
-function getVesselModifiers(
-  vessel?: Vessel,
-  threshold?: VesselThreshold
-): {
+function getWeatherModifiers(): {
   windLimit: number;
   gustLimit: number;
   dirSensitivity: number;
   advSensitivity: number;
 } {
-  if (threshold) {
-    return {
-      windLimit: threshold.wind_limit,
-      gustLimit: threshold.gust_limit,
-      dirSensitivity: threshold.directional_sensitivity,
-      advSensitivity: threshold.advisory_sensitivity,
-    };
-  }
-
-  if (vessel) {
-    const classDefaults =
-      VESSEL_CLASS_DEFAULTS[vessel.vessel_class] ||
-      VESSEL_CLASS_DEFAULTS.traditional_ferry;
-    return {
-      windLimit: classDefaults.wind_limit,
-      gustLimit: classDefaults.gust_limit,
-      dirSensitivity: classDefaults.directional_sensitivity,
-      advSensitivity: classDefaults.advisory_sensitivity,
-    };
-  }
-
-  // Fallback to traditional ferry defaults
+  // Weather-only MVP uses fixed traditional ferry defaults
+  // These are conservative thresholds suitable for most ferry types
   const defaults = VESSEL_CLASS_DEFAULTS.traditional_ferry;
   return {
     windLimit: defaults.wind_limit,
@@ -245,12 +233,13 @@ export function calculateRiskScore(input: ScoringInput): ScoringResult {
   const factors: ContributingFactor[] = [];
   let baseScore = 0;
 
-  const vesselMods = getVesselModifiers(input.vessel, input.vesselThreshold);
+  // Weather-only MVP: Use fixed thresholds (no vessel-specific modifiers)
+  const weatherMods = getWeatherModifiers();
 
   // 1. Advisory Level (highest priority, mutually exclusive)
   const advisoryWeight =
     getAdvisoryWeight(input.weather.advisory_level) *
-    vesselMods.advSensitivity;
+    weatherMods.advSensitivity;
   if (advisoryWeight > 0) {
     baseScore += advisoryWeight;
     factors.push({
@@ -272,7 +261,7 @@ export function calculateRiskScore(input: ScoringInput): ScoringResult {
     const windScore =
       DEFAULT_WEIGHTS.sustained_wind_30 *
       directionImpact.multiplier *
-      vesselMods.dirSensitivity;
+      weatherMods.dirSensitivity;
     baseScore += windScore;
     factors.push({
       factor: 'high_wind',
@@ -289,7 +278,7 @@ export function calculateRiskScore(input: ScoringInput): ScoringResult {
     const windScore =
       DEFAULT_WEIGHTS.unfavorable_wind_20 *
       directionImpact.multiplier *
-      vesselMods.dirSensitivity;
+      weatherMods.dirSensitivity;
     baseScore += windScore;
     factors.push({
       factor: 'unfavorable_wind',
@@ -305,7 +294,7 @@ export function calculateRiskScore(input: ScoringInput): ScoringResult {
       15,
       (input.weather.wind_gusts - GUST_THRESHOLDS.SIGNIFICANT) * 0.5
     );
-    baseScore += gustPenalty * vesselMods.dirSensitivity;
+    baseScore += gustPenalty * weatherMods.dirSensitivity;
     factors.push({
       factor: 'gusts',
       description: `Wind gusts to ${input.weather.wind_gusts} mph`,
