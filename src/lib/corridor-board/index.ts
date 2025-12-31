@@ -91,7 +91,11 @@ export async function getDailyCorridorBoard(
       hasAnyLiveSchedule = true;
     }
 
-    if (scheduleResult.statusSource?.source === 'operator_status_page') {
+    // Phase 26: Check for observer cache or operator status page
+    if (
+      scheduleResult.statusSource?.source === 'operator_status_page' ||
+      scheduleResult.statusSource?.source === 'observer_cache'
+    ) {
       hasAnyStatusOverlay = true;
     }
 
@@ -121,11 +125,17 @@ export async function getDailyCorridorBoard(
 
     // Track status source per operator (only once per operator)
     if (!operatorStatusSources.some((s) => s.operator_id === operatorId)) {
+      // Phase 26: Include observer_cache as a valid source
+      let statusSource: 'status_page' | 'observer_cache' | 'unavailable' = 'unavailable';
+      if (scheduleResult.statusSource?.source === 'operator_status_page') {
+        statusSource = 'status_page';
+      } else if (scheduleResult.statusSource?.source === 'observer_cache') {
+        statusSource = 'observer_cache';
+      }
+
       operatorStatusSources.push({
         operator_id: operatorId,
-        source: scheduleResult.statusSource?.source === 'operator_status_page'
-          ? 'status_page'
-          : 'unavailable',
+        source: statusSource,
         fetched_at: scheduleResult.statusSource?.fetchedAt || scheduleResult.provenance.fetched_at,
         url: scheduleResult.statusSource?.url,
       });

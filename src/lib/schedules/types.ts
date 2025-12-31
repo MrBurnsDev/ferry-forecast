@@ -55,6 +55,9 @@ export interface ScheduleProvenance {
   /** Whether operator provides per-sailing status */
   raw_status_supported: boolean;
 
+  /** Phase 26: Whether status overlay data is currently available */
+  status_overlay_available?: boolean;
+
   /** Error message if fetch failed */
   error_message?: string;
 

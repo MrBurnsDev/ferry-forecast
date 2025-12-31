@@ -367,68 +367,73 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
   }
 
   // LAYER 1: Fetch status overlay (sparse delta)
-  // First try automated scraping, then fall back to manual cache
-  const statusResult = await getSSAStatus();
+  // Phase 26: PREFER observer/manual cache FIRST (it bypasses Queue-IT)
+  // Only fall back to automated scraping if no observer data
   const manualCache = getCachedStatus();
 
-  // If automated fetch failed, check for manual cache
-  if (!statusResult.success || statusResult.sailings.length === 0) {
-    if (manualCache && manualCache.sailings.length > 0) {
-      // Use manual cache - apply to template sailings
-      if (SCHEDULE_DEBUG) {
-        console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: using manual status cache (${manualCache.sailings.length} sailings)`);
-      }
-
-      const sailingsWithManualStatus = templateSailings.map((sailing) => {
-        const cachedStatus = getStatusForSailing(
-          sailing.direction.fromSlug,
-          sailing.direction.toSlug,
-          sailing.departureTimeDisplay
-        );
-
-        if (cachedStatus) {
-          return {
-            ...sailing,
-            status: cachedStatus.status,
-            statusMessage: cachedStatus.statusMessage,
-            statusFromOperator: true, // Manual input counts as operator status
-          };
-        }
-
-        return sailing;
-      });
-
-      if (SCHEDULE_DEBUG) {
-        const matchedCount = sailingsWithManualStatus.filter(s => s.statusFromOperator).length;
-        console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: ${matchedCount} sailings matched from manual cache`);
-      }
-
-      return {
-        success: true,
-        sailings: sailingsWithManualStatus,
-        provenance: {
-          source_type: 'operator_live', // Manual cache is treated as live
-          source_name: route.operatorName,
-          fetched_at: manualCache.updatedAt,
-          source_url: SSA_STATUS_URL,
-          parse_confidence: 'high', // Manual input is trusted
-          raw_status_supported: true,
-        },
-        scheduleDate: serviceDateLocal,
-        timezone,
-        operator: route.operatorName,
-        operatorScheduleUrl: SSA_STATUS_URL,
-        statusSource: {
-          source: 'operator_status_page',
-          url: SSA_STATUS_URL,
-          fetchedAt: manualCache.updatedAt,
-        },
-      };
+  // Check observer/manual cache FIRST - it's the most reliable source
+  if (manualCache && manualCache.sailings.length > 0) {
+    // Use observer/manual cache - apply to template sailings
+    if (SCHEDULE_DEBUG) {
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: using observer cache (${manualCache.sailings.length} sailings, source: ${manualCache.source})`);
     }
 
-    // No manual cache either - return template only
+    const sailingsWithManualStatus = templateSailings.map((sailing) => {
+      const cachedStatus = getStatusForSailing(
+        sailing.direction.fromSlug,
+        sailing.direction.toSlug,
+        sailing.departureTimeDisplay
+      );
+
+      if (cachedStatus) {
+        return {
+          ...sailing,
+          status: cachedStatus.status,
+          statusMessage: cachedStatus.statusMessage,
+          statusFromOperator: true, // Observer data counts as operator status
+        };
+      }
+
+      return sailing;
+    });
+
     if (SCHEDULE_DEBUG) {
-      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: status unavailable (${statusResult.errorMessage}), using template only`);
+      const matchedCount = sailingsWithManualStatus.filter(s => s.statusFromOperator).length;
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: ${matchedCount} sailings matched from observer cache`);
+    }
+
+    return {
+      success: true,
+      sailings: sailingsWithManualStatus,
+      provenance: {
+        source_type: 'operator_live', // Observer cache is treated as live
+        source_name: route.operatorName,
+        fetched_at: manualCache.updatedAt,
+        source_url: SSA_STATUS_URL,
+        parse_confidence: 'high', // Observer data is trusted
+        raw_status_supported: true,
+        status_overlay_available: true, // Phase 26: explicit flag
+      },
+      scheduleDate: serviceDateLocal,
+      timezone,
+      operator: route.operatorName,
+      operatorScheduleUrl: SSA_STATUS_URL,
+      statusSource: {
+        source: 'observer_cache',
+        url: SSA_STATUS_URL,
+        fetchedAt: manualCache.updatedAt,
+        observerSource: manualCache.source,
+      },
+    };
+  }
+
+  // No observer cache - try automated scraping as fallback
+  const statusResult = await getSSAStatus();
+
+  // If automated fetch also failed, return template only
+  if (!statusResult.success || statusResult.sailings.length === 0) {
+    if (SCHEDULE_DEBUG) {
+      console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: no observer cache, automated scraping failed (${statusResult.errorMessage}), using template only`);
     }
 
     return {
@@ -441,6 +446,7 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
         source_url: SSA_STATUS_URL,
         parse_confidence: 'medium',
         raw_status_supported: false,
+        status_overlay_available: false, // Phase 26: explicit flag
       },
       scheduleDate: serviceDateLocal,
       timezone,
@@ -503,6 +509,7 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
     source_url: SSA_STATUS_URL,
     parse_confidence: matchedCount > 0 ? 'high' : 'medium',
     raw_status_supported: true,
+    status_overlay_available: true, // Phase 26: explicit flag
   };
 
   return {

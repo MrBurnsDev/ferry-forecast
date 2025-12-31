@@ -43,18 +43,58 @@ export interface StatusCacheData {
   pageHash?: string;
 }
 
-// Global cache instance
-let statusCache: StatusCacheData | null = null;
+// Global cache instance - use globalThis to persist across module reloads in dev
+// This is necessary because Next.js can hot-reload modules independently
+const CACHE_KEY = Symbol.for('ferry-forecast-status-cache');
+
+function getGlobalCache(): StatusCacheData | null {
+  return (globalThis as Record<symbol, StatusCacheData | null>)[CACHE_KEY] || null;
+}
+
+function setGlobalCache(data: StatusCacheData | null): void {
+  (globalThis as Record<symbol, StatusCacheData | null>)[CACHE_KEY] = data;
+}
+
+// Keep local variable for type checking but always sync with globalThis
+let statusCache: StatusCacheData | null = getGlobalCache();
 
 // Cache TTL: 30 minutes
 const CACHE_TTL_MS = 30 * 60 * 1000;
+
+// Debug flag
+const DEBUG_CACHE = process.env.DEBUG_STATUS_CACHE === 'true' || process.env.NODE_ENV === 'development';
 
 /**
  * Get current cached status
  */
 export function getCachedStatus(): StatusCacheData | null {
-  if (!statusCache || Date.now() > statusCache.expiresAt) {
+  // Always read from globalThis to handle module reloads
+  statusCache = getGlobalCache();
+
+  if (!statusCache) {
+    if (DEBUG_CACHE) {
+      console.log('[STATUS_CACHE] getCachedStatus: cache is null');
+    }
     return null;
+  }
+
+  if (Date.now() > statusCache.expiresAt) {
+    if (DEBUG_CACHE) {
+      console.log('[STATUS_CACHE] getCachedStatus: cache expired', {
+        expiresAt: new Date(statusCache.expiresAt).toISOString(),
+        now: new Date().toISOString(),
+      });
+    }
+    return null;
+  }
+
+  if (DEBUG_CACHE) {
+    console.log('[STATUS_CACHE] getCachedStatus: returning cache', {
+      sailingsCount: statusCache.sailings.length,
+      source: statusCache.source,
+      updatedAt: statusCache.updatedAt,
+      expiresIn: Math.round((statusCache.expiresAt - Date.now()) / 1000) + 's',
+    });
   }
   return statusCache;
 }
@@ -68,6 +108,8 @@ export function setCachedStatus(sailings: CachedSailingStatus[]): void {
     updatedAt: new Date().toISOString(),
     expiresAt: Date.now() + CACHE_TTL_MS,
   };
+  // Persist to globalThis for cross-module access
+  setGlobalCache(statusCache);
 }
 
 /**
@@ -88,6 +130,24 @@ export function setExtendedCachedStatus(
     timezone: metadata.timezone,
     pageHash: metadata.pageHash,
   };
+  // Persist to globalThis for cross-module access
+  setGlobalCache(statusCache);
+
+  if (DEBUG_CACHE) {
+    console.log('[STATUS_CACHE] setExtendedCachedStatus: cache updated', {
+      sailingsCount: sailings.length,
+      source: metadata.source,
+      operatorId: metadata.operatorId,
+      serviceDateLocal: metadata.serviceDateLocal,
+      expiresAt: new Date(statusCache.expiresAt).toISOString(),
+      sailingsSummary: sailings.map(s => ({
+        from: s.fromSlug,
+        to: s.toSlug,
+        time: s.departureTime,
+        status: s.status,
+      })),
+    });
+  }
 }
 
 /**
@@ -95,6 +155,7 @@ export function setExtendedCachedStatus(
  */
 export function clearCachedStatus(): void {
   statusCache = null;
+  setGlobalCache(null);
 }
 
 /**
@@ -106,16 +167,31 @@ export function getStatusForSailing(
   departureTime: string
 ): CachedSailingStatus | null {
   const cache = getCachedStatus();
-  if (!cache) return null;
+  if (!cache) {
+    if (DEBUG_CACHE) {
+      console.log('[STATUS_CACHE] getStatusForSailing: no cache', { fromSlug, toSlug, departureTime });
+    }
+    return null;
+  }
 
   const normalizedTime = normalizeTime(departureTime);
 
-  return cache.sailings.find(
+  const match = cache.sailings.find(
     (s) =>
       s.fromSlug === fromSlug &&
       s.toSlug === toSlug &&
       normalizeTime(s.departureTime) === normalizedTime
   ) || null;
+
+  if (DEBUG_CACHE) {
+    console.log('[STATUS_CACHE] getStatusForSailing:', {
+      query: { fromSlug, toSlug, departureTime, normalizedTime },
+      match: match ? { status: match.status, fromSlug: match.fromSlug, toSlug: match.toSlug, time: match.departureTime } : null,
+      cacheHasSailings: cache.sailings.length,
+    });
+  }
+
+  return match;
 }
 
 /**
