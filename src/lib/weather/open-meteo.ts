@@ -13,6 +13,7 @@
 
 import { createServerClient } from '@/lib/supabase/client';
 import { getActiveCorridors } from '@/lib/config/corridors';
+import { getCorridorCoordinates } from '@/lib/corridors/registry';
 
 // Open-Meteo API endpoint
 const OPEN_METEO_API = 'https://api.open-meteo.com/v1/forecast';
@@ -20,14 +21,6 @@ const OPEN_METEO_MARINE_API = 'https://marine-api.open-meteo.com/v1/marine';
 
 // Request timeout
 const REQUEST_TIMEOUT = 15000;
-
-// Corridor center coordinates (for forecast purposes, we use a single point per corridor)
-const CORRIDOR_COORDINATES: Record<string, { lat: number; lon: number }> = {
-  'woods-hole-vineyard-haven': { lat: 41.4885, lon: -70.6365 },  // Midpoint
-  'woods-hole-oak-bluffs': { lat: 41.4903, lon: -70.6130 },       // Midpoint
-  'hyannis-nantucket': { lat: 41.4599, lon: -70.1911 },           // Midpoint (open water)
-  'hyannis-vineyard-haven': { lat: 41.5449, lon: -70.3931 },      // Midpoint
-};
 
 // Types for Open-Meteo responses
 interface OpenMeteoResponse {
@@ -289,15 +282,25 @@ async function fetchMarineForecast(lat: number, lon: number, days: number = 7): 
 
 /**
  * Fetch complete forecast for a corridor
+ *
+ * Uses corridor coordinate registry for location lookup.
+ * Logs explicitly when coordinates are resolved or missing.
  */
 export async function fetchCorridorForecast(
   corridorId: string,
   model: 'gfs' | 'ecmwf' = 'gfs'
-): Promise<CorridorForecast> {
-  const coords = CORRIDOR_COORDINATES[corridorId];
+): Promise<CorridorForecast | null> {
+  // Resolve coordinates from registry
+  const coords = getCorridorCoordinates(corridorId);
   if (!coords) {
-    throw new Error(`Unknown corridor: ${corridorId}`);
+    console.warn(`[FORECAST] Skipping corridor ${corridorId} (no coordinates in registry)`);
+    return null;
   }
+
+  // Log successful coordinate resolution
+  console.log(
+    `[FORECAST] Using corridor ${corridorId} @ lat=${coords.lat.toFixed(4)}, lon=${coords.lon.toFixed(4)}`
+  );
 
   const fetchedAt = new Date().toISOString();
 
@@ -332,6 +335,9 @@ export async function fetchCorridorForecast(
 
 /**
  * Fetch forecasts for all corridors
+ *
+ * Skips corridors that don't have coordinates registered.
+ * Returns only successful forecasts (nulls filtered out).
  */
 export async function fetchAllCorridorForecasts(
   model: 'gfs' | 'ecmwf' = 'gfs'
@@ -342,9 +348,12 @@ export async function fetchAllCorridorForecasts(
   for (const corridor of corridors) {
     try {
       const forecast = await fetchCorridorForecast(corridor.id, model);
-      forecasts.push(forecast);
+      // Skip corridors without coordinates (null returned)
+      if (forecast) {
+        forecasts.push(forecast);
+      }
     } catch (error) {
-      console.error(`Failed to fetch forecast for ${corridor.id}:`, error);
+      console.error(`[FORECAST] Failed to fetch forecast for ${corridor.id}:`, error);
     }
   }
 
@@ -404,6 +413,9 @@ export async function persistForecastSnapshots(forecast: CorridorForecast): Prom
 
 /**
  * Ingest forecasts for all corridors and persist to database
+ *
+ * REGRESSION GUARD: Logs a warning if zero corridors have coordinates.
+ * This indicates a configuration problem that must be fixed.
  */
 export async function ingestAllForecasts(): Promise<{
   gfs: { corridors: number; hours: number };
@@ -417,6 +429,15 @@ export async function ingestAllForecasts(): Promise<{
   // Fetch and persist GFS forecasts
   console.log('[FORECAST] Ingesting GFS forecasts...');
   const gfsForecasts = await fetchAllCorridorForecasts('gfs');
+
+  // REGRESSION GUARD: Zero corridors resolved means registry is empty or misconfigured
+  if (gfsForecasts.length === 0) {
+    console.warn(
+      '[FORECAST] REGRESSION WARNING: Zero corridors resolved for GFS model. ' +
+        'Check corridor coordinate registry at src/lib/corridors/registry.ts'
+    );
+  }
+
   for (const forecast of gfsForecasts) {
     const count = await persistForecastSnapshots(forecast);
     if (count > 0) {
@@ -428,6 +449,15 @@ export async function ingestAllForecasts(): Promise<{
   // Fetch and persist ECMWF forecasts
   console.log('[FORECAST] Ingesting ECMWF forecasts...');
   const ecmwfForecasts = await fetchAllCorridorForecasts('ecmwf');
+
+  // REGRESSION GUARD: Zero corridors resolved means registry is empty or misconfigured
+  if (ecmwfForecasts.length === 0) {
+    console.warn(
+      '[FORECAST] REGRESSION WARNING: Zero corridors resolved for ECMWF model. ' +
+        'Check corridor coordinate registry at src/lib/corridors/registry.ts'
+    );
+  }
+
   for (const forecast of ecmwfForecasts) {
     const count = await persistForecastSnapshots(forecast);
     if (count > 0) {
