@@ -204,8 +204,11 @@ async function getWeatherSnapshot(
 export async function persistSailingEvent(event: SailingEventInput): Promise<boolean> {
   const supabase = createServerClient();
 
+  // Diagnostic: Check if supabase client exists
   if (!supabase) {
-    console.warn('[EVENTS] Supabase not configured, skipping event persistence');
+    console.error('[PERSIST] ABORTED - Supabase client is null');
+    console.error('[PERSIST] SUPABASE_URL defined:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.error('[PERSIST] SUPABASE_SERVICE_ROLE_KEY defined:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
     return false;
   }
 
@@ -231,20 +234,48 @@ export async function persistSailingEvent(event: SailingEventInput): Promise<boo
       observed_at: event.observed_at,
     };
 
-    // Insert into database
-    const { error } = await supabase.from('sailing_events').insert(record);
+    // Diagnostic: Log pre-insert state
+    const tableName = 'ferry_forecast.sailing_events';
+    console.log(`[PERSIST] supabase_client=true service_role_present=${!!process.env.SUPABASE_SERVICE_ROLE_KEY} table=${tableName}`);
+    console.log(`[PERSIST] payload_sample=${JSON.stringify({
+      operator_id: record.operator_id,
+      corridor_id: record.corridor_id,
+      from_port: record.from_port,
+      to_port: record.to_port,
+      service_date: record.service_date,
+      departure_time: record.departure_time,
+      status: record.status,
+    })}`);
 
-    if (error) {
-      console.error('[EVENTS] Failed to persist sailing event:', error.message);
+    // Insert into database
+    try {
+      const { error } = await supabase.from('sailing_events').insert(record);
+
+      if (error) {
+        console.error('[PERSIST] INSERT FAILED - Full error object:');
+        console.error('[PERSIST]   code:', error.code);
+        console.error('[PERSIST]   message:', error.message);
+        console.error('[PERSIST]   details:', error.details);
+        console.error('[PERSIST]   hint:', error.hint);
+        return false;
+      }
+
+      console.log(
+        `[PERSIST] SUCCESS: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
+      );
+      return true;
+    } catch (insertError) {
+      console.error('[PERSIST] INSERT THREW EXCEPTION:');
+      console.error('[PERSIST]   error:', insertError);
+      if (insertError instanceof Error) {
+        console.error('[PERSIST]   name:', insertError.name);
+        console.error('[PERSIST]   message:', insertError.message);
+        console.error('[PERSIST]   stack:', insertError.stack);
+      }
       return false;
     }
-
-    console.log(
-      `[EVENTS] Persisted: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
-    );
-    return true;
   } catch (error) {
-    console.error('[EVENTS] Unexpected error persisting event:', error);
+    console.error('[PERSIST] Unexpected error in persistSailingEvent:', error);
     return false;
   }
 }
