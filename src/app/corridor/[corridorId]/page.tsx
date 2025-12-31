@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { CorridorBoard } from '@/components/CorridorBoard';
+import { ForecastPanel } from '@/components/ForecastPanel';
 import type { DailyCorridorBoard } from '@/types/corridor';
 
 function WavesIcon({ className }: { className?: string }) {
@@ -177,6 +178,11 @@ export default function CorridorPage() {
               loading={board.loading}
               error={board.error || undefined}
             />
+
+            {/* Forecast Panel - displays predictions from prediction_snapshots_v2 */}
+            {!board.loading && !board.error && (
+              <ForecastPanel corridorId={corridorId} />
+            )}
 
             {/* Disclaimer */}
             <div className="mt-8 bg-warning-muted border border-warning/30 rounded-xl p-6">

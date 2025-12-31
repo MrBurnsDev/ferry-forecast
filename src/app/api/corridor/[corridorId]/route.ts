@@ -3,8 +3,12 @@
  *
  * Phase 21: Service Corridor Architecture
  * Phase 22: Add weather context for risk scoring
+ * Phase 32: Add Open-Meteo forecast support
  *
  * GET /api/corridor/[corridorId]
+ *
+ * Query parameters:
+ * - forecast=true: Use Open-Meteo forecast data for hour-specific risk
  *
  * Returns a DailyCorridorBoard with all sailings in both directions,
  * interleaved and ordered by time, with per-sailing risk scores.
@@ -23,6 +27,10 @@ export async function GET(
 ): Promise<NextResponse<CorridorBoardResponse>> {
   const { corridorId } = await params;
 
+  // Parse query parameters
+  const { searchParams } = new URL(request.url);
+  const useForecast = searchParams.get('forecast') === 'true';
+
   // Validate corridor ID
   if (!corridorId || !isValidCorridor(corridorId)) {
     return NextResponse.json(
@@ -36,7 +44,7 @@ export async function GET(
   }
 
   try {
-    // Phase 22: Fetch weather for risk scoring
+    // Phase 22: Fetch weather for risk scoring (fallback when forecast unavailable)
     const corridor = getCorridorById(corridorId);
     let weather: WeatherContext | null = null;
 
@@ -57,7 +65,10 @@ export async function GET(
     }
 
     // Generate corridor board with weather context
-    const board = await getDailyCorridorBoard(corridorId, weather);
+    // Phase 32: Optionally use Open-Meteo forecast data
+    const board = await getDailyCorridorBoard(corridorId, weather, {
+      useForecast,
+    });
 
     if (!board) {
       return NextResponse.json(

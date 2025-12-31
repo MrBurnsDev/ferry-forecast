@@ -61,8 +61,9 @@ export type OperatorStatus = 'on_time' | 'canceled' | 'delayed' | null;
 
 /**
  * Risk level for weather interpretation (Layer 2)
+ * Phase 32: Extended with 'high' and 'severe' levels from prediction engine v2
  */
-export type RiskLevel = 'low' | 'moderate' | 'elevated';
+export type RiskLevel = 'low' | 'moderate' | 'elevated' | 'high' | 'severe';
 
 /**
  * Wind relation to route bearing
@@ -71,6 +72,8 @@ export type WindRelation = 'head' | 'cross' | 'tail';
 
 /**
  * Forecast risk overlay for a sailing (Layer 2 - interpretive only)
+ *
+ * Phase 32: Enhanced with model version and forecast source metadata
  */
 export interface ForecastRisk {
   /** Overall risk level */
@@ -79,6 +82,12 @@ export interface ForecastRisk {
   explanation: string[];
   /** How wind relates to route bearing */
   wind_relation: WindRelation;
+
+  // Phase 32: Prediction metadata (optional, present when using forecast data)
+  /** Model version that generated this prediction (e.g., "v2.0.0") */
+  model_version?: string;
+  /** Weather forecast source (e.g., "gfs", "ecmwf") */
+  forecast_source?: 'gfs' | 'ecmwf';
 }
 
 /**

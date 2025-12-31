@@ -2,6 +2,7 @@
  * Corridor Board Service
  *
  * Phase 21: Service Corridor Architecture
+ * Phase 32: Enhanced with Open-Meteo forecast predictions
  *
  * Produces DailyCorridorBoard - all sailings in both directions for a corridor,
  * interleaved and ordered by time, across all operators.
@@ -18,6 +19,11 @@
  * - Never create sailings from status data
  * - Never hide scheduled sailings unless operator explicitly cancels
  * - Never infer cancellation from weather
+ *
+ * PHASE 32 ENHANCEMENTS:
+ * - Use Open-Meteo forecasts for hour-specific risk when available
+ * - Fall back to current NOAA weather when forecast unavailable
+ * - Generate versioned predictions for learning loop
  */
 
 import type { DailyCorridorBoard } from '@/types/corridor';
@@ -42,10 +48,28 @@ import {
   computeSailingRisk,
   type WeatherContext,
 } from '@/lib/scoring/sailing-risk';
+import { getForecastRange, type ForecastHour } from '@/lib/weather/open-meteo';
+import { generatePrediction, type PredictionResult } from '@/lib/scoring/prediction-engine-v2';
 
 // ============================================================
 // CORRIDOR BOARD GENERATION
 // ============================================================
+
+/**
+ * Options for corridor board generation
+ */
+export interface CorridorBoardOptions {
+  /** Use Open-Meteo forecast data for future sailings */
+  useForecast?: boolean;
+}
+
+/**
+ * Forecast context for hour-specific risk computation
+ */
+interface ForecastContext {
+  forecasts: ForecastHour[];
+  source: 'gfs' | 'ecmwf';
+}
 
 /**
  * Generate a DailyCorridorBoard for a corridor
@@ -53,12 +77,14 @@ import {
  * This is the main entry point for corridor-centric data.
  *
  * @param corridorId - Corridor identifier (e.g., "woods-hole-vineyard-haven")
- * @param weather - Optional weather context for risk computation
+ * @param weather - Optional weather context for risk computation (current weather)
+ * @param options - Additional options for board generation
  * @returns Complete DailyCorridorBoard
  */
 export async function getDailyCorridorBoard(
   corridorId: string,
-  weather?: WeatherContext | null
+  weather?: WeatherContext | null,
+  options?: CorridorBoardOptions
 ): Promise<DailyCorridorBoard | null> {
   const corridor = getCorridorById(corridorId);
   if (!corridor) {
@@ -73,6 +99,22 @@ export async function getDailyCorridorBoard(
   const now = new Date();
   const serviceDateLocal = getTodayInTimezone(corridor.default_timezone);
   const operators = getOperatorsForCorridor(corridorId);
+
+  // Phase 32: Optionally fetch Open-Meteo forecast data
+  let forecastContext: ForecastContext | null = null;
+  if (options?.useForecast) {
+    try {
+      // Fetch 24-hour forecast range for this corridor
+      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const forecasts = await getForecastRange(corridorId, now, endTime, 'gfs');
+      if (forecasts.length > 0) {
+        forecastContext = { forecasts, source: 'gfs' };
+      }
+    } catch (error) {
+      console.warn(`[CORRIDOR_BOARD] Forecast fetch failed for ${corridorId}:`, error);
+      // Continue without forecast data
+    }
+  }
 
   // Collect all sailings from all routes in this corridor
   const allSailings: TerminalBoardSailing[] = [];
@@ -103,12 +145,13 @@ export async function getDailyCorridorBoard(
     // Determine operator for this route
     const operatorId = getOperatorIdFromRouteId(routeId);
 
-    // Convert sailings to board format
+    // Convert sailings to board format (with optional forecast context)
     const boardSailings = convertSailingsToBoard(
       scheduleResult,
       operatorId,
       routeId,
-      weather
+      weather,
+      forecastContext
     );
     allSailings.push(...boardSailings);
 
@@ -193,18 +236,72 @@ export async function getDailyCorridorBoard(
 // ============================================================
 
 /**
+ * Find the closest forecast hour for a given sailing time
+ */
+function findForecastForSailing(
+  sailingTime: Date,
+  forecasts: ForecastHour[]
+): ForecastHour | null {
+  if (forecasts.length === 0) return null;
+
+  const sailingMs = sailingTime.getTime();
+  let closest: ForecastHour | null = null;
+  let closestDiff = Infinity;
+
+  for (const forecast of forecasts) {
+    const forecastMs = new Date(forecast.forecastTime).getTime();
+    const diff = Math.abs(forecastMs - sailingMs);
+    // Only use forecasts within 30 minutes of sailing
+    if (diff < closestDiff && diff <= 30 * 60 * 1000) {
+      closestDiff = diff;
+      closest = forecast;
+    }
+  }
+
+  return closest;
+}
+
+/**
  * Convert schedule sailings to corridor board format
+ * Phase 32: Enhanced to use Open-Meteo forecasts when available
  */
 function convertSailingsToBoard(
   scheduleResult: ScheduleFetchResult,
   operatorId: string,
   routeId: string,
-  weather?: WeatherContext | null
+  weather?: WeatherContext | null,
+  forecastContext?: ForecastContext | null
 ): TerminalBoardSailing[] {
   return scheduleResult.sailings.map((sailing) => {
-    // Compute forecast risk if weather is available
+    // Compute forecast risk
     let forecastRisk: ForecastRisk | null = null;
-    if (weather) {
+    let predictionResult: PredictionResult | null = null;
+    const sailingTime = new Date(sailing.departureTime);
+
+    // Phase 32: Try to use hour-specific forecast if available
+    if (forecastContext && forecastContext.forecasts.length > 0) {
+      const forecastHour = findForecastForSailing(sailingTime, forecastContext.forecasts);
+      if (forecastHour) {
+        // Use prediction engine v2 for forecast-based risk
+        predictionResult = generatePrediction(
+          forecastHour,
+          sailing.direction.fromSlug,
+          sailing.direction.toSlug,
+          sailingTime
+        );
+        forecastRisk = {
+          level: predictionResult.riskLevel as RiskLevel,
+          explanation: predictionResult.explanation,
+          wind_relation: mapWindRelation(predictionResult.windRelation),
+          // Phase 32: Add prediction metadata
+          model_version: predictionResult.modelVersion,
+          forecast_source: forecastContext.source,
+        };
+      }
+    }
+
+    // Fallback to current weather-based risk if no forecast
+    if (!forecastRisk && weather) {
       const risk = computeSailingRisk(sailing, weather, routeId);
       forecastRisk = {
         level: risk.level as RiskLevel,
