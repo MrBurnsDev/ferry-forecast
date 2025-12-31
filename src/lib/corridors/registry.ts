@@ -2,14 +2,21 @@
  * Corridor Coordinate Registry
  *
  * Phase 36: Forecast Coordinate Resolution
+ * Phase 36.1: Static Object Pattern for Vercel Serverless
  *
  * Provides geographic coordinates for each ferry corridor.
  * Used by forecast ingestion to fetch weather data from Open-Meteo.
  *
  * DESIGN:
+ * - Static exported CORRIDOR_COORDINATES object (no registration, no side effects)
  * - Each corridor has from/to terminal coordinates
  * - Midpoint is computed for Open-Meteo queries (marine weather is location-specific)
  * - Coordinates are sourced from official ferry terminal locations
+ *
+ * VERCEL SERVERLESS COMPATIBILITY:
+ * - All data is statically defined at module level
+ * - No dynamic registration or side effects
+ * - Object.keys() used for corridor ID enumeration
  */
 
 // ============================================================
@@ -21,8 +28,7 @@ export interface TerminalCoordinates {
   lon: number;
 }
 
-export interface CorridorCoordinates {
-  corridor_id: string;
+export interface CorridorCoordinateEntry {
   from: TerminalCoordinates;
   to: TerminalCoordinates;
 }
@@ -36,7 +42,7 @@ export interface ResolvedCoordinates {
 }
 
 // ============================================================
-// TERMINAL COORDINATES
+// TERMINAL COORDINATES (STATIC)
 // ============================================================
 
 /**
@@ -49,45 +55,61 @@ export interface ResolvedCoordinates {
  * - Hyannis: 41.6519° N, 70.2834° W (Ocean Street Dock)
  * - Nantucket: 41.2858° N, 70.0972° W (Steamship Wharf)
  */
-const TERMINAL_COORDS: Record<string, TerminalCoordinates> = {
+export const TERMINAL_COORDINATES: Readonly<Record<string, TerminalCoordinates>> = {
   'woods-hole': { lat: 41.5235, lon: -70.6724 },
   'vineyard-haven': { lat: 41.4532, lon: -70.6024 },
-  'oak-bluffs': { lat: 41.4560, lon: -70.5583 },
+  'oak-bluffs': { lat: 41.456, lon: -70.5583 },
   'hyannis': { lat: 41.6519, lon: -70.2834 },
   'nantucket': { lat: 41.2858, lon: -70.0972 },
-};
+} as const;
 
 // ============================================================
-// CORRIDOR DEFINITIONS
+// CORRIDOR COORDINATES (STATIC EXPORTED OBJECT)
 // ============================================================
 
 /**
- * All corridor coordinate definitions
+ * Static corridor coordinate definitions
  *
- * Uses terminal IDs that match src/lib/config/corridors.ts
+ * IMPORTANT: This is the SINGLE SOURCE OF TRUTH for corridor IDs.
+ * All forecast ingestion relies on Object.keys(CORRIDOR_COORDINATES).
+ *
+ * Corridor IDs match src/lib/config/corridors.ts
  */
-const CORRIDOR_REGISTRY: CorridorCoordinates[] = [
-  {
-    corridor_id: 'woods-hole-vineyard-haven',
-    from: TERMINAL_COORDS['woods-hole'],
-    to: TERMINAL_COORDS['vineyard-haven'],
+export const CORRIDOR_COORDINATES: Readonly<Record<string, CorridorCoordinateEntry>> = {
+  'woods-hole-vineyard-haven': {
+    from: { lat: 41.5235, lon: -70.6724 },
+    to: { lat: 41.4532, lon: -70.6024 },
   },
-  {
-    corridor_id: 'woods-hole-oak-bluffs',
-    from: TERMINAL_COORDS['woods-hole'],
-    to: TERMINAL_COORDS['oak-bluffs'],
+  'woods-hole-oak-bluffs': {
+    from: { lat: 41.5235, lon: -70.6724 },
+    to: { lat: 41.456, lon: -70.5583 },
   },
-  {
-    corridor_id: 'hyannis-nantucket',
-    from: TERMINAL_COORDS['hyannis'],
-    to: TERMINAL_COORDS['nantucket'],
+  'hyannis-nantucket': {
+    from: { lat: 41.6519, lon: -70.2834 },
+    to: { lat: 41.2858, lon: -70.0972 },
   },
-  {
-    corridor_id: 'hyannis-vineyard-haven',
-    from: TERMINAL_COORDS['hyannis'],
-    to: TERMINAL_COORDS['vineyard-haven'],
+  'hyannis-vineyard-haven': {
+    from: { lat: 41.6519, lon: -70.2834 },
+    to: { lat: 41.4532, lon: -70.6024 },
   },
-];
+} as const;
+
+// ============================================================
+// FATAL GUARD - Runtime Check at Module Load
+// ============================================================
+
+// Runtime guard that runs at module load
+const CORRIDOR_IDS = Object.keys(CORRIDOR_COORDINATES);
+if (CORRIDOR_IDS.length === 0) {
+  throw new Error(
+    '[CORRIDOR_REGISTRY] FATAL: CORRIDOR_COORDINATES is empty. ' +
+      'This is a build/bundle error - the static corridor definitions are missing. ' +
+      'Check src/lib/corridors/registry.ts'
+  );
+}
+
+// Log at module load for debugging in Vercel
+console.log(`[CORRIDOR_REGISTRY] Loaded ${CORRIDOR_IDS.length} corridors: [${CORRIDOR_IDS.join(', ')}]`);
 
 // ============================================================
 // LOOKUP FUNCTIONS
@@ -97,7 +119,6 @@ const CORRIDOR_REGISTRY: CorridorCoordinates[] = [
  * Compute midpoint between two coordinates
  *
  * For short distances like ferry routes, simple averaging is sufficient.
- * For longer routes, use proper great circle midpoint calculation.
  */
 function computeMidpoint(from: TerminalCoordinates, to: TerminalCoordinates): TerminalCoordinates {
   return {
@@ -107,54 +128,68 @@ function computeMidpoint(from: TerminalCoordinates, to: TerminalCoordinates): Te
 }
 
 /**
+ * Get all registered corridor IDs
+ *
+ * FATAL GUARD: Throws if no corridors are registered.
+ * This should never happen unless there's a build/bundle error.
+ */
+export function getRegisteredCorridorIds(): string[] {
+  const ids = Object.keys(CORRIDOR_COORDINATES);
+
+  // Fatal guard - this is a sanity check
+  if (ids.length === 0) {
+    throw new Error(
+      '[CORRIDOR_REGISTRY] FATAL: getRegisteredCorridorIds() returned 0 corridors. ' +
+        'CORRIDOR_COORDINATES object is empty at runtime. ' +
+        'This indicates a bundling or tree-shaking issue.'
+    );
+  }
+
+  return ids;
+}
+
+/**
  * Get coordinates for a corridor
  *
  * Returns resolved coordinates with midpoint for weather queries.
  * Returns null if corridor is not registered.
  */
 export function getCorridorCoordinates(corridorId: string): ResolvedCoordinates | null {
-  const corridor = CORRIDOR_REGISTRY.find((c) => c.corridor_id === corridorId);
-  if (!corridor) {
+  const entry = CORRIDOR_COORDINATES[corridorId];
+  if (!entry) {
     return null;
   }
 
-  const midpoint = computeMidpoint(corridor.from, corridor.to);
+  const midpoint = computeMidpoint(entry.from, entry.to);
 
   return {
     corridor_id: corridorId,
     lat: midpoint.lat,
     lon: midpoint.lon,
-    from: corridor.from,
-    to: corridor.to,
+    from: entry.from,
+    to: entry.to,
   };
-}
-
-/**
- * Get all registered corridor IDs
- */
-export function getRegisteredCorridorIds(): string[] {
-  return CORRIDOR_REGISTRY.map((c) => c.corridor_id);
 }
 
 /**
  * Check if a corridor has coordinates registered
  */
 export function hasCoordinates(corridorId: string): boolean {
-  return CORRIDOR_REGISTRY.some((c) => c.corridor_id === corridorId);
+  return corridorId in CORRIDOR_COORDINATES;
 }
 
 /**
  * Get all registered corridors with coordinates
  */
 export function getAllCorridorCoordinates(): ResolvedCoordinates[] {
-  return CORRIDOR_REGISTRY.map((corridor) => {
-    const midpoint = computeMidpoint(corridor.from, corridor.to);
+  return Object.entries(CORRIDOR_COORDINATES).map(([corridorId, entry]) => {
+    const midpoint = computeMidpoint(entry.from, entry.to);
     return {
-      corridor_id: corridor.corridor_id,
+      corridor_id: corridorId,
       lat: midpoint.lat,
       lon: midpoint.lon,
-      from: corridor.from,
-      to: corridor.to,
+      from: entry.from,
+      to: entry.to,
     };
   });
 }
@@ -163,5 +198,5 @@ export function getAllCorridorCoordinates(): ResolvedCoordinates[] {
  * Get terminal coordinates by terminal ID
  */
 export function getTerminalCoordinates(terminalId: string): TerminalCoordinates | null {
-  return TERMINAL_COORDS[terminalId] || null;
+  return TERMINAL_COORDINATES[terminalId] || null;
 }
