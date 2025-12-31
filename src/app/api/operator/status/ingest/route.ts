@@ -4,6 +4,7 @@
  * Phase 24: Trusted Operator Observer
  * Phase 25: Fix JSON Response Contract
  * Phase 27: Persistent Sailing Event Memory
+ * Phase 31: Fix persistence - switch to Node.js runtime and awaited persistence
  *
  * POST /api/operator/status/ingest
  *
@@ -20,6 +21,10 @@
  * - Weather snapshot captured at observation time
  * - Append-only, never updates or deletes
  *
+ * Phase 31 Fix:
+ * - Explicitly set runtime to 'nodejs' (Edge cannot do DB writes reliably)
+ * - Switch from fire-and-forget to awaited persistence (serverless exits too fast otherwise)
+ *
  * Security:
  * - Requires Bearer token authentication via OBSERVER_SECRET env var
  * - Rate limited
@@ -31,6 +36,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Phase 31: Force Node.js runtime for reliable Supabase writes
+export const runtime = 'nodejs';
 import {
   persistSailingEvents,
   getCorridorId,
@@ -195,14 +203,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Log ingest
+    // Log ingest with runtime info
     console.log(
-      `[INGEST] ${payload.trigger.toUpperCase()} from ${payload.source}: ` +
+      `[INGEST] runtime=${process.env.NEXT_RUNTIME ?? 'nodejs'} ` +
+      `${payload.trigger.toUpperCase()} from ${payload.source}: ` +
       `${sailings.length} sailings, ${payload.advisories?.length || 0} advisories`
     );
 
-    // Phase 27: Persist sailing events to database (fire-and-forget, non-blocking)
-    // This runs in the background and does NOT block the response
+    // Phase 27: Persist sailing events to database
+    // Phase 31: Switch from fire-and-forget to awaited persistence
+    // Reason: Vercel serverless functions terminate immediately after response,
+    // so fire-and-forget async work never completes. We must await to ensure
+    // the DB write finishes before the function exits.
     const operatorId = mapOperatorId(payload.source);
     const eventInputs: SailingEventInput[] = payload.sailings.map((s) => {
       const fromSlug = normalizePortSlug(s.departing_terminal);
@@ -221,15 +233,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
     });
 
-    // Persist events without awaiting (best-effort, non-blocking)
-    // Errors are logged internally but do not affect the response
-    persistSailingEvents(eventInputs)
-      .then((count) => {
-        console.log(`[INGEST] Persisted ${count}/${eventInputs.length} sailing events to database`);
-      })
-      .catch((err) => {
-        console.error('[INGEST] Failed to persist sailing events:', err);
-      });
+    // Phase 31: Await persistence and add comprehensive call-site logging
+    console.log(`[INGEST] ENTERING persistSailingEvents call with ${eventInputs.length} events`);
+    let persistedCount = 0;
+    try {
+      persistedCount = await persistSailingEvents(eventInputs);
+      console.log(`[INGEST] EXITED persistSailingEvents: ${persistedCount}/${eventInputs.length} persisted`);
+    } catch (err) {
+      console.error('[INGEST] persistSailingEvents threw exception:', err);
+    }
 
     // Count statuses for response
     const statusCounts = {
@@ -241,6 +253,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({
       success: true,
       ingested: sailings.length,
+      persisted: persistedCount,
       source: payload.source,
       trigger: payload.trigger,
       scraped_at: payload.scraped_at_utc,
