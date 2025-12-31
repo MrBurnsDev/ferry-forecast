@@ -2,9 +2,16 @@
  * Forecast Data Access Layer
  *
  * Phase 33: 7-Day and 14-Day Travel Forecast UX
+ * Phase 35: Forecast API Auth Hardening + Regression Guard
  *
  * Reads predictions from ferry_forecast.prediction_snapshots_v2
  * This is READ-ONLY - no prediction computation happens here.
+ *
+ * AUTHENTICATION:
+ * Uses service role key (NOT anon key) because:
+ * - prediction_snapshots_v2 has RLS policies blocking anon access
+ * - Service role bypasses RLS for server-side API routes
+ * - This file is only imported from API routes (server-side)
  *
  * IMPORTANT: Uses only verified schema columns:
  * - service_date (date)
@@ -21,7 +28,7 @@
  * - 14-day forecast: hours_ahead <= 336
  */
 
-import { createServerClient } from '@/lib/supabase/client';
+import { createServiceRoleClient, isServiceRoleConfigured } from '@/lib/supabase/serverServiceClient';
 
 /**
  * A single prediction row from prediction_snapshots_v2
@@ -65,6 +72,22 @@ const SEVEN_DAY_HOURS = 168;
 const FOURTEEN_DAY_HOURS = 336;
 
 /**
+ * Raw row type from prediction_snapshots_v2
+ * Used for typing the Supabase query result
+ */
+interface PredictionRow {
+  service_date: string;
+  departure_time_local: string;
+  risk_level: string;
+  risk_score: number;
+  confidence: string;
+  explanation: string[] | null;
+  model_version: string;
+  hours_ahead: number;
+  sailing_time: string;
+}
+
+/**
  * Risk level ordering for comparison
  */
 const RISK_ORDER: Record<string, number> = {
@@ -98,9 +121,22 @@ export async function getCorridorForecast(
   corridorId: string,
   forecastType: '7_day' | '14_day' = '7_day'
 ): Promise<CorridorForecast | null> {
-  const supabase = createServerClient();
+  // Pre-flight check: Service role key must be configured
+  // This is a REGRESSION GUARD - if this fails, the deployment is misconfigured
+  if (!isServiceRoleConfigured()) {
+    console.error(
+      '[FORECAST] REGRESSION: SUPABASE_SERVICE_ROLE_KEY is not configured. ' +
+        'Forecast API cannot read prediction_snapshots_v2 without service role. ' +
+        'Check Vercel environment variables.'
+    );
+    return null;
+  }
+
+  // Create service role client (bypasses RLS)
+  // allowNull: true means we return null instead of throwing if missing
+  const supabase = createServiceRoleClient({ allowNull: true });
   if (!supabase) {
-    console.error('[FORECAST] Supabase client is null');
+    console.error('[FORECAST] Failed to create service role Supabase client');
     return null;
   }
 
@@ -108,6 +144,7 @@ export async function getCorridorForecast(
   const maxHoursAhead = forecastType === '7_day' ? SEVEN_DAY_HOURS : FOURTEEN_DAY_HOURS;
 
   // Query prediction_snapshots_v2 using ONLY verified columns
+  // Cast result to PredictionRow[] since we're using a generic client without schema types
   const { data, error } = await supabase
     .from('prediction_snapshots_v2')
     .select(`
@@ -125,7 +162,7 @@ export async function getCorridorForecast(
     .lte('hours_ahead', maxHoursAhead)
     .gte('hours_ahead', 0)
     .order('service_date', { ascending: true })
-    .order('sailing_time', { ascending: true });
+    .order('sailing_time', { ascending: true }) as { data: PredictionRow[] | null; error: { code?: string; message?: string } | null };
 
   if (error) {
     // Handle missing table or permission errors gracefully - return empty forecast
@@ -219,7 +256,20 @@ export interface ForecastSummary {
 export async function getCorridorForecastSummary(
   corridorId: string
 ): Promise<ForecastSummary> {
-  const supabase = createServerClient();
+  // Check service role configuration
+  if (!isServiceRoleConfigured()) {
+    console.error('[FORECAST_SUMMARY] Service role key not configured');
+    return {
+      corridor_id: corridorId,
+      has_data: false,
+      seven_day_count: 0,
+      fourteen_day_count: 0,
+      highest_risk_7_day: 'low',
+      highest_risk_14_day: 'low',
+    };
+  }
+
+  const supabase = createServiceRoleClient({ allowNull: true });
   if (!supabase) {
     return {
       corridor_id: corridorId,
@@ -232,12 +282,13 @@ export async function getCorridorForecastSummary(
   }
 
   // Get counts and max risk for 7-day window
+  // Cast to expected type since we're using generic client without schema types
   const { data: sevenDayData } = await supabase
     .from('prediction_snapshots_v2')
     .select('risk_level')
     .eq('corridor_id', corridorId)
     .lte('hours_ahead', SEVEN_DAY_HOURS)
-    .gte('hours_ahead', 0);
+    .gte('hours_ahead', 0) as { data: { risk_level: string }[] | null };
 
   // Get counts and max risk for 14-day window (8-14 days)
   const { data: extendedData } = await supabase
@@ -245,7 +296,7 @@ export async function getCorridorForecastSummary(
     .select('risk_level')
     .eq('corridor_id', corridorId)
     .gt('hours_ahead', SEVEN_DAY_HOURS)
-    .lte('hours_ahead', FOURTEEN_DAY_HOURS);
+    .lte('hours_ahead', FOURTEEN_DAY_HOURS) as { data: { risk_level: string }[] | null };
 
   const sevenDayRisks = (sevenDayData || []).map((r) => r.risk_level);
   const extendedRisks = (extendedData || []).map((r) => r.risk_level);
