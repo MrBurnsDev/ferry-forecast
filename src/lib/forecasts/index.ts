@@ -128,6 +128,17 @@ export async function getCorridorForecast(
     .order('sailing_time', { ascending: true });
 
   if (error) {
+    // Handle missing table gracefully - return empty forecast
+    if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      console.warn('[FORECAST] Table prediction_snapshots_v2 not found - returning empty forecast');
+      return {
+        corridor_id: corridorId,
+        forecast_type: forecastType,
+        days: [],
+        total_predictions: 0,
+        generated_at: new Date().toISOString(),
+      };
+    }
     console.error('[FORECAST] Query error:', error);
     return null;
   }
