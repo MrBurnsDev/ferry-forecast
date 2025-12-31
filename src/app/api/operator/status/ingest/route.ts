@@ -5,6 +5,7 @@
  * Phase 25: Fix JSON Response Contract
  * Phase 27: Persistent Sailing Event Memory
  * Phase 31: Fix persistence - switch to Node.js runtime and awaited persistence
+ * Phase 37: Live Operator Status Reconciliation
  *
  * POST /api/operator/status/ingest
  *
@@ -12,18 +13,17 @@
  * This is Layer 1 (Operator Truth) data that overlays template schedules.
  *
  * Rules:
- * - NEVER creates new sailings
+ * - NEVER creates new sailings from scratch
  * - NEVER deletes sailings
  * - ONLY updates matching sailings by terminal pair + service date + departure time
  *
- * Phase 27 Addition:
- * - Each observed sailing is persisted to sailing_events table
- * - Weather snapshot captured at observation time
- * - Append-only, never updates or deletes
+ * Phase 37 Addition:
+ * - Reconciliation: UPSERT on natural key instead of always INSERT
+ * - Track status changes with previous_status audit trail
+ * - Log status changes: [RECONCILE] Status changed: on_time → canceled
  *
- * Phase 31 Fix:
- * - Explicitly set runtime to 'nodejs' (Edge cannot do DB writes reliably)
- * - Switch from fire-and-forget to awaited persistence (serverless exits too fast otherwise)
+ * KEY PRINCIPLE: Operator reality overrides prediction.
+ * Forecast explains risk. Operator status defines truth.
  *
  * Security:
  * - Requires Bearer token authentication via OBSERVER_SECRET env var

@@ -2,15 +2,19 @@
  * Sailing Events Persistence
  *
  * Phase 27: Persistent Sailing Event Memory
+ * Phase 37: Live Operator Status Reconciliation
  *
- * Append-only event log for observed sailing outcomes.
- * Used for learning and validating risk models.
+ * Manages sailing events with reconciliation support.
+ * When operator status changes, we UPDATE existing rows (upsert pattern).
  *
  * RULES:
- * - INSERT only, never UPDATE or DELETE
- * - Each observation creates a new row
+ * - UPSERT on natural key (operator, corridor, date, time, ports)
+ * - Track status changes with previous_status audit
  * - Weather snapshot captured at observation time
  * - Failures are logged but do NOT break UI
+ *
+ * KEY PRINCIPLE: Operator reality overrides prediction.
+ * Forecast explains risk. Operator status defines truth.
  */
 
 import { createServerClient } from '@/lib/supabase/client';
@@ -18,7 +22,7 @@ import { fetchCurrentWeather, WeatherFetchError } from '@/lib/weather/noaa';
 
 // Types for sailing events
 export interface SailingEventInput {
-  // Sailing identity
+  // Sailing identity (natural key)
   operator_id: string;
   corridor_id: string;
   from_port: string;
@@ -47,6 +51,18 @@ export interface WeatherSnapshot {
 export interface SailingEventRecord extends SailingEventInput, WeatherSnapshot {
   id: string;
   created_at: string;
+  status_reason?: string;
+  status_source?: string;
+  status_updated_at?: string;
+  previous_status?: string;
+}
+
+// Reconciliation result for logging
+export interface ReconcileResult {
+  action: 'inserted' | 'updated' | 'unchanged' | 'failed';
+  previous_status?: string;
+  new_status?: string;
+  reason?: string;
 }
 
 // Port slug mappings for corridor detection
@@ -196,36 +212,119 @@ async function getWeatherSnapshot(
 }
 
 /**
- * Persist a sailing event to the database
- *
- * @param event - The sailing event to persist
- * @returns true if persisted successfully, false otherwise
+ * Build natural key for a sailing event (used for upsert)
  */
-export async function persistSailingEvent(event: SailingEventInput): Promise<boolean> {
+function buildNaturalKey(event: SailingEventInput) {
+  return {
+    operator_id: event.operator_id,
+    corridor_id: event.corridor_id,
+    service_date: event.service_date,
+    departure_time: event.departure_time,
+    from_port: event.from_port,
+    to_port: event.to_port,
+  };
+}
+
+/**
+ * Persist or reconcile a sailing event in the database
+ *
+ * Phase 37: Reconciliation Logic
+ * - If no existing row: INSERT
+ * - If existing row with same status: SKIP (unchanged)
+ * - If existing row with different status: UPDATE with audit trail
+ *
+ * @param event - The sailing event to persist/reconcile
+ * @returns ReconcileResult with action taken
+ */
+export async function reconcileSailingEvent(event: SailingEventInput): Promise<ReconcileResult> {
   const supabase = createServerClient();
 
-  // Diagnostic: Check if supabase client exists
   if (!supabase) {
-    console.error('[PERSIST] ABORTED - Supabase client is null');
-    console.error('[PERSIST] SUPABASE_URL defined:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.error('[PERSIST] SUPABASE_SERVICE_ROLE_KEY defined:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-    return false;
+    console.error('[RECONCILE] ABORTED - Supabase client is null');
+    return { action: 'failed', reason: 'No database connection' };
   }
 
   try {
-    // Fetch weather snapshot with wind relation (Phase 28)
+    const naturalKey = buildNaturalKey(event);
+
+    // Step 1: Check if sailing already exists
+    const { data: existing, error: selectError } = await supabase
+      .from('sailing_events')
+      .select('id, status, status_message')
+      .match(naturalKey)
+      .maybeSingle();
+
+    if (selectError) {
+      console.error('[RECONCILE] SELECT failed:', selectError);
+      return { action: 'failed', reason: selectError.message };
+    }
+
+    // Step 2: Determine action
+    if (existing) {
+      // Row exists - check if status changed
+      if (existing.status === event.status) {
+        // No change needed
+        console.log(
+          `[RECONCILE] UNCHANGED: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
+        );
+        return { action: 'unchanged', new_status: event.status };
+      }
+
+      // Status changed - UPDATE with reconciliation
+      console.log(
+        `[RECONCILE] Status changed: ${existing.status} → ${event.status}`
+      );
+      console.log(
+        `[RECONCILE] Reason: ${event.status_message || 'No reason provided'}`
+      );
+
+      // Fetch weather for update
+      const weather = await getWeatherSnapshot(event.from_port, event.to_port);
+
+      const { error: updateError } = await supabase
+        .from('sailing_events')
+        .update({
+          status: event.status,
+          status_message: event.status_message || null,
+          status_reason: event.status_message || null,
+          status_source: 'operator',
+          status_updated_at: new Date().toISOString(),
+          previous_status: existing.status,
+          observed_at: event.observed_at,
+          source: event.source,
+          // Update weather snapshot
+          wind_speed_mph: weather.wind_speed_mph,
+          wind_direction_deg: weather.wind_direction_deg,
+          wind_gusts_mph: weather.wind_gusts_mph,
+          wind_relation: weather.wind_relation,
+        })
+        .eq('id', existing.id);
+
+      if (updateError) {
+        console.error('[RECONCILE] UPDATE failed:', updateError);
+        return { action: 'failed', reason: updateError.message };
+      }
+
+      console.log(
+        `[RECONCILE] UPDATED: ${event.from_port} → ${event.to_port} @ ${event.departure_time}: ${existing.status} → ${event.status}`
+      );
+      return {
+        action: 'updated',
+        previous_status: existing.status,
+        new_status: event.status,
+        reason: event.status_message,
+      };
+    }
+
+    // Step 3: No existing row - INSERT
     const weather = await getWeatherSnapshot(event.from_port, event.to_port);
 
-    // Build the record
     const record = {
-      operator_id: event.operator_id,
-      corridor_id: event.corridor_id,
-      from_port: event.from_port,
-      to_port: event.to_port,
-      service_date: event.service_date,
-      departure_time: event.departure_time,
+      ...naturalKey,
       status: event.status,
       status_message: event.status_message || null,
+      status_reason: event.status_message || null,
+      status_source: 'operator',
       wind_speed_mph: weather.wind_speed_mph,
       wind_direction_deg: weather.wind_direction_deg,
       wind_gusts_mph: weather.wind_gusts_mph,
@@ -234,70 +333,109 @@ export async function persistSailingEvent(event: SailingEventInput): Promise<boo
       observed_at: event.observed_at,
     };
 
-    // Diagnostic: Log pre-insert state
-    const tableName = 'ferry_forecast.sailing_events';
-    console.log(`[PERSIST] supabase_client=true service_role_present=${!!process.env.SUPABASE_SERVICE_ROLE_KEY} table=${tableName}`);
-    console.log(`[PERSIST] payload_sample=${JSON.stringify({
-      operator_id: record.operator_id,
-      corridor_id: record.corridor_id,
-      from_port: record.from_port,
-      to_port: record.to_port,
-      service_date: record.service_date,
-      departure_time: record.departure_time,
-      status: record.status,
-    })}`);
+    const { error: insertError } = await supabase.from('sailing_events').insert(record);
 
-    // Insert into database
-    try {
-      const { error } = await supabase.from('sailing_events').insert(record);
-
-      if (error) {
-        console.error('[PERSIST] INSERT FAILED - Full error object:');
-        console.error('[PERSIST]   code:', error.code);
-        console.error('[PERSIST]   message:', error.message);
-        console.error('[PERSIST]   details:', error.details);
-        console.error('[PERSIST]   hint:', error.hint);
-        return false;
+    if (insertError) {
+      // Handle unique constraint violation (concurrent insert)
+      if (insertError.code === '23505') {
+        console.log('[RECONCILE] Concurrent insert detected, retrying as update...');
+        // Retry as reconcile (another process inserted first)
+        return reconcileSailingEvent(event);
       }
-
-      console.log(
-        `[PERSIST] SUCCESS: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
-      );
-      return true;
-    } catch (insertError) {
-      console.error('[PERSIST] INSERT THREW EXCEPTION:');
-      console.error('[PERSIST]   error:', insertError);
-      if (insertError instanceof Error) {
-        console.error('[PERSIST]   name:', insertError.name);
-        console.error('[PERSIST]   message:', insertError.message);
-        console.error('[PERSIST]   stack:', insertError.stack);
-      }
-      return false;
+      console.error('[RECONCILE] INSERT failed:', insertError);
+      return { action: 'failed', reason: insertError.message };
     }
+
+    console.log(
+      `[RECONCILE] INSERTED: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
+    );
+    return { action: 'inserted', new_status: event.status };
   } catch (error) {
-    console.error('[PERSIST] Unexpected error in persistSailingEvent:', error);
-    return false;
+    console.error('[RECONCILE] Unexpected error:', error);
+    return { action: 'failed', reason: String(error) };
   }
 }
 
 /**
- * Persist multiple sailing events (batch operation)
+ * Persist a sailing event to the database (legacy interface - wraps reconcile)
+ *
+ * @param event - The sailing event to persist
+ * @returns true if persisted successfully, false otherwise
+ */
+export async function persistSailingEvent(event: SailingEventInput): Promise<boolean> {
+  const result = await reconcileSailingEvent(event);
+  return result.action !== 'failed';
+}
+
+/**
+ * Persist multiple sailing events (batch operation with reconciliation)
  *
  * @param events - Array of sailing events to persist
- * @returns Number of successfully persisted events
+ * @returns Summary of reconciliation actions
  */
 export async function persistSailingEvents(events: SailingEventInput[]): Promise<number> {
   let successCount = 0;
+  const results: ReconcileResult[] = [];
 
   // Process events sequentially to avoid overwhelming the weather API
   for (const event of events) {
-    const success = await persistSailingEvent(event);
-    if (success) {
+    const result = await reconcileSailingEvent(event);
+    results.push(result);
+    if (result.action !== 'failed') {
       successCount++;
     }
   }
 
+  // Log summary
+  const inserted = results.filter((r) => r.action === 'inserted').length;
+  const updated = results.filter((r) => r.action === 'updated').length;
+  const unchanged = results.filter((r) => r.action === 'unchanged').length;
+  const failed = results.filter((r) => r.action === 'failed').length;
+
+  console.log(
+    `[RECONCILE] Batch complete: ${inserted} inserted, ${updated} updated, ${unchanged} unchanged, ${failed} failed`
+  );
+
   return successCount;
+}
+
+/**
+ * Get the latest status for a sailing from the database
+ * Used by UI to prioritize operator status
+ *
+ * @param naturalKey - The sailing identity
+ * @returns Latest status or null if not found
+ */
+export async function getLatestSailingStatus(naturalKey: {
+  operator_id: string;
+  corridor_id: string;
+  service_date: string;
+  departure_time: string;
+  from_port: string;
+  to_port: string;
+}): Promise<{
+  status: string;
+  status_reason: string | null;
+  status_source: string | null;
+  status_updated_at: string | null;
+} | null> {
+  const supabase = createServerClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('sailing_events')
+    .select('status, status_reason, status_source, status_updated_at')
+    .match(naturalKey)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    status: data.status,
+    status_reason: data.status_reason,
+    status_source: data.status_source,
+    status_updated_at: data.status_updated_at,
+  };
 }
 
 /**
