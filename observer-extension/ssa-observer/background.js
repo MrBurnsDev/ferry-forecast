@@ -84,6 +84,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  */
 async function performScrape(trigger) {
   const startTime = Date.now();
+  let tabId = null; // Track tab ID for cleanup
 
   try {
     // Get config
@@ -105,6 +106,7 @@ async function performScrape(trigger) {
       url: SSA_STATUS_URL,
       active: false // Hidden tab
     });
+    tabId = tab.id; // Save for cleanup in catch block
 
     // Wait for page load
     await waitForTabLoad(tab.id, 15000);
@@ -274,6 +276,17 @@ async function performScrape(trigger) {
     return result;
 
   } catch (error) {
+    // ALWAYS close the tab on error to prevent orphaned tabs
+    if (tabId) {
+      try {
+        await chrome.tabs.remove(tabId);
+        console.log('[SSA Observer] Tab closed after error');
+      } catch (closeError) {
+        // Tab may already be closed, ignore
+        console.log('[SSA Observer] Tab already closed or error closing:', closeError.message);
+      }
+    }
+
     const result = {
       success: false,
       error: error.message,
