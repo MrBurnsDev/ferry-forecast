@@ -1,21 +1,22 @@
 'use client';
 
 /**
- * Corridor Board Page
+ * Corridor Page
  *
- * Phase 21: Service Corridor Architecture
+ * Phase 34B: Unified Corridor Page UX
  *
- * This is the PRIMARY operational view showing all sailings in both
- * directions for a corridor, interleaved and ordered by time.
+ * Single page layout for all corridor views with unified tabbed interface:
+ * - Today (live sailings)
+ * - Next 7 Days (forecast)
+ * - Next 14 Days (extended forecast)
  *
- * This matches how SSA's "Traveling Today" page works.
+ * Uses CorridorTabs component which owns all tab state and content rendering.
  */
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { CorridorBoard } from '@/components/CorridorBoard';
-import { ForecastPanel } from '@/components/ForecastPanel';
+import { CorridorTabs } from '@/components/CorridorTabs';
 import type { DailyCorridorBoard } from '@/types/corridor';
 
 function WavesIcon({ className }: { className?: string }) {
@@ -168,21 +169,18 @@ export default function CorridorPage() {
         </div>
       </section>
 
-      {/* Main Content */}
+      {/* Main Content - Single Unified Tab Interface */}
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
           <div className="max-w-3xl mx-auto">
-            <CorridorBoard
+            {/* Unified CorridorTabs - owns all tab state and content */}
+            <CorridorTabs
+              corridorId={corridorId}
               board={board.data}
               weatherContext={board.weatherContext}
-              loading={board.loading}
-              error={board.error || undefined}
+              boardLoading={board.loading}
+              boardError={board.error}
             />
-
-            {/* Forecast Panel - displays predictions from prediction_snapshots_v2 */}
-            {!board.loading && !board.error && (
-              <ForecastPanel corridorId={corridorId} />
-            )}
 
             {/* Disclaimer */}
             <div className="mt-8 bg-warning-muted border border-warning/30 rounded-xl p-6">

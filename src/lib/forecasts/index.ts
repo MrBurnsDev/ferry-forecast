@@ -128,9 +128,14 @@ export async function getCorridorForecast(
     .order('sailing_time', { ascending: true });
 
   if (error) {
-    // Handle missing table gracefully - return empty forecast
-    if (error.code === '42P01' || error.message?.includes('does not exist')) {
-      console.warn('[FORECAST] Table prediction_snapshots_v2 not found - returning empty forecast');
+    // Handle missing table or permission errors gracefully - return empty forecast
+    // 42P01 = relation does not exist (table not found)
+    // 42501 = permission denied (RLS or grants not configured)
+    const isTableMissing = error.code === '42P01' || error.message?.includes('does not exist');
+    const isPermissionDenied = error.code === '42501' || error.message?.includes('permission denied');
+
+    if (isTableMissing || isPermissionDenied) {
+      console.warn(`[FORECAST] ${isTableMissing ? 'Table not found' : 'Permission denied'} for prediction_snapshots_v2 - returning empty forecast`);
       return {
         corridor_id: corridorId,
         forecast_type: forecastType,
