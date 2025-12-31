@@ -177,10 +177,10 @@ export interface ScheduleFetchResult {
   /** Travel advisories from operator (Phase 17) */
   advisories?: OperatorAdvisory[];
 
-  /** Status source info (Phase 17) */
+  /** Status source info (Phase 17, Phase 26: observer_cache) */
   statusSource?: {
     /** Where sailing status came from */
-    source: 'operator_status_page' | 'schedule_page' | 'unavailable';
+    source: 'operator_status_page' | 'schedule_page' | 'observer_cache' | 'unavailable';
     /** URL of the status page */
     url?: string;
     /** When status was fetched */

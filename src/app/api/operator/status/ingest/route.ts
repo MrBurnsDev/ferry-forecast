@@ -3,6 +3,7 @@
  *
  * Phase 24: Trusted Operator Observer
  * Phase 25: Fix JSON Response Contract
+ * Phase 27: Persistent Sailing Event Memory
  *
  * POST /api/operator/status/ingest
  *
@@ -13,6 +14,11 @@
  * - NEVER creates new sailings
  * - NEVER deletes sailings
  * - ONLY updates matching sailings by terminal pair + service date + departure time
+ *
+ * Phase 27 Addition:
+ * - Each observed sailing is persisted to sailing_events table
+ * - Weather snapshot captured at observation time
+ * - Append-only, never updates or deletes
  *
  * Security:
  * - Requires Bearer token authentication via OBSERVER_SECRET env var
@@ -25,6 +31,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  persistSailingEvents,
+  getCorridorId,
+  mapOperatorId,
+  normalizePortSlug,
+  type SailingEventInput,
+} from '@/lib/events/sailing-events';
 
 // Rate limiting: track last ingest time per source
 const lastIngestTime: Record<string, number> = {};
@@ -187,6 +200,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       `[INGEST] ${payload.trigger.toUpperCase()} from ${payload.source}: ` +
       `${sailings.length} sailings, ${payload.advisories?.length || 0} advisories`
     );
+
+    // Phase 27: Persist sailing events to database (fire-and-forget, non-blocking)
+    // This runs in the background and does NOT block the response
+    const operatorId = mapOperatorId(payload.source);
+    const eventInputs: SailingEventInput[] = payload.sailings.map((s) => {
+      const fromSlug = normalizePortSlug(s.departing_terminal);
+      const toSlug = normalizePortSlug(s.arriving_terminal);
+      return {
+        operator_id: operatorId,
+        corridor_id: getCorridorId(s.departing_terminal, s.arriving_terminal),
+        from_port: fromSlug,
+        to_port: toSlug,
+        service_date: payload.service_date_local,
+        departure_time: normalizeTime(s.departure_time_local),
+        status: s.status,
+        status_message: s.status_message,
+        source: `${payload.source}_observer`,
+        observed_at: payload.scraped_at_utc,
+      };
+    });
+
+    // Persist events without awaiting (best-effort, non-blocking)
+    // Errors are logged internally but do not affect the response
+    persistSailingEvents(eventInputs)
+      .then((count) => {
+        console.log(`[INGEST] Persisted ${count}/${eventInputs.length} sailing events to database`);
+      })
+      .catch((err) => {
+        console.error('[INGEST] Failed to persist sailing events:', err);
+      });
 
     // Count statuses for response
     const statusCounts = {

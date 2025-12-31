@@ -10,7 +10,7 @@
  * 4. POST to Ferry Forecast API
  */
 
-const SSA_STATUS_URL = 'https://www.steamshipauthority.com/traveling_today/status';
+const SSA_STATUS_URL = 'https://www.steamshipauthority.com/traveling_today/status#vineyard_trips';
 const API_ENDPOINT = 'https://ferry-forecast.vercel.app/api/operator/status/ingest';
 const ALARM_NAME = 'ssa_poll';
 const POLL_INTERVAL_MINUTES = 30;
@@ -109,6 +109,35 @@ async function performScrape(trigger) {
     // Wait for page load
     await waitForTabLoad(tab.id, 15000);
 
+    // Navigate to #vineyard_trips section - SSA page uses hash navigation
+    // The hash in the URL alone may not trigger the JS, so we click the tab link
+    console.log('[SSA Observer] Navigating to vineyard_trips section...');
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        // Try clicking the vineyard trips tab link
+        const vineyardTab = document.querySelector('a[href="#vineyard_trips"]');
+        if (vineyardTab) {
+          vineyardTab.click();
+          console.log('[SSA Scraper] Clicked vineyard_trips tab');
+        } else {
+          // Fallback: scroll to the element
+          const vineyardTable = document.getElementById('vineyard_trips');
+          if (vineyardTable) {
+            vineyardTable.scrollIntoView();
+            console.log('[SSA Scraper] Scrolled to vineyard_trips');
+          }
+        }
+      }
+    });
+
+    // Give time for tab content to load after click
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Wait for dynamic content to stabilize (SSA page loads data via JS)
+    const rowCount = await waitForContentStable(tab.id, 8);
+    console.log(`[SSA Observer] Content ready with ${rowCount} rows`);
+
     // Inject content script and get data
     console.log('[SSA Observer] Injecting content script...');
     const results = await chrome.scripting.executeScript({
@@ -125,6 +154,39 @@ async function performScrape(trigger) {
     }
 
     const extractedData = results[0].result;
+
+    // Log the extracted data for debugging
+    console.log('[SSA Observer] Extracted data:', JSON.stringify(extractedData, null, 2));
+
+    // Log TRIPS TABLE debug info - this tells us if we found the correct tables
+    if (extractedData.tripsTableDebug) {
+      console.log('[SSA Observer] TRIPS TABLE DEBUG:', JSON.stringify(extractedData.tripsTableDebug));
+    }
+
+    // Log TABLE debug info - critical for understanding page structure
+    if (extractedData.tableDebug && extractedData.tableDebug.length > 0) {
+      console.log('[SSA Observer] TABLE DEBUG - found', extractedData.tableDebug.length, 'tables:');
+      extractedData.tableDebug.forEach((t) => {
+        console.log(`  Table ${t.index}: ${t.rowCount} rows, section=${t.sectionId}, dateHeader="${t.dateHeader}", firstRow="${t.firstRowPreview}"`);
+      });
+    }
+
+    // Log DATE HEADER debug info
+    if (extractedData.dateHeadersDebug && extractedData.dateHeadersDebug.length > 0) {
+      console.log('[SSA Observer] DATE HEADERS found:');
+      extractedData.dateHeadersDebug.forEach((h) => {
+        console.log(`  Header ${h.index}: "${h.text}"`);
+      });
+    }
+
+    // Log debug info if available
+    if (extractedData.debugInfo && extractedData.debugInfo.length > 0) {
+      console.log('[SSA Observer] Debug info for first rows:');
+      extractedData.debugInfo.forEach((info, i) => {
+        console.log(`  Row ${i}: statusCellText="${info.statusCellText}", extractedStatus="${info.extractedStatus}"`);
+        console.log(`    HTML: ${info.statusCellHtml}`);
+      });
+    }
 
     // Check for errors
     if (extractedData.error) {
@@ -238,13 +300,54 @@ function waitForTabLoad(tabId, timeout) {
       if (id === tabId && changeInfo.status === 'complete') {
         clearTimeout(timer);
         chrome.tabs.onUpdated.removeListener(listener);
-        // Extra delay for JS rendering
-        setTimeout(resolve, 2000);
+        // SSA page dynamically loads content - need longer wait
+        // Then we'll poll for content to stabilize
+        setTimeout(resolve, 5000);
       }
     }
 
     chrome.tabs.onUpdated.addListener(listener);
   });
+}
+
+/**
+ * Wait for SSA table content to stabilize (dynamic loading)
+ * Polls the page until row count stops changing
+ */
+async function waitForContentStable(tabId, maxAttempts = 5) {
+  let lastRowCount = 0;
+  let stableCount = 0;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const table = document.getElementById('vineyard_trips');
+        return table ? table.querySelectorAll('tr').length : 0;
+      }
+    });
+
+    const currentRowCount = result[0]?.result || 0;
+    console.log(`[SSA Observer] Content check ${i + 1}/${maxAttempts}: ${currentRowCount} rows`);
+
+    if (currentRowCount === lastRowCount && currentRowCount > 15) {
+      stableCount++;
+      if (stableCount >= 2) {
+        console.log(`[SSA Observer] Content stable at ${currentRowCount} rows`);
+        return currentRowCount;
+      }
+    } else {
+      stableCount = 0;
+    }
+
+    lastRowCount = currentRowCount;
+
+    // Wait 1 second between checks
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  console.log(`[SSA Observer] Content stabilization timeout, proceeding with ${lastRowCount} rows`);
+  return lastRowCount;
 }
 
 /**
@@ -309,12 +412,83 @@ function extractSSAData() {
     return timeStr.trim().replace(/\s+/g, ' ').replace(/am$/i, 'AM').replace(/pm$/i, 'PM');
   }
 
-  function normalizeStatus(statusText) {
-    const lower = statusText.toLowerCase();
-    if (lower.includes('cancel')) return 'canceled';
-    if (lower.includes('delay')) return 'delayed';
-    if (lower.includes('on time') || lower === '') return 'on_time';
-    return 'on_time';
+  /**
+   * Extract status from a cell - check multiple sources
+   * SSA uses different HTML structures, so we check:
+   * 1. Direct innerText
+   * 2. CSS classes on the cell or row
+   * 3. Image alt text
+   * 4. Nested span/div text
+   * 5. Color-based detection (red = cancelled)
+   */
+  function extractStatus(cell, row) {
+    // Get all text content from the cell
+    const cellText = cell.innerText.trim().toLowerCase();
+    const cellHtml = cell.innerHTML.toLowerCase();
+
+    // Check direct text first
+    if (cellText.includes('cancel')) return { status: 'canceled', message: cell.innerText.trim() };
+    if (cellText.includes('delay')) return { status: 'delayed', message: cell.innerText.trim() };
+
+    // Check CSS classes on cell
+    const cellClasses = cell.className.toLowerCase();
+    if (cellClasses.includes('cancel') || cellClasses.includes('cancelled')) {
+      return { status: 'canceled', message: cell.innerText.trim() || 'Cancelled' };
+    }
+    if (cellClasses.includes('delay')) {
+      return { status: 'delayed', message: cell.innerText.trim() || 'Delayed' };
+    }
+
+    // Check CSS classes on row
+    const rowClasses = row.className.toLowerCase();
+    if (rowClasses.includes('cancel') || rowClasses.includes('cancelled')) {
+      return { status: 'canceled', message: cell.innerText.trim() || 'Cancelled' };
+    }
+    if (rowClasses.includes('delay')) {
+      return { status: 'delayed', message: cell.innerText.trim() || 'Delayed' };
+    }
+
+    // Check for images with alt text
+    const img = cell.querySelector('img');
+    if (img) {
+      const alt = (img.alt || '').toLowerCase();
+      if (alt.includes('cancel') || alt.includes('x') || alt.includes('no')) {
+        return { status: 'canceled', message: cell.innerText.trim() || 'Cancelled' };
+      }
+      if (alt.includes('delay') || alt.includes('warning')) {
+        return { status: 'delayed', message: cell.innerText.trim() || 'Delayed' };
+      }
+    }
+
+    // Check HTML for cancel/delay keywords (catches hidden spans, etc)
+    if (cellHtml.includes('cancel')) {
+      return { status: 'canceled', message: cell.innerText.trim() || 'Cancelled' };
+    }
+    if (cellHtml.includes('delay')) {
+      return { status: 'delayed', message: cell.innerText.trim() || 'Delayed' };
+    }
+
+    // Check computed style - red text often indicates cancellation
+    const style = window.getComputedStyle(cell);
+    const color = style.color;
+    // Red colors: rgb(255, 0, 0), rgb(220, 53, 69), etc
+    if (color) {
+      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        const [, r, g, b] = match.map(Number);
+        // If red component is high and green/blue are low, it's likely cancelled
+        if (r > 150 && g < 100 && b < 100) {
+          return { status: 'canceled', message: cell.innerText.trim() || 'Cancelled' };
+        }
+      }
+    }
+
+    // Default to on_time
+    if (cellText.includes('on time') || cellText === '') {
+      return { status: 'on_time', message: cell.innerText.trim() || 'On Time' };
+    }
+
+    return { status: 'on_time', message: cell.innerText.trim() || 'On Time' };
   }
 
   function parsePortTimeCell(text) {
@@ -328,9 +502,77 @@ function extractSSAData() {
     return null;
   }
 
-  // Find all status tables
+  // Find the TRIPS tables specifically (not the passenger/terminal tables)
   const sailings = [];
-  const tables = document.querySelectorAll('table');
+  const debugInfo = [];
+
+  // Debug: List ALL element IDs on the page
+  const allIds = [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id);
+  console.log('[SSA Scraper] All IDs on page:', allIds.slice(0, 50).join(', '));
+
+  // The trips tables have id="vineyard_trips" and id="nantucket_trips" directly on the <table> element
+  const vineyardTripsTable = document.getElementById('vineyard_trips');
+  const nantucketTripsTable = document.getElementById('nantucket_trips');
+
+  // Debug: Check what we found
+  console.log('[SSA Scraper] vineyard_trips element:', vineyardTripsTable ? {
+    tagName: vineyardTripsTable.tagName,
+    rowCount: vineyardTripsTable.querySelectorAll('tr').length
+  } : 'NOT FOUND');
+  console.log('[SSA Scraper] nantucket_trips element:', nantucketTripsTable ? {
+    tagName: nantucketTripsTable.tagName,
+    rowCount: nantucketTripsTable.querySelectorAll('tr').length
+  } : 'NOT FOUND');
+
+  // Collect the trips tables directly (they ARE the tables, not containers)
+  let tables = [];
+  if (vineyardTripsTable && vineyardTripsTable.tagName === 'TABLE') {
+    tables.push(vineyardTripsTable);
+    console.log('[SSA Scraper] Added vineyard_trips table with', vineyardTripsTable.querySelectorAll('tr').length, 'rows');
+  }
+  if (nantucketTripsTable && nantucketTripsTable.tagName === 'TABLE') {
+    tables.push(nantucketTripsTable);
+    console.log('[SSA Scraper] Added nantucket_trips table with', nantucketTripsTable.querySelectorAll('tr').length, 'rows');
+  }
+
+  // Fallback: if trips tables not found, use all tables
+  if (tables.length === 0) {
+    console.log('[SSA Scraper] Trips tables not found, falling back to all tables');
+    tables = [...document.querySelectorAll('table')];
+  }
+
+  console.log('[SSA Scraper] Final table count:', tables.length);
+
+  // Debug: Capture table info to return
+  const tableDebug = [];
+  tables.forEach((table, i) => {
+    const parent = table.parentElement;
+    const rowCount = table.querySelectorAll('tr').length;
+    // Get the date header before this table
+    const prevSibling = table.previousElementSibling;
+    const dateHeader = prevSibling ? prevSibling.innerText.trim().substring(0, 50) : 'none';
+    // Get first row content preview
+    const firstRow = table.querySelector('tr td');
+    const firstRowPreview = firstRow ? firstRow.innerText.trim().substring(0, 30) : 'none';
+    tableDebug.push({
+      index: i,
+      tableId: table.id || 'no-id',
+      rowCount,
+      parentTag: parent?.tagName,
+      dateHeader,
+      firstRowPreview
+    });
+  });
+
+  // Also capture date headers
+  const dateHeadersDebug = [];
+  const dateHeaders = document.querySelectorAll('h2, h3, h4, h5');
+  dateHeaders.forEach((h, i) => {
+    const text = h.innerText.trim();
+    if (text.toLowerCase().includes('december') || text.toLowerCase().includes('january') || text.match(/\d{1,2}/) || text.toLowerCase().includes('today') || text.toLowerCase().includes('tomorrow')) {
+      dateHeadersDebug.push({ index: i, text: text.substring(0, 50) });
+    }
+  });
 
   for (const table of tables) {
     const rows = table.querySelectorAll('tr');
@@ -341,7 +583,9 @@ function extractSSAData() {
 
       const departCell = cells[0].innerText.trim();
       const arriveCell = cells[1].innerText.trim();
-      const statusCell = cells[2].innerText.trim();
+
+      // Use enhanced status extraction
+      const statusResult = extractStatus(cells[2], row);
 
       const depart = parsePortTimeCell(departCell);
       const arrive = parsePortTimeCell(arriveCell);
@@ -352,9 +596,23 @@ function extractSSAData() {
           arriving_terminal: arrive.port,
           departure_time_local: depart.time,
           arrival_time_local: arrive.time,
-          status: normalizeStatus(statusCell),
-          status_message: statusCell || undefined
+          status: statusResult.status,
+          status_message: statusResult.message || undefined
         });
+
+        // Debug: capture raw cell info for first few rows
+        if (debugInfo.length < 10) {
+          debugInfo.push({
+            index: sailings.length,
+            depart: departCell,
+            arrive: arriveCell,
+            statusCellText: cells[2].innerText.trim(),
+            statusCellHtml: cells[2].innerHTML.substring(0, 200),
+            rowClasses: row.className,
+            cellClasses: cells[2].className,
+            extractedStatus: statusResult.status
+          });
+        }
       }
     }
   }
@@ -369,11 +627,22 @@ function extractSSAData() {
     }
   }
 
+  // Debug info about the trips tables
+  const tripsTableDebug = {
+    vineyardTripsFound: !!vineyardTripsTable,
+    vineyardTripsTagName: vineyardTripsTable?.tagName || 'N/A',
+    vineyardTripsRowCount: vineyardTripsTable?.querySelectorAll('tr').length || 0,
+    nantucketTripsFound: !!nantucketTripsTable,
+    nantucketTripsTagName: nantucketTripsTable?.tagName || 'N/A',
+    nantucketTripsRowCount: nantucketTripsTable?.querySelectorAll('tr').length || 0,
+    tablesUsedCount: tables.length
+  };
+
   if (sailings.length === 0) {
-    return { error: 'No status tables found on page' };
+    return { error: 'No status tables found on page', debugInfo, tableDebug, dateHeadersDebug, allIds: allIds.slice(0, 30), tripsTableDebug };
   }
 
-  return { sailings, advisories };
+  return { sailings, advisories, debugInfo, tableDebug, dateHeadersDebug, allIds: allIds.slice(0, 30), tripsTableDebug };
 }
 
 console.log('[SSA Observer] Service worker started');

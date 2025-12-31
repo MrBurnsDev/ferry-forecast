@@ -92,9 +92,10 @@ export async function getDailyCorridorBoard(
     }
 
     // Phase 26: Check for observer cache or operator status page
+    const statusSourceType = scheduleResult.statusSource?.source;
     if (
-      scheduleResult.statusSource?.source === 'operator_status_page' ||
-      scheduleResult.statusSource?.source === 'observer_cache'
+      statusSourceType === 'operator_status_page' ||
+      statusSourceType === 'observer_cache'
     ) {
       hasAnyStatusOverlay = true;
     }

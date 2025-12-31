@@ -196,10 +196,10 @@ export interface BoardProvenance {
   /** When the board was generated */
   generated_at: string;
 
-  /** Per-operator status fetch info */
+  /** Per-operator status fetch info (Phase 26: observer_cache added) */
   operator_status_sources: Array<{
     operator_id: string;
-    source: 'status_page' | 'unavailable';
+    source: 'status_page' | 'observer_cache' | 'unavailable';
     fetched_at: string;
     url?: string;
   }>;
