@@ -36,7 +36,7 @@ import {
   type SSAStatusResult,
 } from './ssa-status';
 import {
-  getCachedStatus,
+  getCachedStatusWithFallback,
   getStatusForSailing,
 } from './status-cache';
 
@@ -433,8 +433,9 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
 
   // LAYER 1: Fetch status overlay (sparse delta)
   // Phase 26: PREFER observer/manual cache FIRST (it bypasses Queue-IT)
+  // Phase 38: Now async with Supabase fallback for serverless environments
   // Only fall back to automated scraping if no observer data
-  const manualCache = getCachedStatus();
+  const manualCache = await getCachedStatusWithFallback();
 
   // Check observer/manual cache FIRST - it's the most reliable source
   if (manualCache && manualCache.sailings.length > 0) {
