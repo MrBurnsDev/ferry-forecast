@@ -4,6 +4,7 @@
  * Phase 21: Service Corridor Architecture
  * Phase 22: Add weather context for risk scoring
  * Phase 32: Add Open-Meteo forecast support
+ * Phase 46: Cache hardening - force-dynamic to ensure Supabase fallback works
  *
  * GET /api/corridor/[corridorId]
  *
@@ -12,12 +13,21 @@
  *
  * Returns a DailyCorridorBoard with all sailings in both directions,
  * interleaved and ordered by time, with per-sailing risk scores.
+ *
+ * CRITICAL: This endpoint MUST be dynamic to ensure canceled sailings
+ * from Supabase are read on every request after serverless cold starts.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Phase 46: Force dynamic rendering - critical for serverless cold starts
+// Without this, Next.js may serve stale responses that lack Supabase data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
 import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
 import { fetchCurrentWeather } from '@/lib/weather/noaa';
+import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
 import type { CorridorBoardResponse } from '@/types/corridor';
 import type { WeatherContext } from '@/lib/scoring/sailing-risk';
 
@@ -91,11 +101,35 @@ export async function GET(
         }
       : null;
 
-    return NextResponse.json({
-      success: true,
-      board,
-      weather_context: weatherContext,
-    });
+    // Phase 46: Run cancellation regression guard (non-blocking)
+    // This logs CRITICAL if DB has more cancellations than the response
+    const guardMetadata = await getCancellationGuardMetadata(
+      board.sailings,
+      board.service_date_local,
+      corridorId
+    );
+
+    // Log guard result for monitoring (without blocking)
+    if (!guardMetadata.guard_valid) {
+      console.error(
+        `[CORRIDOR_API] Cancellation guard FAILED for ${corridorId}: ` +
+        `response=${guardMetadata.response_canceled_count}, db=${guardMetadata.db_canceled_count}`
+      );
+    }
+
+    // Phase 46: Add no-store header to prevent CDN caching
+    return NextResponse.json(
+      {
+        success: true,
+        board,
+        weather_context: weatherContext,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
+    );
   } catch (error) {
     console.error(`Error generating corridor board for ${corridorId}:`, error);
 
