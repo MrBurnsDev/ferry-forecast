@@ -195,7 +195,27 @@ function AdvisoryBanner({ advisories }: { advisories: BoardAdvisory[] }) {
 }
 
 /**
+ * Phase 39: Get weather risk context as secondary info
+ * Operator status is PRIMARY. Weather risk is SECONDARY context only.
+ */
+function getWeatherRiskContext(sailing: TerminalBoardSailing): string | null {
+  if (!sailing.forecast_risk) return null;
+
+  const level = sailing.forecast_risk.level;
+  if (level === 'low') return null; // Don't show low risk
+
+  const levelText = level === 'high' ? 'High' : level === 'moderate' ? 'Moderate' : 'Elevated';
+  return `Weather risk: ${levelText}`;
+}
+
+/**
  * Single sailing row
+ *
+ * Phase 39: UI Precedence Rules
+ * - Operator status is ALWAYS shown first (canceled, delayed, on_time)
+ * - Cancellation reason shown verbatim from operator
+ * - Weather risk shown as secondary context only
+ * - Never allow forecast to override operator status
  */
 function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const timeStatus = getTimeStatus(sailing);
@@ -213,46 +233,75 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
       ? 'text-muted-foreground'
       : 'text-foreground font-semibold';
 
+  // Weather risk as secondary context (only for non-canceled sailings)
+  const weatherContext = !isCanceled ? getWeatherRiskContext(sailing) : null;
+
   return (
-    <div className={`flex items-center gap-4 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors ${rowOpacity}`}>
-      {/* Time */}
-      <div className="w-20 flex-shrink-0">
-        <span className={`text-lg ${timeClass}`}>
-          {sailing.scheduled_departure_local}
-        </span>
+    <div className={`rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors ${rowOpacity}`}>
+      <div className="flex items-center gap-4 p-4">
+        {/* Time */}
+        <div className="w-20 flex-shrink-0">
+          <span className={`text-lg ${timeClass}`}>
+            {sailing.scheduled_departure_local}
+          </span>
+        </div>
+
+        {/* Direction */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="text-muted-foreground truncate">
+            {sailing.origin_terminal.name}
+          </span>
+          <ArrowRightIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <span className="font-medium text-foreground truncate">
+            {sailing.destination_terminal.name}
+          </span>
+        </div>
+
+        {/* Status badge (only if operator confirmed) */}
+        {statusDisplay.show && (
+          <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
+            {statusDisplay.text}
+          </span>
+        )}
+
+        {/* Status indicator for non-operator status */}
+        {!statusDisplay.show && sailing.status_overlay_applied === false && (
+          <span className="px-2 py-0.5 text-xs text-muted-foreground bg-secondary/50 rounded">
+            Scheduled
+          </span>
+        )}
+
+        {/* Time status indicator */}
+        {isDeparted && !isCanceled && (
+          <span className="text-xs text-muted-foreground">Departed</span>
+        )}
+        {timeStatus === 'departing_soon' && !isCanceled && !isDeparted && (
+          <span className="text-xs text-accent font-medium">Boarding soon</span>
+        )}
       </div>
 
-      {/* Direction */}
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className="text-muted-foreground truncate">
-          {sailing.origin_terminal.name}
-        </span>
-        <ArrowRightIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-        <span className="font-medium text-foreground truncate">
-          {sailing.destination_terminal.name}
-        </span>
-      </div>
-
-      {/* Status badge (only if operator confirmed) */}
-      {statusDisplay.show && (
-        <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
-          {statusDisplay.text}
-        </span>
+      {/* Phase 39: Operator status reason (shown prominently for cancellations) */}
+      {isCanceled && sailing.operator_status_reason && (
+        <div className="px-4 pb-3 -mt-1">
+          <p className="text-xs text-destructive/80">
+            {sailing.operator_status_reason}
+          </p>
+          {/* Weather context as secondary info after cancellation reason */}
+          {sailing.forecast_risk && sailing.forecast_risk.level !== 'low' && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Weather risk was {sailing.forecast_risk.level}.
+            </p>
+          )}
+        </div>
       )}
 
-      {/* Status indicator for non-operator status */}
-      {!statusDisplay.show && sailing.status_overlay_applied === false && (
-        <span className="px-2 py-0.5 text-xs text-muted-foreground bg-secondary/50 rounded">
-          Scheduled
-        </span>
-      )}
-
-      {/* Time status indicator */}
-      {isDeparted && !isCanceled && (
-        <span className="text-xs text-muted-foreground">Departed</span>
-      )}
-      {timeStatus === 'departing_soon' && !isCanceled && !isDeparted && (
-        <span className="text-xs text-accent font-medium">Boarding soon</span>
+      {/* Phase 39: Weather context for non-canceled sailings (secondary) */}
+      {!isCanceled && weatherContext && (
+        <div className="px-4 pb-3 -mt-1">
+          <p className="text-xs text-muted-foreground">
+            {weatherContext}
+          </p>
+        </div>
       )}
     </div>
   );

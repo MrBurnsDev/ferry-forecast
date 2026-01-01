@@ -112,14 +112,20 @@ export function ConditionsPanel({
 
   return (
     <div className="card-maritime p-5 lg:p-6" role="region" aria-label="Current Weather Conditions">
-      <h3 className="text-xl font-semibold text-foreground mb-5">Current Conditions</h3>
+      {/* Phase 39: Marine conditions header with trust labeling */}
+      <div className="mb-5">
+        <h3 className="text-xl font-semibold text-foreground">Marine Conditions</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          Open water forecast from NOAA marine buoys
+        </p>
+      </div>
 
       {/* Advisory Banner */}
       <div className={`rounded-lg px-4 py-3 mb-5 ${advisory.className}`} role="alert" aria-live="polite">
         <span className="text-sm font-semibold">{advisory.text}</span>
       </div>
 
-      {/* Wind Conditions */}
+      {/* Wind Conditions - Phase 39: Show in knots with explicit labeling */}
       <div className="grid grid-cols-2 gap-4 mb-5">
         <div className="p-4 bg-secondary rounded-lg">
           <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
@@ -128,6 +134,9 @@ export function ConditionsPanel({
           <div className="text-2xl font-bold text-foreground">
             {weather.wind_speed} <span className="text-sm font-normal text-muted-foreground">mph</span>
           </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {Math.round(weather.wind_speed * 0.868976)} kts
+          </div>
         </div>
         <div className="p-4 bg-secondary rounded-lg">
           <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
@@ -135,6 +144,9 @@ export function ConditionsPanel({
           </div>
           <div className="text-2xl font-bold text-foreground">
             {weather.wind_gusts} <span className="text-sm font-normal text-muted-foreground">mph</span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {Math.round(weather.wind_gusts * 0.868976)} kts
           </div>
         </div>
       </div>
