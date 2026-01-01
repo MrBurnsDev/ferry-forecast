@@ -370,11 +370,18 @@ async function scrapeLiveOperatorStatus(trigger) {
       return result;
     }
 
-    // Scrape the live status page for cancellation reasons
+    // Scrape the live status page for cancellation reasons AND wind conditions
     console.log('[SSA Observer] Extracting live operator status with reasons...');
     const extractionResult = await chrome.scripting.executeScript({
       target: { tabId: desktopTabId },
       func: extractLiveOperatorStatusData
+    });
+
+    // Phase 43: Also extract wind conditions from the page
+    console.log('[SSA Observer] Extracting terminal wind conditions...');
+    const conditionsResult = await chrome.scripting.executeScript({
+      target: { tabId: desktopTabId },
+      func: extractWindConditions
     });
 
     await chrome.tabs.remove(desktopTabId);
@@ -382,11 +389,11 @@ async function scrapeLiveOperatorStatus(trigger) {
 
     const reasonRows = extractionResult?.[0]?.result?.reasons || [];
     const allSailings = extractionResult?.[0]?.result?.all_sailings || [];
+    const conditions = conditionsResult?.[0]?.result || [];
 
-    console.log(`[SSA Observer] Live status extracted: ${reasonRows.length} cancellation reasons, ${allSailings.length} total sailings`);
+    console.log(`[SSA Observer] Live status extracted: ${reasonRows.length} cancellation reasons, ${allSailings.length} total sailings, ${conditions.length} terminal conditions`);
 
-    // Build payload with reason rows
-    // We send as schedule_rows=[] reason_rows=[...] to trigger reason-only enrichment
+    // Build payload with reason rows AND conditions (Phase 43)
     const payload = {
       source: 'steamship_authority',
       trigger,
@@ -396,6 +403,8 @@ async function scrapeLiveOperatorStatus(trigger) {
       timezone: 'America/New_York',
       schedule_rows: allSailings,  // All sailings from desktop
       reason_rows: reasonRows,      // Only cancelled sailings with reasons
+      // Phase 43: Include terminal wind conditions
+      conditions: conditions,
       source_meta: {
         schedule_source: 'desktop_status',
         schedule_url: SSA_DESKTOP_STATUS_URL,
@@ -403,7 +412,8 @@ async function scrapeLiveOperatorStatus(trigger) {
         reason_source: 'desktop_status',
         reason_url: SSA_DESKTOP_STATUS_URL + '#vineyard_trips',
         reason_count: reasonRows.length,
-        reason_status: 'success'
+        reason_status: 'success',
+        conditions_count: conditions.length
       }
     };
 
@@ -930,4 +940,110 @@ function extractLiveOperatorStatusData() {
   return { reasons, all_sailings };
 }
 
-console.log('[SSA Observer] Phase 42 Immutable Persistence Service Worker started');
+// ============================================================
+// WIND CONDITIONS EXTRACTION (Phase 43)
+// ============================================================
+
+/**
+ * Extract wind conditions from SSA desktop status page
+ *
+ * SSA displays wind conditions on the traveling_today/status page.
+ * This captures the wind exactly as SSA shows it to users.
+ *
+ * Returns array of condition objects for each terminal detected.
+ */
+function extractWindConditions() {
+  const conditions = [];
+  const sourceUrl = window.location.href;
+
+  // Terminal slug mapping
+  const terminalNameToSlug = {
+    'woods hole': 'woods-hole',
+    'vineyard haven': 'vineyard-haven',
+    'oak bluffs': 'oak-bluffs',
+    'hyannis': 'hyannis',
+    'nantucket': 'nantucket'
+  };
+
+  // Cardinal direction to degrees mapping
+  const directionToDegrees = {
+    'N': 0, 'NNE': 22, 'NE': 45, 'ENE': 67,
+    'E': 90, 'ESE': 112, 'SE': 135, 'SSE': 157,
+    'S': 180, 'SSW': 202, 'SW': 225, 'WSW': 247,
+    'W': 270, 'WNW': 292, 'NW': 315, 'NNW': 337
+  };
+
+  /**
+   * Parse wind text like "WSW 3 mph" or "Wind: NE 12 mph"
+   */
+  function parseWindText(text) {
+    if (!text) return null;
+
+    // Match patterns like "WSW 3 mph", "NE 12", "Wind: S 8 mph"
+    const windPattern = /([NSEW]{1,3})\s*(\d+(?:\.\d+)?)\s*(?:mph|MPH)?/i;
+    const match = text.match(windPattern);
+
+    if (!match) return null;
+
+    const direction = match[1].toUpperCase();
+    const speed = parseFloat(match[2]);
+
+    return {
+      wind_speed_mph: speed,
+      wind_direction_text: direction,
+      wind_direction_degrees: directionToDegrees[direction] || null,
+      raw_wind_text: text.trim()
+    };
+  }
+
+  // Try to find wind info in various locations on the page
+  // SSA may display wind in weather section, header, or near route tables
+
+  // Strategy 1: Look for elements with "wind" in text content
+  const allElements = document.querySelectorAll('*');
+  for (const el of allElements) {
+    const text = el.textContent || '';
+    const lowerText = text.toLowerCase();
+
+    // Only check leaf nodes or small text blocks
+    if (el.children.length > 5) continue;
+    if (text.length > 200) continue;
+
+    if (lowerText.includes('wind') || /[NSEW]{1,3}\s+\d+\s*mph/i.test(text)) {
+      const parsed = parseWindText(text);
+      if (parsed && parsed.wind_speed_mph !== null) {
+        // Determine which terminal this applies to based on context
+        // Default to both WH and VH for vineyard trips section
+        const parentSection = el.closest('#vineyard_trips, #nantucket_trips, .weather, .conditions');
+
+        let terminalSlugs = [];
+        if (parentSection?.id === 'nantucket_trips') {
+          terminalSlugs = ['hyannis', 'nantucket'];
+        } else {
+          // Default: apply to Woods Hole and Vineyard Haven
+          terminalSlugs = ['woods-hole', 'vineyard-haven'];
+        }
+
+        for (const slug of terminalSlugs) {
+          conditions.push({
+            terminal_slug: slug,
+            wind_speed_mph: parsed.wind_speed_mph,
+            wind_direction_text: parsed.wind_direction_text,
+            wind_direction_degrees: parsed.wind_direction_degrees,
+            raw_wind_text: parsed.raw_wind_text,
+            source_url: sourceUrl,
+            notes: terminalSlugs.length > 1 ? 'Single wind value applied to both terminals' : null
+          });
+        }
+
+        // Only capture first wind value found to avoid duplicates
+        break;
+      }
+    }
+  }
+
+  console.log(`[SSA Scraper] Extracted ${conditions.length} terminal conditions`);
+  return conditions;
+}
+
+console.log('[SSA Observer] Phase 43 Operator Conditions Service Worker started');

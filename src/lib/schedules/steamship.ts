@@ -40,61 +40,6 @@ import {
   getStatusForSailing,
 } from './status-cache';
 
-// ============================================================
-// TEMPORARY STATUS OVERRIDES
-// ============================================================
-// Manual overrides for specific sailings on specific dates.
-// Used when extension/scraper cannot capture historical cancelled sailings.
-// These should be removed after the date passes.
-interface StatusOverride {
-  fromSlug: string;
-  toSlug: string;
-  departureTime: string;
-  status: SailingStatus;
-  statusMessage?: string;
-}
-
-const MANUAL_STATUS_OVERRIDES: Record<string, StatusOverride[]> = {
-  // December 30, 2025 - Weather cancellations (morning crossings)
-  '2025-12-30': [
-    {
-      fromSlug: 'woods-hole',
-      toSlug: 'vineyard-haven',
-      departureTime: '8:35 AM',
-      status: 'canceled',
-      statusMessage: 'Cancelled due to Weather conditions',
-    },
-    {
-      fromSlug: 'vineyard-haven',
-      toSlug: 'woods-hole',
-      departureTime: '9:50 AM',
-      status: 'canceled',
-      statusMessage: 'Cancelled due to Weather conditions',
-    },
-  ],
-};
-
-/**
- * Get manual status override for a sailing
- */
-function getManualStatusOverride(
-  serviceDateLocal: string,
-  fromSlug: string,
-  toSlug: string,
-  departureTime: string
-): StatusOverride | null {
-  const overrides = MANUAL_STATUS_OVERRIDES[serviceDateLocal];
-  if (!overrides) return null;
-
-  const normalizedTime = departureTime.toLowerCase().replace(/\s+/g, '');
-  return overrides.find(
-    (o) =>
-      o.fromSlug === fromSlug &&
-      o.toSlug === toSlug &&
-      o.departureTime.toLowerCase().replace(/\s+/g, '') === normalizedTime
-  ) || null;
-}
-
 // SSA page URLs
 const SSA_BASE_URL = 'https://www.steamshipauthority.com';
 const SSA_STATUS_URL = `${SSA_BASE_URL}/traveling_today/status`;
@@ -313,14 +258,6 @@ function createSailingsFromKnownSchedule(
   for (const timeStr of schedule.departures) {
     const parsed = parseTimeInTimezone(timeStr, serviceDateLocal, timezone);
 
-    // Check for manual status override
-    const override = getManualStatusOverride(
-      serviceDateLocal,
-      direction.fromSlug,
-      direction.toSlug,
-      timeStr
-    );
-
     sailings.push({
       departureTime: parsed.utc,
       departureTimestampMs: parsed.timestampMs,
@@ -330,9 +267,9 @@ function createSailingsFromKnownSchedule(
       direction,
       operator: route.operatorName,
       operatorSlug: route.operatorSlug,
-      status: override?.status || ('scheduled' as SailingStatus),
-      statusMessage: override?.statusMessage,
-      statusFromOperator: !!override, // Manual override counts as operator status
+      status: 'scheduled' as SailingStatus,
+      statusMessage: undefined,
+      statusFromOperator: false,
     });
   }
 

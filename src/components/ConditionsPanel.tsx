@@ -3,12 +3,28 @@
 import type { WeatherSnapshot, TideSwing, ContributingFactor } from '@/types/forecast';
 import { degreesToCompass } from '@/lib/utils/navigation';
 
+/**
+ * Phase 43: Operator Conditions - Wind data exactly as shown by SSA
+ * User-facing truth for terminal conditions, distinct from NOAA marine data.
+ */
+export interface OperatorConditions {
+  wind_speed_mph: number | null;
+  wind_direction_text: string | null;  // e.g., 'WSW', 'NNE'
+  wind_direction_degrees: number | null;
+  raw_wind_text: string | null;  // e.g., "WSW 3 mph"
+  observed_at: string;
+  age_minutes: number;
+  source_url: string;
+}
+
 interface ConditionsPanelProps {
   weather: WeatherSnapshot | null;
   tide: TideSwing | null;
   factors: ContributingFactor[] | null;
   loading?: boolean;
   error?: string;
+  // Phase 43: Operator-reported conditions
+  operatorConditions?: OperatorConditions | null;
 }
 
 function WindDirectionArrow({ degrees }: { degrees: number }) {
@@ -67,6 +83,7 @@ export function ConditionsPanel({
   factors,
   loading,
   error,
+  operatorConditions,
 }: ConditionsPanelProps) {
   if (loading) {
     return (
@@ -110,8 +127,54 @@ export function ConditionsPanel({
 
   const advisory = getAdvisoryDisplay(weather.advisory_level);
 
+  // Format age for display
+  const formatAge = (minutes: number): string => {
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${Math.round(minutes)} min ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${Math.round(minutes % 60)}m ago`;
+  };
+
   return (
     <div className="card-maritime p-5 lg:p-6" role="region" aria-label="Current Weather Conditions">
+      {/* Phase 43: Operator Conditions (Terminal Wind) - Shown First */}
+      {operatorConditions && operatorConditions.wind_speed_mph !== null && (
+        <div className="mb-6">
+          <div className="mb-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xl font-semibold text-foreground">Terminal Wind</h3>
+              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-accent/20 text-accent">
+                Operator
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Reported by SSA at terminal
+            </p>
+          </div>
+
+          {/* Operator Wind Display */}
+          <div className="flex items-center gap-4 p-4 bg-accent/10 border border-accent/20 rounded-lg">
+            {operatorConditions.wind_direction_degrees !== null && (
+              <div className="w-10 h-10 rounded-lg bg-background flex items-center justify-center">
+                <WindDirectionArrow degrees={operatorConditions.wind_direction_degrees} />
+              </div>
+            )}
+            <div className="flex-1">
+              <div className="text-2xl font-bold text-foreground">
+                {operatorConditions.wind_direction_text && (
+                  <span className="mr-2">{operatorConditions.wind_direction_text}</span>
+                )}
+                {operatorConditions.wind_speed_mph}{' '}
+                <span className="text-sm font-normal text-muted-foreground">mph</span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {formatAge(operatorConditions.age_minutes)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Phase 39: Marine conditions header with trust labeling */}
       <div className="mb-5">
         <h3 className="text-xl font-semibold text-foreground">Marine Conditions</h3>

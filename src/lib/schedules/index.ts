@@ -223,9 +223,18 @@ export async function getBidirectionalSchedule(routeId: string): Promise<{
 /**
  * Filter sailings to only show upcoming ones (not departed)
  * Uses timezone-aware timestamp comparison with grace period
+ *
+ * Phase 45 IMMUTABLE RULE: Canceled sailings are NEVER filtered out.
+ * They must remain visible for the entire service day regardless of time.
  */
 export function filterUpcomingSailings(sailings: Sailing[]): Sailing[] {
-  return sailings.filter((s) => !hasSailingDeparted(s.departureTimestampMs));
+  return sailings.filter((s) => {
+    // IMMUTABLE RULE: Canceled sailings are always included
+    if (s.status === 'canceled') {
+      return true;
+    }
+    return !hasSailingDeparted(s.departureTimestampMs);
+  });
 }
 
 /**

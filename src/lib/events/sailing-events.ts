@@ -3,6 +3,8 @@
  *
  * Phase 27: Persistent Sailing Event Memory
  * Phase 37: Live Operator Status Reconciliation
+ * Phase 42: Immutable Cancellation Persistence
+ * Phase 45: Canceled Sailings Display Visibility
  *
  * Manages sailing events with reconciliation support.
  * When operator status changes, we UPDATE existing rows (upsert pattern).
@@ -15,6 +17,28 @@
  *
  * KEY PRINCIPLE: Operator reality overrides prediction.
  * Forecast explains risk. Operator status defines truth.
+ *
+ * ============================================================
+ * PHASE 45 REGRESSION GUARDS - IMMUTABLE DISPLAY RULES
+ * ============================================================
+ *
+ * When displaying sailings in the UI:
+ * 1. Canceled sailings are NEVER placed in the "departed" section
+ * 2. Canceled sailings are ALWAYS visible in the main/upcoming section
+ * 3. Time-based filtering MUST check operator_status === 'canceled' first
+ * 4. getSailingDisplayStatus() and isSailingUpcomingForDisplay() in time.ts
+ *    implement these rules - use them instead of raw time comparisons
+ *
+ * Files that implement these rules:
+ * - src/lib/schedules/time.ts: getSailingDisplayStatus, isSailingUpcomingForDisplay
+ * - src/components/TerminalBoard.tsx: getTimeStatus()
+ * - src/components/CorridorBoard.tsx: getTimeStatus()
+ * - src/components/TodaySailings.tsx: getSailingStatus()
+ * - src/lib/schedules/index.ts: filterUpcomingSailings()
+ *
+ * If you're modifying any time-based sailing filtering, ensure canceled
+ * sailings are NEVER excluded from the "upcoming" UI section.
+ * ============================================================
  */
 
 import { createServerClient } from '@/lib/supabase/client';

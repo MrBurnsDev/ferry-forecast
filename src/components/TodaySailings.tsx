@@ -201,8 +201,15 @@ function WindIcon({ className }: { className?: string }) {
 
 /**
  * Get time status for a sailing (departed, boarding, upcoming)
+ *
+ * Phase 45 IMMUTABLE RULE: Canceled sailings are NEVER 'departed'.
+ * This ensures canceled sailings remain visible in the main section all day.
  */
-function getSailingStatus(sailing: Sailing): 'departed' | 'boarding' | 'upcoming' {
+function getSailingStatus(sailing: Sailing): 'departed' | 'boarding' | 'upcoming' | 'canceled' {
+  // IMMUTABLE RULE: Canceled sailings stay in main section forever
+  if (sailing.status === 'canceled') {
+    return 'canceled';
+  }
   return getSailingTimeStatus(sailing.departureTimestampMs);
 }
 
@@ -364,6 +371,7 @@ export function TodaySailings({
   }
 
   // Count upcoming vs departed
+  // Phase 45: Canceled sailings ALWAYS count as upcoming (never hidden in departed)
   const upcomingSailings = sailings.filter((s) => getSailingStatus(s) !== 'departed');
   const canceledCount = sailings.filter((s) => s.status === 'canceled').length;
 

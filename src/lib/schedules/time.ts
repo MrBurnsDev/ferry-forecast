@@ -277,6 +277,57 @@ export function getSailingTimeStatus(
 }
 
 /**
+ * Phase 45: Determine sailing display status respecting operator status.
+ *
+ * IMMUTABLE RULE: Canceled sailings are ALWAYS shown as 'canceled', never 'departed'.
+ * This ensures canceled sailings remain visible in the "upcoming" section all day.
+ *
+ * @param departureTimestampMs - Departure time as Unix timestamp (ms)
+ * @param operatorStatus - Operator status if known ('canceled', 'delayed', 'on_time', null)
+ * @param graceMinutes - Grace period after departure (default: 5 minutes)
+ * @returns 'canceled' | 'departed' | 'upcoming' | 'boarding'
+ */
+export function getSailingDisplayStatus(
+  departureTimestampMs: number,
+  operatorStatus: 'canceled' | 'delayed' | 'on_time' | null | undefined,
+  graceMinutes: number = DEPARTURE_GRACE_MINUTES,
+  nowTimestamp: number = Date.now()
+): 'canceled' | 'departed' | 'upcoming' | 'boarding' {
+  // IMMUTABLE RULE: Canceled sailings are NEVER "departed"
+  // They must remain visible in the main section for the entire service day
+  if (operatorStatus === 'canceled') {
+    return 'canceled';
+  }
+
+  // For non-canceled sailings, use time-based status
+  return getSailingTimeStatus(departureTimestampMs, graceMinutes, nowTimestamp);
+}
+
+/**
+ * Phase 45: Check if a sailing should be shown in the "upcoming" section.
+ *
+ * RULE: Canceled sailings are ALWAYS "upcoming" for display purposes.
+ * They should never be hidden in a collapsed "departed" section.
+ *
+ * @returns true if sailing should be in upcoming/main section
+ */
+export function isSailingUpcomingForDisplay(
+  departureTimestampMs: number,
+  operatorStatus: 'canceled' | 'delayed' | 'on_time' | null | undefined,
+  graceMinutes: number = DEPARTURE_GRACE_MINUTES,
+  nowTimestamp: number = Date.now()
+): boolean {
+  const status = getSailingDisplayStatus(
+    departureTimestampMs,
+    operatorStatus,
+    graceMinutes,
+    nowTimestamp
+  );
+  // Canceled, upcoming, and boarding all go in the main section
+  return status !== 'departed';
+}
+
+/**
  * Format a time for display in 12-hour format
  */
 export function formatTimeForDisplay(hour24: number, minute: number): string {

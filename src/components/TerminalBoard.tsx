@@ -105,8 +105,16 @@ function getStatusDisplay(sailing: TerminalBoardSailing): {
 
 /**
  * Get time status display
+ *
+ * Phase 45 IMMUTABLE RULE: Canceled sailings are NEVER 'departed'.
+ * This ensures canceled sailings remain visible in the main section all day.
  */
-function getTimeStatus(sailing: TerminalBoardSailing): 'departed' | 'departing_soon' | 'upcoming' {
+function getTimeStatus(sailing: TerminalBoardSailing): 'departed' | 'departing_soon' | 'upcoming' | 'canceled' {
+  // IMMUTABLE RULE: Canceled sailings stay in main section forever
+  if (sailing.operator_status === 'canceled') {
+    return 'canceled';
+  }
+
   const now = Date.now();
   const departureMs = sailing.departure_timestamp_ms;
   const minutesUntil = (departureMs - now) / (1000 * 60);
@@ -331,6 +339,7 @@ export function TerminalBoard({ board, loading, error }: TerminalBoardProps) {
   const { departures, advisories, provenance, operator_status_url } = board;
 
   // Split into upcoming and departed
+  // Phase 45: Canceled sailings ALWAYS go in upcoming section (never hidden in departed)
   const upcomingSailings = departures.filter((s) => getTimeStatus(s) !== 'departed');
   const departedSailings = departures.filter((s) => getTimeStatus(s) === 'departed');
 

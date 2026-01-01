@@ -7,6 +7,7 @@
  * Phase 31: Fix persistence - switch to Node.js runtime and awaited persistence
  * Phase 37: Live Operator Status Reconciliation
  * Phase 41: 2-Source Operator Ingestion (schedule_rows + reason_rows)
+ * Phase 43: Operator Conditions - Store terminal wind exactly as shown
  *
  * POST /api/operator/status/ingest
  *
@@ -18,6 +19,11 @@
  * - Merge rules: Source A is truth for existence/status, Source B enriches reason
  * - Never overwrite non-empty status_reason with empty/null
  * - Regression guards: schedule_rows == 0 returns error
+ *
+ * Phase 43 Addition:
+ * - Accepts conditions[] array with terminal wind data from SSA status page
+ * - Persists to operator_conditions table for user-facing display
+ * - Kept separate from NOAA marine data used for prediction
  *
  * KEY PRINCIPLE: Operator reality overrides prediction.
  * Forecast explains risk. Operator status defines truth.
@@ -42,6 +48,10 @@ import {
   normalizePortSlug,
   type SailingEventInput,
 } from '@/lib/events/sailing-events';
+import {
+  upsertOperatorConditions,
+  type ConditionPayload,
+} from '@/lib/events/operator-conditions';
 
 // Rate limiting: track last ingest time per source
 const lastIngestTime: Record<string, number> = {};
@@ -97,6 +107,20 @@ interface SourceMeta {
   reason_count: number;
   reason_status: 'success' | 'skipped' | 'queue_blocked' | 'error';
   reason_error?: string | null;
+  // Phase 43: Conditions metadata
+  conditions_count?: number;
+  conditions_source?: string;
+}
+
+// Phase 43: Condition payload from observer extension
+interface IngestCondition {
+  terminal_slug: string;           // e.g., 'woods-hole'
+  wind_speed_mph?: number | null;  // e.g., 3.0
+  wind_direction_text?: string | null;  // e.g., 'WSW'
+  wind_direction_degrees?: number | null;  // e.g., 248
+  raw_wind_text?: string | null;   // e.g., "WSW 3 mph"
+  source_url: string;              // e.g., 'https://www.steamshipauthority.com/traveling_today/status'
+  notes?: string | null;           // e.g., "Single wind value for both terminals"
 }
 
 interface DualSourcePayload {
@@ -108,6 +132,8 @@ interface DualSourcePayload {
   schedule_rows: ScheduleRow[];
   reason_rows: ReasonRow[];
   source_meta?: SourceMeta;
+  // Phase 43: Terminal conditions from SSA status page
+  conditions?: IngestCondition[];
 }
 
 type IngestPayload = LegacyIngestPayload | DualSourcePayload;
@@ -423,6 +449,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error('[INGEST] persistSailingEvents threw exception:', err);
     }
 
+    // ============================================================
+    // PHASE 43: Persist operator conditions (terminal wind)
+    // ============================================================
+    let conditionsInserted = 0;
+    let conditionsSkipped = 0;
+    const conditionsErrors: string[] = [];
+
+    if (isDualSourcePayload(payload) && payload.conditions && payload.conditions.length > 0) {
+      console.log(`[INGEST] Phase 43: Persisting ${payload.conditions.length} operator conditions`);
+
+      // Convert IngestCondition to ConditionPayload format
+      const conditionPayloads: ConditionPayload[] = payload.conditions.map(c => ({
+        terminal_slug: c.terminal_slug,
+        wind_speed_mph: c.wind_speed_mph,
+        wind_direction_text: c.wind_direction_text,
+        wind_direction_degrees: c.wind_direction_degrees,
+        raw_wind_text: c.raw_wind_text,
+        source_url: c.source_url,
+        notes: c.notes,
+      }));
+
+      try {
+        const conditionsResult = await upsertOperatorConditions(
+          operatorId,
+          payload.scraped_at_utc,
+          conditionPayloads
+        );
+        conditionsInserted = conditionsResult.inserted;
+        conditionsSkipped = conditionsResult.skipped;
+        if (conditionsResult.errors.length > 0) {
+          conditionsErrors.push(...conditionsResult.errors);
+          console.warn('[INGEST] Conditions errors:', conditionsResult.errors);
+        }
+        console.log(`[INGEST] Conditions: ${conditionsInserted} inserted, ${conditionsSkipped} skipped`);
+      } catch (err) {
+        console.error('[INGEST] upsertOperatorConditions threw exception:', err);
+        conditionsErrors.push(err instanceof Error ? err.message : 'Unknown error');
+      }
+    }
+
     // Count statuses for response
     const statusCounts = {
       on_time: sailingsToProcess.filter((s) => s.status === 'on_time').length,
@@ -444,6 +510,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       reason_rows_count: reasonRowCount,
       reasons_applied: reasonsApplied,
       merged_count: sailingsToProcess.length,
+      // Phase 43: Include conditions stats
+      conditions_inserted: conditionsInserted,
+      conditions_skipped: conditionsSkipped,
+      conditions_errors: conditionsErrors.length > 0 ? conditionsErrors : undefined,
     });
   } catch (error) {
     console.error('[INGEST] Unexpected error:', error);
@@ -465,6 +535,6 @@ export async function GET(): Promise<NextResponse> {
     method: 'POST',
     auth: 'Bearer OBSERVER_SECRET',
     status: 'ready',
-    version: 'Phase 41: Dual-source ingestion',
+    version: 'Phase 43: Operator Conditions ingestion',
   });
 }
