@@ -20,6 +20,72 @@
 import { createServerClient } from '@/lib/supabase/client';
 import { fetchCurrentWeather, WeatherFetchError } from '@/lib/weather/noaa';
 
+// ============================================
+// SCHEMA VALIDATION
+// ============================================
+
+// Required columns for Phase 37 reconciliation
+const REQUIRED_RECONCILIATION_COLUMNS = [
+  'status_reason',
+  'status_source',
+  'status_updated_at',
+  'previous_status',
+] as const;
+
+// Schema validation state (cached per process)
+let schemaValidated = false;
+let schemaValidationError: string | null = null;
+
+/**
+ * Validate that the sailing_events table has all required reconciliation columns.
+ * This is a safety guard - if columns are missing, abort ingest with a fatal error.
+ *
+ * Phase 37: Do not silently fail reconciliation.
+ */
+async function validateSchema(): Promise<{ valid: boolean; error?: string }> {
+  // Return cached result if already validated
+  if (schemaValidated) {
+    return schemaValidationError
+      ? { valid: false, error: schemaValidationError }
+      : { valid: true };
+  }
+
+  const supabase = createServerClient();
+  if (!supabase) {
+    return { valid: true }; // Skip validation if no DB (dev mode)
+  }
+
+  try {
+    // Query a single row with all required columns to verify they exist
+    const { error } = await supabase
+      .from('sailing_events')
+      .select('id, status_reason, status_source, status_updated_at, previous_status')
+      .limit(1);
+
+    if (error) {
+      // Check if error is about missing columns
+      const errorMsg = error.message.toLowerCase();
+      const missingColumns = REQUIRED_RECONCILIATION_COLUMNS.filter(
+        col => errorMsg.includes(col) || errorMsg.includes('column')
+      );
+
+      if (missingColumns.length > 0 || errorMsg.includes('does not exist')) {
+        schemaValidationError = `[FATAL] Schema validation failed: ${error.message}. Run migration: 20251231_live_status_reconciliation.sql`;
+        console.error(schemaValidationError);
+        return { valid: false, error: schemaValidationError };
+      }
+    }
+
+    schemaValidated = true;
+    console.log('[SCHEMA] sailing_events table validated - all reconciliation columns present');
+    return { valid: true };
+  } catch (err) {
+    // Log but don't fail - might be network issue
+    console.warn('[SCHEMA] Validation check failed, proceeding with caution:', err);
+    return { valid: true };
+  }
+}
+
 // Types for sailing events
 export interface SailingEventInput {
   // Sailing identity (natural key)
@@ -242,6 +308,13 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
   if (!supabase) {
     console.error('[RECONCILE] ABORTED - Supabase client is null');
     return { action: 'failed', reason: 'No database connection' };
+  }
+
+  // Phase 37: Validate schema before any reconciliation
+  const schemaCheck = await validateSchema();
+  if (!schemaCheck.valid) {
+    console.error('[RECONCILE] ABORTED - Schema validation failed');
+    return { action: 'failed', reason: schemaCheck.error || 'Schema validation failed' };
   }
 
   try {
