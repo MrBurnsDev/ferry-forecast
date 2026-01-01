@@ -294,10 +294,23 @@ function buildNaturalKey(event: SailingEventInput) {
 /**
  * Persist or reconcile a sailing event in the database
  *
- * Phase 37: Reconciliation Logic
- * - If no existing row: INSERT
- * - If existing row with same status: SKIP (unchanged)
- * - If existing row with different status: UPDATE with audit trail
+ * Phase 42: IMMUTABLE CANCELLATION PERSISTENCE
+ *
+ * ABSOLUTE RULES:
+ * 1. Once a sailing is marked canceled in DB: NEVER delete, NEVER revert to on_time, NEVER clear status_reason
+ * 2. If a sailing disappears from SSA pages: DO NOTHING (DB remains authoritative)
+ * 3. Only UPDATE when: existing.status != scraped.status AND the transition is ALLOWED
+ *
+ * ALLOWED TRANSITIONS:
+ * - on_time → canceled ✓
+ * - on_time → delayed ✓
+ * - delayed → canceled ✓
+ * - canceled → * ✗ (NEVER - cancellation is permanent)
+ * - * → on_time ✗ when existing is canceled (NEVER revert cancellation)
+ *
+ * REASON PRESERVATION:
+ * - Never overwrite a non-empty status_reason with empty/null
+ * - Only enrich empty reason with new reason
  *
  * @param event - The sailing event to persist/reconcile
  * @returns ReconcileResult with action taken
@@ -323,7 +336,7 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
     // Step 1: Check if sailing already exists
     const { data: existing, error: selectError } = await supabase
       .from('sailing_events')
-      .select('id, status, status_message')
+      .select('id, status, status_message, status_reason')
       .match(naturalKey)
       .maybeSingle();
 
@@ -332,18 +345,99 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       return { action: 'failed', reason: selectError.message };
     }
 
-    // Step 2: Determine action
+    // Step 2: Determine action with IMMUTABLE RULES
     if (existing) {
-      // Row exists - check if status changed
+      // ============================================================
+      // PHASE 42: IMMUTABLE CANCELLATION RULES
+      // ============================================================
+
+      // RULE 1: NEVER revert from canceled
+      if (existing.status === 'canceled') {
+        // Cancellation is PERMANENT - never change status
+        console.log(
+          `[RECONCILE] IMMUTABLE: ${event.from_port} → ${event.to_port} @ ${event.departure_time} ` +
+          `is CANCELED in DB - ignoring incoming status=${event.status}`
+        );
+
+        // RULE 2: Enrich reason if we have a new one and existing is empty
+        const existingReason = existing.status_reason || existing.status_message || '';
+        const newReason = event.status_message || '';
+
+        if (!existingReason.trim() && newReason.trim()) {
+          // Enrich with new reason (but keep status as canceled)
+          console.log(`[RECONCILE] Enriching canceled sailing with reason: ${newReason}`);
+
+          const { error: enrichError } = await supabase
+            .from('sailing_events')
+            .update({
+              status_reason: newReason,
+              status_message: newReason,
+              observed_at: event.observed_at,
+              source: event.source,
+            })
+            .eq('id', existing.id);
+
+          if (enrichError) {
+            console.error('[RECONCILE] ENRICH failed:', enrichError);
+          } else {
+            console.log(`[RECONCILE] ENRICHED: reason added to canceled sailing`);
+          }
+        }
+
+        // Return unchanged (status didn't change, just possibly enriched reason)
+        return { action: 'unchanged', new_status: 'canceled' };
+      }
+
+      // RULE 3: Never revert TO on_time from canceled (handled above)
+      // RULE 4: Allow transitions: on_time→canceled, on_time→delayed, delayed→canceled
+
+      // Same status - no change needed
       if (existing.status === event.status) {
-        // No change needed
+        // Check if we can enrich the reason
+        const existingReason = existing.status_reason || existing.status_message || '';
+        const newReason = event.status_message || '';
+
+        if (!existingReason.trim() && newReason.trim()) {
+          console.log(`[RECONCILE] Enriching ${event.status} sailing with reason: ${newReason}`);
+
+          const { error: enrichError } = await supabase
+            .from('sailing_events')
+            .update({
+              status_reason: newReason,
+              status_message: newReason,
+              observed_at: event.observed_at,
+            })
+            .eq('id', existing.id);
+
+          if (enrichError) {
+            console.error('[RECONCILE] ENRICH failed:', enrichError);
+          }
+        }
+
         console.log(
           `[RECONCILE] UNCHANGED: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
         );
         return { action: 'unchanged', new_status: event.status };
       }
 
-      // Status changed - UPDATE with reconciliation
+      // Status changed - check if transition is allowed
+      const isAllowedTransition =
+        // on_time → canceled
+        (existing.status === 'on_time' && event.status === 'canceled') ||
+        // on_time → delayed
+        (existing.status === 'on_time' && event.status === 'delayed') ||
+        // delayed → canceled
+        (existing.status === 'delayed' && event.status === 'canceled');
+
+      if (!isAllowedTransition) {
+        console.warn(
+          `[RECONCILE] BLOCKED: Transition ${existing.status} → ${event.status} not allowed. ` +
+          `Sailing: ${event.from_port} → ${event.to_port} @ ${event.departure_time}`
+        );
+        return { action: 'unchanged', new_status: existing.status };
+      }
+
+      // Allowed transition - UPDATE with reconciliation
       console.log(
         `[RECONCILE] Status changed: ${existing.status} → ${event.status}`
       );
@@ -354,12 +448,17 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       // Fetch weather for update
       const weather = await getWeatherSnapshot(event.from_port, event.to_port);
 
+      // RULE 5: Never clear existing reason
+      const existingReason = existing.status_reason || existing.status_message || '';
+      const newReason = event.status_message || '';
+      const finalReason = newReason.trim() ? newReason : existingReason;
+
       const { error: updateError } = await supabase
         .from('sailing_events')
         .update({
           status: event.status,
-          status_message: event.status_message || null,
-          status_reason: event.status_message || null,
+          status_message: finalReason || null,
+          status_reason: finalReason || null,
           status_source: 'operator',
           status_updated_at: new Date().toISOString(),
           previous_status: existing.status,
@@ -385,7 +484,7 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
         action: 'updated',
         previous_status: existing.status,
         new_status: event.status,
-        reason: event.status_message,
+        reason: finalReason,
       };
     }
 

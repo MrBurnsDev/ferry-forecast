@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SSA Observer",
-  "version": "2.0.0",
-  "description": "Automatic observer for SSA ferry status - sends to Ferry Forecast",
+  "version": "4.1.0",
+  "description": "Phase 42: Immutable cancellation persistence - 3-min live status polling for reason capture",
   "permissions": [
     "storage",
     "alarms",
@@ -10,7 +10,9 @@
     "scripting"
   ],
   "host_permissions": [
+    "https://m.steamshipauthority.com/*",
     "https://www.steamshipauthority.com/*",
+    "https://q.steamshipauthority.com/*",
     "https://ferry-forecast.vercel.app/*"
   ],
   "action": {
@@ -26,7 +28,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.steamshipauthority.com/traveling_today/*"],
+      "matches": ["https://m.steamshipauthority.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
