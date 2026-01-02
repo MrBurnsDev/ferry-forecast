@@ -433,6 +433,14 @@ function convertSailingsToBoard(
             `[CORRIDOR_BOARD] Phase 48 FORCE-MERGE: ${sailing.direction.fromSlug} → ${sailing.direction.toSlug} @ ${sailing.departureTimeDisplay} = CANCELED`
           );
         }
+      } else {
+        // Phase 48 debug: Log when key lookup fails for potential mismatches
+        // Only log first few to avoid spam
+        if (allSailings.length < 5) {
+          console.log(
+            `[CORRIDOR_BOARD] Phase 48 KEY-MISS: Looking for key="${overlayKey}" (from=${sailing.direction.fromSlug}, to=${sailing.direction.toSlug}, time=${sailing.departureTimeDisplay}), overlay has ${statusOverlay.size} entries`
+          );
+        }
       }
     }
 

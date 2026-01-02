@@ -757,10 +757,25 @@ export async function loadAuthoritativeStatusOverlay(
       // Otherwise keep existing (most recent non-canceled, or already canceled)
     }
 
+    // Phase 48: Enhanced logging for debugging overlay issues
+    const canceledCount = Array.from(result.values()).filter(s => s.status === 'canceled').length;
     console.log(
       `[OVERLAY] Loaded ${result.size} sailing statuses for operator=${operatorId} date=${serviceDate}, ` +
-      `canceled=${Array.from(result.values()).filter(s => s.status === 'canceled').length}`
+      `canceled=${canceledCount}`
     );
+
+    // Log all keys for debugging key mismatch issues
+    if (result.size > 0) {
+      console.log('[OVERLAY] Keys in overlay:', Array.from(result.keys()).slice(0, 10).join(', '));
+    }
+
+    // Log canceled sailings specifically for debugging
+    if (canceledCount > 0) {
+      const canceledKeys = Array.from(result.entries())
+        .filter(([_, v]) => v.status === 'canceled')
+        .map(([k, _]) => k);
+      console.log('[OVERLAY] Canceled sailing keys:', canceledKeys.join(', '));
+    }
 
     return result;
   } catch (err) {
