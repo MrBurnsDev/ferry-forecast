@@ -772,8 +772,8 @@ export async function loadAuthoritativeStatusOverlay(
     // Log canceled sailings specifically for debugging
     if (canceledCount > 0) {
       const canceledKeys = Array.from(result.entries())
-        .filter(([_, v]) => v.status === 'canceled')
-        .map(([k, _]) => k);
+        .filter(([, v]) => v.status === 'canceled')
+        .map(([k]) => k);
       console.log('[OVERLAY] Canceled sailing keys:', canceledKeys.join(', '));
     }
 
