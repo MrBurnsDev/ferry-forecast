@@ -50,6 +50,13 @@ import {
 } from '@/lib/scoring/sailing-risk';
 import { getForecastRange, type ForecastHour } from '@/lib/weather/open-meteo';
 import { generatePrediction, type PredictionResult } from '@/lib/scoring/prediction-engine-v2';
+// Phase 48: Canonical overlay loader
+import {
+  loadAuthoritativeStatusOverlay,
+  generateSailingKey,
+  countCanceledInOverlay,
+  type PersistedStatus,
+} from '@/lib/events/sailing-events';
 
 // ============================================================
 // CORRIDOR BOARD GENERATION
@@ -116,13 +123,61 @@ export async function getDailyCorridorBoard(
     }
   }
 
+  // ============================================================
+  // PHASE 48: LOAD AUTHORITATIVE STATUS OVERLAY FROM SUPABASE
+  // ============================================================
+  // This is the SINGLE SOURCE OF TRUTH for sailing status.
+  // Cancellations in this overlay MUST appear in the final response.
+  // Load BEFORE schedule to ensure we can force-merge.
+
+  // Map operator_id from corridor routes (e.g., "wh-vh-ssa" -> "ssa")
+  const operatorIds = new Set<string>();
+  for (const routeId of corridor.route_ids) {
+    const operatorId = getOperatorIdFromRouteId(routeId);
+    // Normalize to DB format
+    if (operatorId === 'steamship-authority') {
+      operatorIds.add('ssa');
+    } else if (operatorId === 'hy-line-cruises') {
+      operatorIds.add('hy-line-cruises');
+    } else {
+      operatorIds.add(operatorId);
+    }
+  }
+
+  // Load overlay for all operators in this corridor
+  const statusOverlays: Map<string, PersistedStatus>[] = [];
+  for (const operatorId of operatorIds) {
+    const overlay = await loadAuthoritativeStatusOverlay(operatorId, serviceDateLocal);
+    if (overlay.size > 0) {
+      statusOverlays.push(overlay);
+    }
+  }
+
+  // Merge all overlays into one (cancellations are sticky)
+  const mergedOverlay = new Map<string, PersistedStatus>();
+  for (const overlay of statusOverlays) {
+    for (const [key, status] of overlay) {
+      const existing = mergedOverlay.get(key);
+      if (!existing || (status.status === 'canceled' && existing.status !== 'canceled')) {
+        mergedOverlay.set(key, status);
+      }
+    }
+  }
+
+  // Count expected cancellations for regression guard
+  const expectedCanceledCount = countCanceledInOverlay(mergedOverlay);
+  console.log(
+    `[CORRIDOR_BOARD] Phase 48: Loaded overlay for ${corridorId}, ` +
+    `${mergedOverlay.size} statuses, ${expectedCanceledCount} canceled`
+  );
+
   // Collect all sailings from all routes in this corridor
   const allSailings: TerminalBoardSailing[] = [];
   const allAdvisories: BoardAdvisory[] = [];
   const operatorStatusSources: BoardProvenance['operator_status_sources'] = [];
 
   let hasAnyLiveSchedule = false;
-  let hasAnyStatusOverlay = false;
+  let hasAnyStatusOverlay = mergedOverlay.size > 0;
 
   // Fetch schedules for each route in the corridor (both directions)
   for (const routeId of corridor.route_ids) {
@@ -146,12 +201,14 @@ export async function getDailyCorridorBoard(
     const operatorId = getOperatorIdFromRouteId(routeId);
 
     // Convert sailings to board format (with optional forecast context)
+    // Phase 48: Pass merged overlay for force-merge
     const boardSailings = convertSailingsToBoard(
       scheduleResult,
       operatorId,
       routeId,
       weather,
-      forecastContext
+      forecastContext,
+      mergedOverlay
     );
     allSailings.push(...boardSailings);
 
@@ -218,6 +275,30 @@ export async function getDailyCorridorBoard(
   // Get status URL
   const operatorStatusUrl = getCorridorStatusUrl(corridorId);
 
+  // ============================================================
+  // PHASE 48: REGRESSION GUARD - MANDATORY CHECK
+  // ============================================================
+  // This MUST run before every response.
+  // If response has fewer cancellations than overlay, log CRITICAL.
+  // This guard is non-blocking (monitoring only) but essential for detecting regressions.
+
+  const actualCanceledCount = allSailings.filter(s => s.operator_status === 'canceled').length;
+
+  if (expectedCanceledCount > 0 && actualCanceledCount < expectedCanceledCount) {
+    // CRITICAL REGRESSION: We loaded N cancellations from Supabase but the response has fewer
+    console.error(
+      `[CORRIDOR_BOARD] PHASE 48 REGRESSION GUARD FAILED: ` +
+      `corridor=${corridorId} expected=${expectedCanceledCount} actual=${actualCanceledCount} ` +
+      `MISSING ${expectedCanceledCount - actualCanceledCount} CANCELLATIONS! ` +
+      `service_date=${serviceDateLocal}`
+    );
+  } else if (expectedCanceledCount > 0) {
+    console.log(
+      `[CORRIDOR_BOARD] Phase 48 guard PASSED: ${actualCanceledCount} cancellations ` +
+      `(expected ${expectedCanceledCount})`
+    );
+  }
+
   return {
     corridor,
     terminals,
@@ -264,13 +345,15 @@ function findForecastForSailing(
 /**
  * Convert schedule sailings to corridor board format
  * Phase 32: Enhanced to use Open-Meteo forecasts when available
+ * Phase 48: Force-merge Supabase status overlay (cancellations are authoritative)
  */
 function convertSailingsToBoard(
   scheduleResult: ScheduleFetchResult,
   operatorId: string,
   routeId: string,
   weather?: WeatherContext | null,
-  forecastContext?: ForecastContext | null
+  forecastContext?: ForecastContext | null,
+  statusOverlay?: Map<string, PersistedStatus>
 ): TerminalBoardSailing[] {
   return scheduleResult.sailings.map((sailing) => {
     // Compute forecast risk
@@ -310,8 +393,48 @@ function convertSailingsToBoard(
       };
     }
 
-    // Map operator status
-    const operatorStatus = mapSailingStatus(sailing.status);
+    // ============================================================
+    // PHASE 48: FORCE-MERGE SUPABASE STATUS OVERLAY
+    // ============================================================
+    // This is the CRITICAL fix for the intermittent cancellation bug.
+    // Supabase status ALWAYS wins. Period. No conditions.
+    //
+    // Priority order:
+    // 1. Supabase overlay (authoritative, persisted)
+    // 2. Schedule sailing status (from SSA scrape, may be stale)
+    //
+    // INVARIANT: If Supabase says canceled, the sailing IS canceled.
+
+    let operatorStatus = mapSailingStatus(sailing.status);
+    let operatorStatusReason: string | null = sailing.statusMessage || null;
+    let statusOverlayApplied = sailing.statusFromOperator;
+    let operatorStatusSource: 'status_page' | 'supabase_sailing_events' | null = sailing.statusFromOperator ? 'status_page' : null;
+
+    if (statusOverlay && statusOverlay.size > 0) {
+      // Generate key for this sailing
+      const overlayKey = generateSailingKey(
+        sailing.direction.fromSlug,
+        sailing.direction.toSlug,
+        sailing.departureTimeDisplay
+      );
+
+      const persistedStatus = statusOverlay.get(overlayKey);
+      if (persistedStatus) {
+        // FORCE-MERGE: Supabase status wins unconditionally
+        // This is especially critical for cancellations
+        operatorStatus = persistedStatus.status;
+        operatorStatusReason = persistedStatus.status_reason || operatorStatusReason;
+        statusOverlayApplied = true;
+        operatorStatusSource = 'supabase_sailing_events';
+
+        // Log force-merge for debugging
+        if (persistedStatus.status === 'canceled') {
+          console.log(
+            `[CORRIDOR_BOARD] Phase 48 FORCE-MERGE: ${sailing.direction.fromSlug} → ${sailing.direction.toSlug} @ ${sailing.departureTimeDisplay} = CANCELED`
+          );
+        }
+      }
+    }
 
     // Generate sailing ID
     const sailingId = generateSailingId(
@@ -341,10 +464,10 @@ function convertSailingsToBoard(
       scheduled_arrival_utc: sailing.arrivalTime || null,
       timezone: sailing.timezone,
 
-      // Layer 1: Operator status
+      // Layer 1: Operator status (Phase 48: now force-merged from Supabase)
       operator_status: operatorStatus,
-      operator_status_reason: sailing.statusMessage || null,
-      operator_status_source: sailing.statusFromOperator ? 'status_page' : null,
+      operator_status_reason: operatorStatusReason,
+      operator_status_source: operatorStatusSource,
 
       // Layer 2: Forecast risk
       forecast_risk: forecastRisk,
@@ -353,7 +476,7 @@ function convertSailingsToBoard(
       schedule_source: scheduleResult.provenance.source_type === 'operator_live'
         ? 'operator_live'
         : 'template',
-      status_overlay_applied: sailing.statusFromOperator,
+      status_overlay_applied: statusOverlayApplied,
 
       vessel_name: sailing.vesselName,
     };

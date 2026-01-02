@@ -148,7 +148,8 @@ export interface TerminalBoardSailing {
   operator_status_reason: string | null;
 
   /** Where status came from */
-  operator_status_source: 'status_page' | null;
+  // Phase 48: Added 'supabase_sailing_events' for authoritative overlay source
+  operator_status_source: 'status_page' | 'supabase_sailing_events' | null;
 
   // ============================================================
   // LAYER 2 – FERRY FORECAST OVERLAY (interpretive)

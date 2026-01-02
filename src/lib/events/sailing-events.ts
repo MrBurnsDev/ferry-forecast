@@ -648,3 +648,137 @@ export function mapOperatorId(source: string): string {
   const lower = source.toLowerCase();
   return sourceMap[lower] || lower;
 }
+
+// ============================================================
+// PHASE 48: CANONICAL OVERLAY LOADER
+// ============================================================
+
+/**
+ * Persisted sailing status from Supabase
+ */
+export interface PersistedStatus {
+  status: 'on_time' | 'delayed' | 'canceled';
+  status_reason: string | null;
+  observed_at: string;
+  source: string;
+}
+
+/**
+ * Generate natural key for a sailing
+ */
+export function generateSailingKey(
+  fromPort: string,
+  toPort: string,
+  departureTime: string
+): string {
+  // Normalize time: "8:35 AM" -> "8:35am"
+  const normalizedTime = departureTime.toLowerCase().replace(/\s+/g, '');
+  const fromSlug = normalizePortSlug(fromPort);
+  const toSlug = normalizePortSlug(toPort);
+  return `${fromSlug}|${toSlug}|${normalizedTime}`;
+}
+
+/**
+ * PHASE 48: Load authoritative status overlay from Supabase
+ *
+ * THIS IS THE SINGLE SOURCE OF TRUTH FOR SAILING STATUS.
+ *
+ * Queries ferry_forecast.sailing_events and returns ALL sailings
+ * for the given operator and service date. Cancellations are ALWAYS
+ * included - they are the entire point of this function.
+ *
+ * INVARIANT: If a sailing has status='canceled' in Supabase,
+ * it MUST appear in the returned Map with status='canceled'.
+ *
+ * @param operatorId - Operator ID (e.g., 'ssa', 'hy-line-cruises')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ * @returns Map keyed by (from_port|to_port|departure_time), values are PersistedStatus
+ */
+export async function loadAuthoritativeStatusOverlay(
+  operatorId: string,
+  serviceDate: string
+): Promise<Map<string, PersistedStatus>> {
+  const supabase = createServerClient();
+  const result = new Map<string, PersistedStatus>();
+
+  if (!supabase) {
+    console.warn('[OVERLAY] No Supabase client - returning empty overlay');
+    return result;
+  }
+
+  try {
+    // Query ALL sailing events for this operator and date
+    // Order by observed_at DESC so we get the most recent status first
+    const { data, error } = await supabase
+      .from('sailing_events')
+      .select('from_port, to_port, departure_time, status, status_reason, status_message, observed_at, source')
+      .eq('operator_id', operatorId)
+      .eq('service_date', serviceDate)
+      .order('observed_at', { ascending: false });
+
+    if (error) {
+      console.error('[OVERLAY] Database query failed:', error);
+      return result;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(`[OVERLAY] No sailing events for operator=${operatorId} date=${serviceDate}`);
+      return result;
+    }
+
+    // Build the Map with sticky cancellation logic
+    // If we see multiple observations for the same sailing, cancellations are sticky
+    for (const row of data) {
+      const key = generateSailingKey(row.from_port, row.to_port, row.departure_time);
+      const existing = result.get(key);
+
+      // Status from this row
+      const status = row.status as 'on_time' | 'delayed' | 'canceled';
+      const statusReason = row.status_reason || row.status_message || null;
+
+      if (!existing) {
+        // First observation for this sailing
+        result.set(key, {
+          status,
+          status_reason: statusReason,
+          observed_at: row.observed_at,
+          source: row.source,
+        });
+      } else if (status === 'canceled' && existing.status !== 'canceled') {
+        // STICKY CANCELLATION: If this observation shows canceled but existing doesn't,
+        // use the canceled status (cancellations are immutable)
+        result.set(key, {
+          status: 'canceled',
+          status_reason: statusReason || existing.status_reason,
+          observed_at: row.observed_at,
+          source: row.source,
+        });
+      }
+      // Otherwise keep existing (most recent non-canceled, or already canceled)
+    }
+
+    console.log(
+      `[OVERLAY] Loaded ${result.size} sailing statuses for operator=${operatorId} date=${serviceDate}, ` +
+      `canceled=${Array.from(result.values()).filter(s => s.status === 'canceled').length}`
+    );
+
+    return result;
+  } catch (err) {
+    console.error('[OVERLAY] Exception loading status overlay:', err);
+    return result;
+  }
+}
+
+/**
+ * Get the count of canceled sailings in the overlay
+ * Used for regression guard validation
+ */
+export function countCanceledInOverlay(overlay: Map<string, PersistedStatus>): number {
+  let count = 0;
+  for (const status of overlay.values()) {
+    if (status.status === 'canceled') {
+      count++;
+    }
+  }
+  return count;
+}
