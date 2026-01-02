@@ -664,15 +664,38 @@ export interface PersistedStatus {
 }
 
 /**
- * Generate natural key for a sailing
+ * Normalize time to canonical format for key matching.
+ * Handles both 12-hour ("8:35 AM") and 24-hour ("08:35:00") formats.
+ * Output: "8:35am" (no leading zeros, lowercase am/pm)
  */
+function normalizeTime(time: string): string {
+  // Check if it's 24-hour format (HH:MM:SS or HH:MM)
+  const time24Match = time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (time24Match) {
+    const hour = parseInt(time24Match[1], 10);
+    const minute = time24Match[2];
+
+    if (hour === 0) {
+      return `12:${minute}am`;
+    } else if (hour < 12) {
+      return `${hour}:${minute}am`;
+    } else if (hour === 12) {
+      return `12:${minute}pm`;
+    } else {
+      return `${hour - 12}:${minute}pm`;
+    }
+  }
+
+  // Handle 12-hour format: "8:35 AM" -> "8:35am"
+  return time.toLowerCase().replace(/\s+/g, '');
+}
+
 export function generateSailingKey(
   fromPort: string,
   toPort: string,
   departureTime: string
 ): string {
-  // Normalize time: "8:35 AM" -> "8:35am"
-  const normalizedTime = departureTime.toLowerCase().replace(/\s+/g, '');
+  const normalizedTime = normalizeTime(departureTime);
   const fromSlug = normalizePortSlug(fromPort);
   const toSlug = normalizePortSlug(toPort);
   return `${fromSlug}|${toSlug}|${normalizedTime}`;
