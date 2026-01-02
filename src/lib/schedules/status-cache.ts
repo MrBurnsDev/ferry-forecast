@@ -4,6 +4,7 @@
  * Phase 22: Single-Corridor Truth Lock
  * Phase 24: SSA Observer Extension support
  * Phase 38: Supabase fallback for serverless environments
+ * Phase 47: Sticky cancellation preservation in deduplication
  *
  * In-memory cache for manually submitted SSA status data.
  * Used when automated scraping is blocked by Queue-IT.
@@ -321,15 +322,27 @@ export async function getStatusFromDatabase(): Promise<StatusCacheData | null> {
       return null;
     }
 
-    // Deduplicate: keep only the most recent status for each sailing
+    // Phase 47: Smart deduplication - preserve canceled status
+    // When merging multiple observations for the same sailing, cancellations
+    // are "sticky" - if ANY observation shows canceled, the sailing stays canceled.
+    // This prevents losing cancellations when SSA stops showing morning sailings later.
     // Key: from_port + to_port + departure_time
-    const seen = new Set<string>();
-    const uniqueEvents = data.filter((event) => {
+    const eventsByKey = new Map<string, typeof data[0]>();
+    for (const event of data) {
       const key = `${event.from_port}|${event.to_port}|${event.departure_time}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+      const existing = eventsByKey.get(key);
+
+      if (!existing) {
+        // First observation for this sailing
+        eventsByKey.set(key, event);
+      } else if (event.status === 'canceled' && existing.status !== 'canceled') {
+        // This observation is canceled but existing is not - use canceled
+        // Keep the canceled observation's details (message, observed_at)
+        eventsByKey.set(key, event);
+      }
+      // Otherwise keep the existing (most recent non-canceled, or already canceled)
+    }
+    const uniqueEvents = Array.from(eventsByKey.values());
 
     // Convert to CachedSailingStatus format
     const sailings: CachedSailingStatus[] = uniqueEvents.map((event) => ({
