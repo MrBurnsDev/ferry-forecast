@@ -51,11 +51,14 @@ import {
 import { getForecastRange, type ForecastHour } from '@/lib/weather/open-meteo';
 import { generatePrediction, type PredictionResult } from '@/lib/scoring/prediction-engine-v2';
 // Phase 48: Canonical overlay loader
+// Phase 48.1: Extended loader for full union (synthetic sailings)
 import {
-  loadAuthoritativeStatusOverlay,
+  loadExtendedStatusOverlay,
   generateSailingKey,
-  countCanceledInOverlay,
+  normalizePortSlug,
   type PersistedStatus,
+  type ExtendedStatusOverlay,
+  type RawSailingEvent,
 } from '@/lib/events/sailing-events';
 
 // ============================================================
@@ -124,11 +127,17 @@ export async function getDailyCorridorBoard(
   }
 
   // ============================================================
-  // PHASE 48: LOAD AUTHORITATIVE STATUS OVERLAY FROM SUPABASE
+  // PHASE 48.1: LOAD EXTENDED STATUS OVERLAY FROM SUPABASE
   // ============================================================
   // This is the SINGLE SOURCE OF TRUTH for sailing status.
   // Cancellations in this overlay MUST appear in the final response.
-  // Load BEFORE schedule to ensure we can force-merge.
+  //
+  // FULL UNION LOGIC:
+  // 1. Load overlay with raw records for synthetic sailing creation
+  // 2. Convert schedule sailings with overlay merge
+  // 3. Create synthetic sailings for DB-only cancellations
+  // 4. Merge all sailings chronologically
+  // 5. HARD GUARD: Throw error if output has fewer cancellations than DB
 
   // Map operator_id from corridor routes (e.g., "wh-vh-ssa" -> "ssa")
   const operatorIds = new Set<string>();
@@ -144,31 +153,43 @@ export async function getDailyCorridorBoard(
     }
   }
 
-  // Load overlay for all operators in this corridor
-  const statusOverlays: Map<string, PersistedStatus>[] = [];
+  // Load extended overlay for all operators in this corridor
+  const extendedOverlays: ExtendedStatusOverlay[] = [];
   for (const operatorId of operatorIds) {
-    const overlay = await loadAuthoritativeStatusOverlay(operatorId, serviceDateLocal);
-    if (overlay.size > 0) {
-      statusOverlays.push(overlay);
+    const extOverlay = await loadExtendedStatusOverlay(operatorId, serviceDateLocal);
+    if (extOverlay.statusMap.size > 0) {
+      extendedOverlays.push(extOverlay);
     }
   }
 
   // Merge all overlays into one (cancellations are sticky)
   const mergedOverlay = new Map<string, PersistedStatus>();
-  for (const overlay of statusOverlays) {
-    for (const [key, status] of overlay) {
+  const allRawRecords: Array<RawSailingEvent & { operatorId: string }> = [];
+  let totalExpectedCanceled = 0;
+
+  for (let i = 0; i < extendedOverlays.length; i++) {
+    const extOverlay = extendedOverlays[i];
+    const operatorId = Array.from(operatorIds)[i];
+
+    for (const [key, status] of extOverlay.statusMap) {
       const existing = mergedOverlay.get(key);
       if (!existing || (status.status === 'canceled' && existing.status !== 'canceled')) {
         mergedOverlay.set(key, status);
       }
     }
+
+    // Collect raw records with operator ID for synthetic sailing creation
+    for (const raw of extOverlay.rawRecords) {
+      allRawRecords.push({ ...raw, operatorId });
+    }
+
+    totalExpectedCanceled += extOverlay.canceledCount;
   }
 
-  // Count expected cancellations for regression guard
-  const expectedCanceledCount = countCanceledInOverlay(mergedOverlay);
   console.log(
-    `[CORRIDOR_BOARD] Phase 48: Loaded overlay for ${corridorId}, ` +
-    `${mergedOverlay.size} statuses, ${expectedCanceledCount} canceled`
+    `[CORRIDOR_BOARD] Phase 48.1: Loaded overlay for ${corridorId}, ` +
+    `${mergedOverlay.size} statuses, ${totalExpectedCanceled} canceled, ` +
+    `${allRawRecords.length} raw records for synthetic creation`
   );
 
   // Collect all sailings from all routes in this corridor
@@ -243,6 +264,68 @@ export async function getDailyCorridorBoard(
     }
   }
 
+  // ============================================================
+  // PHASE 48.1: CREATE SYNTHETIC SAILINGS FOR DB-ONLY CANCELLATIONS
+  // ============================================================
+  // For any DB canceled sailing NOT in schedule, create a synthetic sailing.
+  // This ensures the invariant: ALL DB cancellations appear in the UI.
+
+  // Collect keys of all schedule-derived sailings
+  const scheduleSailingKeys = new Set<string>();
+  for (const sailing of allSailings) {
+    const key = generateSailingKey(
+      sailing.origin_terminal.id,
+      sailing.destination_terminal.id,
+      sailing.scheduled_departure_local
+    );
+    scheduleSailingKeys.add(key);
+  }
+
+  // Check which DB canceled sailings are NOT in schedule - create synthetic for those
+  const syntheticSailings: TerminalBoardSailing[] = [];
+  for (const rawRecord of allRawRecords) {
+    // Only create synthetic sailings for cancellations
+    if (rawRecord.status !== 'canceled') continue;
+
+    const key = generateSailingKey(rawRecord.from_port, rawRecord.to_port, rawRecord.departure_time);
+
+    // Skip if this sailing exists in schedule (overlay already applied)
+    if (scheduleSailingKeys.has(key)) continue;
+
+    // Check if this sailing belongs to this corridor
+    const fromSlug = normalizePortSlug(rawRecord.from_port);
+    const toSlug = normalizePortSlug(rawRecord.to_port);
+    const terminalIds = [terminals.a.id, terminals.b.id];
+    if (!terminalIds.includes(fromSlug) && !terminalIds.includes(toSlug)) {
+      // This sailing doesn't belong to this corridor
+      continue;
+    }
+
+    // Create synthetic sailing from DB record
+    const syntheticSailing = createSyntheticSailing(
+      rawRecord,
+      rawRecord.operatorId,
+      serviceDateLocal,
+      corridor.default_timezone
+    );
+
+    if (syntheticSailing) {
+      syntheticSailings.push(syntheticSailing);
+      console.log(
+        `[CORRIDOR_BOARD] Phase 48.1 SYNTHETIC: Created synthetic sailing for DB-only cancellation ` +
+        `${rawRecord.from_port} → ${rawRecord.to_port} @ ${rawRecord.departure_time}`
+      );
+    }
+  }
+
+  // Merge synthetic sailings into main list
+  if (syntheticSailings.length > 0) {
+    allSailings.push(...syntheticSailings);
+    console.log(
+      `[CORRIDOR_BOARD] Phase 48.1: Added ${syntheticSailings.length} synthetic sailings from DB-only cancellations`
+    );
+  }
+
   // Sort sailings by departure time (interleaved, both directions)
   allSailings.sort((a, b) => a.departure_timestamp_ms - b.departure_timestamp_ms);
 
@@ -276,26 +359,33 @@ export async function getDailyCorridorBoard(
   const operatorStatusUrl = getCorridorStatusUrl(corridorId);
 
   // ============================================================
-  // PHASE 48: REGRESSION GUARD - MANDATORY CHECK
+  // PHASE 48.1: HARD GUARD - MANDATORY VALIDATION
   // ============================================================
-  // This MUST run before every response.
-  // If response has fewer cancellations than overlay, log CRITICAL.
-  // This guard is non-blocking (monitoring only) but essential for detecting regressions.
+  // This is a BLOCKING guard. If the response has fewer cancellations
+  // than the DB overlay, throw a CRITICAL error.
+  //
+  // INVARIANT: actualCanceledCount >= totalExpectedCanceled
+  // If this fails, something is fundamentally broken.
 
   const actualCanceledCount = allSailings.filter(s => s.operator_status === 'canceled').length;
 
-  if (expectedCanceledCount > 0 && actualCanceledCount < expectedCanceledCount) {
-    // CRITICAL REGRESSION: We loaded N cancellations from Supabase but the response has fewer
-    console.error(
-      `[CORRIDOR_BOARD] PHASE 48 REGRESSION GUARD FAILED: ` +
-      `corridor=${corridorId} expected=${expectedCanceledCount} actual=${actualCanceledCount} ` +
-      `MISSING ${expectedCanceledCount - actualCanceledCount} CANCELLATIONS! ` +
-      `service_date=${serviceDateLocal}`
-    );
-  } else if (expectedCanceledCount > 0) {
+  if (totalExpectedCanceled > 0 && actualCanceledCount < totalExpectedCanceled) {
+    // CRITICAL: We loaded N cancellations from DB but response has fewer
+    // This should NEVER happen after Phase 48.1 (synthetic sailing creation)
+    const errorMsg =
+      `[CORRIDOR_BOARD] CRITICAL PHASE 48.1 GUARD FAILED: ` +
+      `corridor=${corridorId} expected=${totalExpectedCanceled} actual=${actualCanceledCount} ` +
+      `MISSING ${totalExpectedCanceled - actualCanceledCount} CANCELLATIONS! ` +
+      `service_date=${serviceDateLocal}`;
+
+    console.error(errorMsg);
+
+    // Throw error to make this a hard failure
+    throw new Error(errorMsg);
+  } else if (totalExpectedCanceled > 0) {
     console.log(
-      `[CORRIDOR_BOARD] Phase 48 guard PASSED: ${actualCanceledCount} cancellations ` +
-      `(expected ${expectedCanceledCount})`
+      `[CORRIDOR_BOARD] Phase 48.1 guard PASSED: ${actualCanceledCount} cancellations ` +
+      `(expected ${totalExpectedCanceled})`
     );
   }
 
@@ -523,6 +613,130 @@ function mapWindRelation(
       return 'cross';
     default:
       return 'cross';
+  }
+}
+
+// ============================================================
+// PHASE 48.1: SYNTHETIC SAILING CREATION
+// ============================================================
+
+/**
+ * Port name lookup for synthetic sailings
+ */
+const PORT_DISPLAY_NAMES: Record<string, string> = {
+  'woods-hole': 'Woods Hole',
+  'vineyard-haven': 'Vineyard Haven',
+  'oak-bluffs': 'Oak Bluffs',
+  'hyannis': 'Hyannis',
+  'nantucket': 'Nantucket',
+};
+
+/**
+ * Convert 24-hour time (HH:MM:SS) to 12-hour display format (H:MM AM/PM)
+ */
+function format24To12Hour(time24: string): string {
+  const match = time24.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return time24;
+
+  const hour = parseInt(match[1], 10);
+  const minute = match[2];
+
+  if (hour === 0) {
+    return `12:${minute} AM`;
+  } else if (hour < 12) {
+    return `${hour}:${minute} AM`;
+  } else if (hour === 12) {
+    return `12:${minute} PM`;
+  } else {
+    return `${hour - 12}:${minute} PM`;
+  }
+}
+
+/**
+ * Create a synthetic TerminalBoardSailing from a raw DB record
+ *
+ * This is used when a canceled sailing exists in Supabase but NOT
+ * in the schedule template. We create a synthetic sailing row to
+ * ensure the cancellation is displayed in the UI.
+ *
+ * @param rawRecord - Raw sailing event from Supabase
+ * @param operatorId - Operator ID (e.g., 'steamship-authority')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ * @param timezone - IANA timezone (e.g., 'America/New_York')
+ */
+function createSyntheticSailing(
+  rawRecord: RawSailingEvent,
+  operatorId: string,
+  serviceDate: string,
+  timezone: string
+): TerminalBoardSailing | null {
+  try {
+    const fromSlug = normalizePortSlug(rawRecord.from_port);
+    const toSlug = normalizePortSlug(rawRecord.to_port);
+    const fromName = PORT_DISPLAY_NAMES[fromSlug] || rawRecord.from_port;
+    const toName = PORT_DISPLAY_NAMES[toSlug] || rawRecord.to_port;
+
+    // Convert 24-hour time to 12-hour display format
+    const departureTimeDisplay = format24To12Hour(rawRecord.departure_time);
+
+    // Build departure UTC timestamp
+    // Parse the 24-hour time (HH:MM:SS) and combine with service date
+    const timeMatch = rawRecord.departure_time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!timeMatch) {
+      console.error(`[SYNTHETIC] Invalid time format: ${rawRecord.departure_time}`);
+      return null;
+    }
+
+    // Create a date in the local timezone
+    // Note: This is an approximation - ideally we'd use a proper timezone library
+    const departureDate = new Date(`${serviceDate}T${rawRecord.departure_time}`);
+    const departureTimestampMs = departureDate.getTime();
+    const departureUTC = departureDate.toISOString();
+
+    // Generate sailing ID
+    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, departureTimeDisplay);
+
+    // Build the synthetic sailing
+    const sailing: TerminalBoardSailing = {
+      sailing_id: sailingId,
+      operator_id: operatorId,
+
+      origin_terminal: {
+        id: fromSlug,
+        name: fromName,
+      },
+      destination_terminal: {
+        id: toSlug,
+        name: toName,
+      },
+
+      scheduled_departure_local: departureTimeDisplay,
+      scheduled_departure_utc: departureUTC,
+      departure_timestamp_ms: departureTimestampMs,
+      scheduled_arrival_local: null,
+      scheduled_arrival_utc: null,
+      timezone,
+
+      // Layer 1: Operator status - this is ALWAYS canceled for synthetic sailings
+      operator_status: 'canceled',
+      operator_status_reason: rawRecord.status_reason || rawRecord.status_message || null,
+      operator_status_source: 'supabase_sailing_events',
+
+      // Layer 2: No forecast risk for synthetic sailings
+      forecast_risk: null,
+
+      // Provenance: Mark as synthetic/DB-derived
+      schedule_source: 'template',  // Technically not from template, but closest match
+      status_overlay_applied: true,
+
+      // No vessel name for synthetic sailings
+      vessel_name: undefined,
+    };
+
+    return sailing;
+  } catch (err) {
+    console.error(`[SYNTHETIC] Error creating synthetic sailing:`, err);
+    return null;
   }
 }
 

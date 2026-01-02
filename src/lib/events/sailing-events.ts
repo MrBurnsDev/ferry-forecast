@@ -820,3 +820,136 @@ export function countCanceledInOverlay(overlay: Map<string, PersistedStatus>): n
   }
   return count;
 }
+
+// ============================================================
+// PHASE 48.1: RAW OVERLAY LOADER FOR SYNTHETIC SAILING CREATION
+// ============================================================
+
+/**
+ * Raw sailing event record from Supabase with full port info
+ * Used for creating synthetic sailings when DB has cancellations not in schedule
+ */
+export interface RawSailingEvent {
+  from_port: string;
+  to_port: string;
+  departure_time: string;  // 24-hour format from DB (e.g., "05:45:00")
+  status: 'on_time' | 'delayed' | 'canceled';
+  status_reason: string | null;
+  status_message: string | null;
+  observed_at: string;
+  source: string;
+}
+
+/**
+ * Extended overlay that includes raw data for synthetic sailing creation
+ */
+export interface ExtendedStatusOverlay {
+  /** Map of normalized key to status (for matching) */
+  statusMap: Map<string, PersistedStatus>;
+  /** Raw records for creating synthetic sailings */
+  rawRecords: RawSailingEvent[];
+  /** Count of canceled sailings (for guard) */
+  canceledCount: number;
+}
+
+/**
+ * PHASE 48.1: Load overlay with raw records for full union support
+ *
+ * Returns both the key-based map (for matching schedule sailings)
+ * and raw records (for creating synthetic sailings from DB-only cancellations).
+ *
+ * @param operatorId - Operator ID (e.g., 'ssa', 'hy-line-cruises')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ */
+export async function loadExtendedStatusOverlay(
+  operatorId: string,
+  serviceDate: string
+): Promise<ExtendedStatusOverlay> {
+  const supabase = createServerClient();
+  const result: ExtendedStatusOverlay = {
+    statusMap: new Map(),
+    rawRecords: [],
+    canceledCount: 0,
+  };
+
+  if (!supabase) {
+    console.warn('[OVERLAY_EXT] No Supabase client - returning empty overlay');
+    return result;
+  }
+
+  try {
+    // Query ALL sailing events for this operator and date
+    const { data, error } = await supabase
+      .from('sailing_events')
+      .select('from_port, to_port, departure_time, status, status_reason, status_message, observed_at, source')
+      .eq('operator_id', operatorId)
+      .eq('service_date', serviceDate)
+      .order('observed_at', { ascending: false });
+
+    if (error) {
+      console.error('[OVERLAY_EXT] Database query failed:', error);
+      return result;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(`[OVERLAY_EXT] No sailing events for operator=${operatorId} date=${serviceDate}`);
+      return result;
+    }
+
+    // Process records: build map and collect raw records (dedupe by key)
+    const seenKeys = new Set<string>();
+
+    for (const row of data) {
+      const key = generateSailingKey(row.from_port, row.to_port, row.departure_time);
+      const status = row.status as 'on_time' | 'delayed' | 'canceled';
+      const statusReason = row.status_reason || row.status_message || null;
+
+      // Build the status map (same logic as loadAuthoritativeStatusOverlay)
+      const existing = result.statusMap.get(key);
+      if (!existing) {
+        result.statusMap.set(key, {
+          status,
+          status_reason: statusReason,
+          observed_at: row.observed_at,
+          source: row.source,
+        });
+      } else if (status === 'canceled' && existing.status !== 'canceled') {
+        result.statusMap.set(key, {
+          status: 'canceled',
+          status_reason: statusReason || existing.status_reason,
+          observed_at: row.observed_at,
+          source: row.source,
+        });
+      }
+
+      // Collect raw records (dedupe - keep first per key which is most recent)
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        result.rawRecords.push({
+          from_port: row.from_port,
+          to_port: row.to_port,
+          departure_time: row.departure_time,
+          status,
+          status_reason: row.status_reason,
+          status_message: row.status_message,
+          observed_at: row.observed_at,
+          source: row.source,
+        });
+      }
+    }
+
+    // Count canceled sailings
+    result.canceledCount = Array.from(result.statusMap.values())
+      .filter(s => s.status === 'canceled').length;
+
+    console.log(
+      `[OVERLAY_EXT] Loaded ${result.statusMap.size} statuses, ${result.rawRecords.length} raw records, ` +
+      `${result.canceledCount} canceled for operator=${operatorId} date=${serviceDate}`
+    );
+
+    return result;
+  } catch (err) {
+    console.error('[OVERLAY_EXT] Exception loading extended overlay:', err);
+    return result;
+  }
+}
