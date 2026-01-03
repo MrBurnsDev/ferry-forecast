@@ -165,7 +165,6 @@ export async function getDailyCorridorBoard(
   // Merge all overlays into one (cancellations are sticky)
   const mergedOverlay = new Map<string, PersistedStatus>();
   const allRawRecords: Array<RawSailingEvent & { operatorId: string }> = [];
-  let totalExpectedCanceled = 0;
 
   for (let i = 0; i < extendedOverlays.length; i++) {
     const extOverlay = extendedOverlays[i];
@@ -182,8 +181,20 @@ export async function getDailyCorridorBoard(
     for (const raw of extOverlay.rawRecords) {
       allRawRecords.push({ ...raw, operatorId });
     }
+  }
 
-    totalExpectedCanceled += extOverlay.canceledCount;
+  // Count expected cancellations ONLY for THIS corridor (not all operator cancellations)
+  // Filter rawRecords to only include cancellations where both ports are in this corridor
+  const corridorTerminalIds = new Set([terminals.a.id, terminals.b.id]);
+  let totalExpectedCanceled = 0;
+  for (const raw of allRawRecords) {
+    if (raw.status !== 'canceled') continue;
+    const fromSlug = normalizePortSlug(raw.from_port);
+    const toSlug = normalizePortSlug(raw.to_port);
+    // Both origin AND destination must be in this corridor's terminals
+    if (corridorTerminalIds.has(fromSlug) && corridorTerminalIds.has(toSlug)) {
+      totalExpectedCanceled++;
+    }
   }
 
   console.log(
