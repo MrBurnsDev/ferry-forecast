@@ -187,20 +187,31 @@ export async function getDailyCorridorBoard(
   // Filter rawRecords to only include cancellations where both ports are in this corridor
   const corridorTerminalIds = new Set([terminals.a.id, terminals.b.id]);
   let totalExpectedCanceled = 0;
+  const corridorCancellations: string[] = [];
+  const otherCancellations: string[] = [];
+
   for (const raw of allRawRecords) {
     if (raw.status !== 'canceled') continue;
     const fromSlug = normalizePortSlug(raw.from_port);
     const toSlug = normalizePortSlug(raw.to_port);
+    const desc = `${raw.from_port}->${raw.to_port}@${raw.departure_time} (slugs: ${fromSlug}->${toSlug})`;
+
     // Both origin AND destination must be in this corridor's terminals
     if (corridorTerminalIds.has(fromSlug) && corridorTerminalIds.has(toSlug)) {
       totalExpectedCanceled++;
+      corridorCancellations.push(desc);
+    } else {
+      otherCancellations.push(desc);
     }
   }
 
   console.log(
     `[CORRIDOR_BOARD] Phase 48.1: Loaded overlay for ${corridorId}, ` +
-    `${mergedOverlay.size} statuses, ${totalExpectedCanceled} canceled, ` +
-    `${allRawRecords.length} raw records for synthetic creation`
+    `${mergedOverlay.size} statuses, ${totalExpectedCanceled} canceled (of ${allRawRecords.filter(r => r.status === 'canceled').length} total), ` +
+    `${allRawRecords.length} raw records. ` +
+    `Corridor terminals: [${Array.from(corridorTerminalIds).join(', ')}]. ` +
+    `Corridor cancellations: [${corridorCancellations.join('; ')}]. ` +
+    `Other cancellations filtered out: [${otherCancellations.join('; ')}]`
   );
 
   // Collect all sailings from all routes in this corridor
