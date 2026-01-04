@@ -37,8 +37,8 @@ export const revalidate = 0;
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
 import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
 // Phase 52 FIX: Removed fetchCurrentWeather import - we no longer fall back to NOAA forecast
-// for current conditions, as that shows PREDICTED weather (not actual observations)
-import { fetchNWSObservationForTerminal } from '@/lib/weather/nws-station-collector';
+// Phase 54 FIX: Removed fetchNWSObservationForTerminal import - NWS stations like KHYA are
+// 20+ miles from terminals and showing their data as "current conditions" is misleading
 import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
 // Phase 53: Wind source priority - operator conditions take precedence
 import { getLatestOperatorConditions } from '@/lib/events/operator-conditions';
@@ -121,37 +121,24 @@ export async function GET(
             `(${ageMinutes} min ago)`
           );
         } else {
-          // No operator conditions available - fall back to NWS station
-          // BUT: clearly label this as distant station data, not terminal conditions
-          const nwsResult = await fetchNWSObservationForTerminal(corridor.terminal_a);
-
-          if (nwsResult.success && nwsResult.observation) {
-            const obs = nwsResult.observation;
-            weather = {
-              windSpeed: obs.wind_speed_mph ?? 0,
-              windGusts: obs.wind_gust_mph ?? obs.wind_speed_mph ?? 0,
-              windDirection: obs.wind_direction_deg ?? 0,
-              advisoryLevel: 'none',
-            };
-            weatherSource = {
-              type: 'nws_station',
-              station_id: obs.station_id,
-              station_name: obs.station_name,
-              observation_time: obs.observation_time.toISOString(),
-            };
-            console.log(
-              `[CORRIDOR_API] Using NWS station ${obs.station_id} for ${corridorId} (no operator conditions): ` +
-              `wind=${obs.wind_speed_mph} mph, dir=${obs.wind_direction_deg}°`
-            );
-          } else {
-            // Both operator and NWS failed
-            console.warn(
-              `[CORRIDOR_API] No weather data available for ${corridorId}: ` +
-              `operator conditions not available, NWS station fetch failed.`
-            );
-            weather = null;
-            weatherSource = null;
-          }
+          // Phase 54: NO LONGER FALL BACK TO NWS STATION DATA
+          //
+          // RATIONALE: NWS stations like KHYA (Hyannis Airport) are 20+ miles from
+          // Woods Hole terminal. Showing "41.4 mph" from the airport when SSA terminal
+          // shows "6 mph" is actively misleading and confusing to users.
+          //
+          // DECISION: If we don't have operator conditions, show NOTHING rather than
+          // showing inaccurate distant weather data. This is the "common sense" fix.
+          //
+          // The NWS data can still be used internally for risk scoring in the forecast
+          // pipeline, but it should NOT be displayed to users as "current conditions".
+          console.log(
+            `[CORRIDOR_API] No operator conditions for ${corridorId}. ` +
+            `NOT falling back to distant NWS station data for user display. ` +
+            `Weather context will be null.`
+          );
+          weather = null;
+          weatherSource = null;
         }
       } catch (weatherError) {
         // Weather fetch failed - continue without risk scores
