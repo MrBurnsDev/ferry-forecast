@@ -5,6 +5,7 @@
  * Phase 22: Add weather context for risk scoring
  * Phase 32: Add Open-Meteo forecast support
  * Phase 46: Cache hardening - force-dynamic to ensure Supabase fallback works
+ * Phase 53: Wind source priority - operator conditions over NWS station data
  *
  * GET /api/corridor/[corridorId]
  *
@@ -16,6 +17,15 @@
  *
  * CRITICAL: This endpoint MUST be dynamic to ensure canceled sailings
  * from Supabase are read on every request after serverless cold starts.
+ *
+ * PHASE 53 WIND SOURCE PRIORITY:
+ * 1. Operator conditions (SSA terminal wind) - ALWAYS preferred when available
+ * 2. NWS station observations - Only used when operator conditions unavailable
+ *
+ * RATIONALE: NWS stations like KHYA (Hyannis Airport) are 20+ miles from
+ * ferry terminals. Operator-reported wind is measured AT the terminal and
+ * is what SSA uses for sailing decisions. Using distant NWS stations caused
+ * confusing discrepancies (e.g., 33 mph at airport vs 6 mph at terminal).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,6 +40,8 @@ import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
 // for current conditions, as that shows PREDICTED weather (not actual observations)
 import { fetchNWSObservationForTerminal } from '@/lib/weather/nws-station-collector';
 import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
+// Phase 53: Wind source priority - operator conditions take precedence
+import { getLatestOperatorConditions } from '@/lib/events/operator-conditions';
 import type { CorridorBoardResponse } from '@/types/corridor';
 import type { WeatherContext } from '@/lib/scoring/sailing-risk';
 
@@ -58,46 +70,88 @@ export async function GET(
   try {
     // Phase 22: Fetch weather for risk scoring
     // Phase 52: Use NWS station observations for current conditions (more accurate)
-    // with NOAA forecast as fallback
+    // Phase 53: OPERATOR CONDITIONS TAKE PRIORITY over NWS station data
+    //
+    // Priority order for current conditions display:
+    // 1. Operator conditions (SSA terminal wind) - most accurate for terminal
+    // 2. NWS station observations - only used for risk scoring, NOT for user display
+    //    REASON: NWS stations like KHYA are 20+ miles from terminals
+    //
+    // CRITICAL: Never show NWS station wind as "current conditions" to users
+    // when operator conditions exist. This prevents confusing discrepancies
+    // like showing 33 mph (airport) when SSA terminal shows 6 mph.
     const corridor = getCorridorById(corridorId);
     let weather: WeatherContext | null = null;
-    let weatherSource: { type: 'nws_station' | 'noaa_forecast'; station_id?: string; station_name?: string; observation_time?: string } | null = null;
+    let weatherSource: {
+      type: 'operator' | 'nws_station' | 'noaa_forecast';
+      station_id?: string;
+      station_name?: string;
+      observation_time?: string;
+      terminal_slug?: string;
+      age_minutes?: number;
+    } | null = null;
 
     if (corridor) {
       try {
-        // First, try NWS station observations (real-time data, matches SSA's sources)
-        const nwsResult = await fetchNWSObservationForTerminal(corridor.terminal_a);
+        // Phase 53: First, check for operator-reported conditions (SSA terminal wind)
+        // This is the ground truth at the terminal itself
+        const operatorConditions = await getLatestOperatorConditions('ssa', corridor.terminal_a, 30);
 
-        if (nwsResult.success && nwsResult.observation) {
-          const obs = nwsResult.observation;
+        if (operatorConditions && operatorConditions.wind_speed_mph !== null) {
+          // Use operator conditions for weather context
           weather = {
-            windSpeed: obs.wind_speed_mph ?? 0,
-            windGusts: obs.wind_gust_mph ?? obs.wind_speed_mph ?? 0,
-            windDirection: obs.wind_direction_deg ?? 0,
-            advisoryLevel: 'none', // NWS observations don't include advisory level directly
+            windSpeed: operatorConditions.wind_speed_mph,
+            windGusts: operatorConditions.wind_speed_mph, // SSA doesn't report gusts separately
+            windDirection: operatorConditions.wind_direction_degrees ?? 0,
+            advisoryLevel: 'none', // Operator conditions don't include advisory level
           };
+
+          const observedAt = new Date(operatorConditions.observed_at);
+          const ageMinutes = Math.round((Date.now() - observedAt.getTime()) / 60000);
+
           weatherSource = {
-            type: 'nws_station',
-            station_id: obs.station_id,
-            station_name: obs.station_name,
-            observation_time: obs.observation_time.toISOString(),
+            type: 'operator',
+            terminal_slug: operatorConditions.terminal_slug,
+            observation_time: operatorConditions.observed_at,
+            age_minutes: ageMinutes,
           };
           console.log(
-            `[CORRIDOR_API] Using NWS station ${obs.station_id} for ${corridorId}: ` +
-            `wind=${obs.wind_speed_mph} mph, dir=${obs.wind_direction_deg}°`
+            `[CORRIDOR_API] Using OPERATOR conditions for ${corridorId}: ` +
+            `wind=${operatorConditions.wind_speed_mph} mph ${operatorConditions.wind_direction_text || ''} ` +
+            `(${ageMinutes} min ago)`
           );
         } else {
-          // NWS station fetch failed
-          // Phase 52 FIX: Do NOT fall back to NOAA forecast for current conditions
-          // NOAA forecast shows PREDICTED weather, not CURRENT observations
-          // This was causing misleading displays (e.g., 33 mph predicted vs 6 mph actual)
-          console.warn(
-            `[CORRIDOR_API] NWS station fetch failed for ${corridor.terminal_a}: ${nwsResult.error}. ` +
-            `NOT falling back to NOAA forecast to avoid showing predicted weather as current conditions.`
-          );
-          // Leave weather as null - the UI will handle this gracefully
-          weather = null;
-          weatherSource = null;
+          // No operator conditions available - fall back to NWS station
+          // BUT: clearly label this as distant station data, not terminal conditions
+          const nwsResult = await fetchNWSObservationForTerminal(corridor.terminal_a);
+
+          if (nwsResult.success && nwsResult.observation) {
+            const obs = nwsResult.observation;
+            weather = {
+              windSpeed: obs.wind_speed_mph ?? 0,
+              windGusts: obs.wind_gust_mph ?? obs.wind_speed_mph ?? 0,
+              windDirection: obs.wind_direction_deg ?? 0,
+              advisoryLevel: 'none',
+            };
+            weatherSource = {
+              type: 'nws_station',
+              station_id: obs.station_id,
+              station_name: obs.station_name,
+              observation_time: obs.observation_time.toISOString(),
+            };
+            console.log(
+              `[CORRIDOR_API] Using NWS station ${obs.station_id} for ${corridorId} (no operator conditions): ` +
+              `wind=${obs.wind_speed_mph} mph, dir=${obs.wind_direction_deg}°`
+            );
+          } else {
+            // Both operator and NWS failed
+            console.warn(
+              `[CORRIDOR_API] No weather data available for ${corridorId}: ` +
+              `operator conditions not available, NWS station fetch failed.`
+            );
+            weather = null;
+            weatherSource = null;
+          }
         }
       } catch (weatherError) {
         // Weather fetch failed - continue without risk scores
@@ -124,17 +178,22 @@ export async function GET(
 
     // Build response with optional weather context debug info (Phase 22)
     // Phase 52: Include source info so UI can show where data comes from
+    // Phase 53: Include operator-specific fields when using operator conditions
     const weatherContext = weather
       ? {
           wind_speed: weather.windSpeed,
           wind_gusts: weather.windGusts,
           wind_direction: weather.windDirection,
           advisory_level: weather.advisoryLevel,
-          // Phase 52: Source info for transparency
+          // Phase 52/53: Source info for transparency
           source: weatherSource?.type ?? 'unknown',
+          // NWS station fields (only present when source is 'nws_station')
           station_id: weatherSource?.station_id,
           station_name: weatherSource?.station_name,
           observation_time: weatherSource?.observation_time,
+          // Operator condition fields (only present when source is 'operator')
+          terminal_slug: weatherSource?.terminal_slug,
+          age_minutes: weatherSource?.age_minutes,
         }
       : null;
 
