@@ -477,6 +477,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         // Phase 49: If this is a first cancellation, capture operator conditions
         if (result.first_cancellation_id && result.from_port) {
+          console.log(
+            `[PHASE 49/50] Capturing cancellation conditions`,
+            JSON.stringify({
+              sailing_event_id: result.first_cancellation_id,
+              operator_id: operatorId,
+              terminal_slug: result.from_port,
+            })
+          );
+
           const terminalCondition = conditionsByTerminal.get(result.from_port);
           const sourceUrl = (isDualSourcePayload(payload) && payload.source_meta?.schedule_url) ||
             'https://www.steamshipauthority.com/traveling_today/status';
