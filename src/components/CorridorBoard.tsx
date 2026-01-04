@@ -5,9 +5,9 @@ import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board
 import Link from 'next/link';
 
 /**
- * Phase 55: WeatherContext with authority field for three-state display
+ * Phase 56: WeatherContext with authority field for three-state display
  * - 'operator': Measured at ferry terminal (SSA ground truth)
- * - 'nws_observation': Measured at nearby weather station (currently disabled)
+ * - 'local_zip_observation': Current conditions from ZIP code area (Open-Meteo)
  * - 'unavailable': No observation available - show empty state message
  */
 interface WeatherContext {
@@ -15,13 +15,18 @@ interface WeatherContext {
   wind_gusts: number | null;
   wind_direction: number | null;
   advisory_level: string | null;
-  authority: 'operator' | 'nws_observation' | 'unavailable';
+  authority: 'operator' | 'local_zip_observation' | 'unavailable';
   // Operator fields (when authority='operator')
   terminal_slug?: string;
   age_minutes?: number;
-  // NWS fields (when authority='nws_observation')
-  station_id?: string;
-  station_name?: string;
+  observation_time?: string;
+  // Phase 56: ZIP observation fields (when authority='local_zip_observation')
+  zip_code?: string;
+  town_name?: string;
+  wind_speed_mph?: number;
+  wind_speed_kts?: number;
+  wind_direction_text?: string;
+  source_label?: string;
 }
 
 interface CorridorBoardProps {
@@ -356,9 +361,9 @@ function AdvisoryBanner({ advisories }: { advisories: BoardAdvisory[] }) {
 /**
  * Weather Context Panel
  *
- * Phase 55: Three-state weather display per PATCH PROMPT
+ * Phase 56: Three-state weather display per PATCH PROMPT
  * - State A (authority='operator'): "Measured at ferry terminal"
- * - State B (authority='nws_observation'): "Measured at nearby weather station"
+ * - State B (authority='local_zip_observation'): "Current conditions near [town_name]"
  * - State C (authority='unavailable'): Show empty state with message
  *
  * RULE: Weather card must ALWAYS render. Missing data ≠ hide UI.
@@ -406,12 +411,14 @@ function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
       ? 'Weather Watch Active'
       : 'No Active Advisories';
 
-  // Authority-based label
-  const authorityLabel = weather.authority === 'operator'
-    ? 'Measured at ferry terminal'
-    : weather.authority === 'nws_observation'
-      ? 'Measured at nearby weather station'
-      : 'Weather observation';
+  // Authority-based label - use source_label if available, otherwise construct from authority
+  const authorityLabel = weather.source_label
+    ? weather.source_label
+    : weather.authority === 'operator'
+      ? 'Measured at ferry terminal'
+      : weather.authority === 'local_zip_observation'
+        ? `Current conditions near ${weather.town_name || 'terminal'}`
+        : 'Weather observation';
 
   return (
     <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">

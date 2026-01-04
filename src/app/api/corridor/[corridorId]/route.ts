@@ -6,6 +6,7 @@
  * Phase 32: Add Open-Meteo forecast support
  * Phase 46: Cache hardening - force-dynamic to ensure Supabase fallback works
  * Phase 53: Wind source priority - operator conditions over NWS station data
+ * Phase 56: ZIP-based local weather observations as fallback
  *
  * GET /api/corridor/[corridorId]
  *
@@ -18,14 +19,14 @@
  * CRITICAL: This endpoint MUST be dynamic to ensure canceled sailings
  * from Supabase are read on every request after serverless cold starts.
  *
- * PHASE 53 WIND SOURCE PRIORITY:
- * 1. Operator conditions (SSA terminal wind) - ALWAYS preferred when available
- * 2. NWS station observations - Only used when operator conditions unavailable
+ * PHASE 56 AUTHORITY LADDER:
+ * 1. operator (highest) - SSA terminal-measured wind
+ * 2. local_zip_observation - ZIP code-resolved current conditions (Open-Meteo)
+ * 3. unavailable - No data available
  *
  * RATIONALE: NWS stations like KHYA (Hyannis Airport) are 20+ miles from
- * ferry terminals. Operator-reported wind is measured AT the terminal and
- * is what SSA uses for sailing decisions. Using distant NWS stations caused
- * confusing discrepancies (e.g., 33 mph at airport vs 6 mph at terminal).
+ * ferry terminals. ZIP-based observations from Open-Meteo provide local
+ * current conditions when operator data is unavailable.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -42,6 +43,8 @@ import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
 import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
 // Phase 53: Wind source priority - operator conditions take precedence
 import { getLatestOperatorConditions } from '@/lib/events/operator-conditions';
+// Phase 56: ZIP-based local weather observations as fallback
+import { fetchZipWeather, TERMINAL_ZIP_MAP } from '@/lib/weather/zip-weather';
 import type { CorridorBoardResponse } from '@/types/corridor';
 import type { WeatherContext } from '@/lib/scoring/sailing-risk';
 
@@ -82,15 +85,20 @@ export async function GET(
     // like showing 33 mph (airport) when SSA terminal shows 6 mph.
     const corridor = getCorridorById(corridorId);
     let weather: WeatherContext | null = null;
-    // Phase 55: weatherSource is ALWAYS set (never null) per PATCH PROMPT
-    // authority field determines UI state: operator, nws_observation, or unavailable
+    // Phase 56: weatherSource is ALWAYS set (never null) per PATCH PROMPT
+    // authority field determines UI state: operator, local_zip_observation, or unavailable
     let weatherSource: {
-      type: 'operator' | 'nws_observation' | 'unavailable';
+      type: 'operator' | 'local_zip_observation' | 'unavailable';
       station_id?: string;
       station_name?: string;
       observation_time?: string;
       terminal_slug?: string;
       age_minutes?: number;
+      zip_code?: string;
+      town_name?: string;
+      wind_speed_mph?: number;
+      wind_speed_kts?: number;
+      wind_direction_text?: string;
     } = { type: 'unavailable' }; // Default to unavailable
 
     if (corridor) {
@@ -123,24 +131,63 @@ export async function GET(
             `(${ageMinutes} min ago)`
           );
         } else {
-          // Phase 55: State C - No observation available
+          // Phase 56: State B - Try ZIP-based local weather observation
           //
-          // PATCH PROMPT RULE: Weather card must ALWAYS render.
-          // Missing data ≠ hide UI. Authority affects messaging, not visibility.
+          // Authority ladder: operator > local_zip_observation > unavailable
           //
-          // We do NOT fall back to NWS station data because stations like KHYA
-          // (Hyannis Airport) are 20+ miles from terminals and actively misleading.
-          //
-          // Instead, we return authority='unavailable' so UI can show appropriate
-          // messaging: "Terminal wind data is temporarily unavailable."
+          // When operator conditions aren't available, try to get local weather
+          // from Open-Meteo's current_weather endpoint using ZIP code coordinates.
+          // This provides observation-like data for the terminal's locality.
           console.log(
             `[CORRIDOR_API] No operator conditions for ${corridorId}. ` +
-            `Returning authority=unavailable for proper UI empty state.`
+            `Trying ZIP-based weather observation (Phase 56).`
           );
-          weather = null;
-          weatherSource = {
-            type: 'unavailable' as const,
-          };
+
+          // Try terminal_a first (the primary terminal for the corridor)
+          const terminalSlug = corridor.terminal_a;
+          const zipObservation = TERMINAL_ZIP_MAP[terminalSlug]
+            ? await fetchZipWeather(terminalSlug)
+            : null;
+
+          if (zipObservation) {
+            // State B: ZIP observation available
+            weather = {
+              windSpeed: zipObservation.wind_speed_mph,
+              windGusts: zipObservation.wind_speed_mph, // Open-Meteo current_weather doesn't provide gusts
+              windDirection: zipObservation.wind_direction_degrees,
+              advisoryLevel: 'none', // ZIP observations don't include advisory level
+            };
+
+            weatherSource = {
+              type: 'local_zip_observation',
+              terminal_slug: terminalSlug,
+              observation_time: zipObservation.observed_at,
+              zip_code: zipObservation.zip_code,
+              town_name: zipObservation.town_name,
+              wind_speed_mph: zipObservation.wind_speed_mph,
+              wind_speed_kts: zipObservation.wind_speed_kts,
+              wind_direction_text: zipObservation.wind_direction_text,
+            };
+
+            console.log(
+              `[CORRIDOR_API] Using ZIP observation for ${corridorId}: ` +
+              `${zipObservation.wind_direction_text} ${zipObservation.wind_speed_mph} mph ` +
+              `(${zipObservation.wind_speed_kts} kt) @ ${zipObservation.observed_at} ` +
+              `[${zipObservation.town_name}, ZIP ${zipObservation.zip_code}]`
+            );
+          } else {
+            // State C: No observation available at all
+            // PATCH PROMPT RULE: Weather card must ALWAYS render.
+            // Missing data ≠ hide UI. Authority affects messaging, not visibility.
+            console.log(
+              `[CORRIDOR_API] No ZIP observation for ${corridorId}. ` +
+              `Returning authority=unavailable for proper UI empty state.`
+            );
+            weather = null;
+            weatherSource = {
+              type: 'unavailable' as const,
+            };
+          }
         }
       } catch (weatherError) {
         // Weather fetch failed - still return unavailable state
@@ -169,11 +216,11 @@ export async function GET(
       );
     }
 
-    // Phase 55: Build weather_context - ALWAYS returns an object (never null)
+    // Phase 56: Build weather_context - ALWAYS returns an object (never null)
     // Per PATCH PROMPT: "Weather card must ALWAYS render"
     // authority field determines UI messaging:
     // - 'operator': "Measured at ferry terminal"
-    // - 'nws_observation': "Measured at nearby weather station" (currently disabled)
+    // - 'local_zip_observation': "Current conditions near [town_name]"
     // - 'unavailable': Show empty state with "Terminal wind data is temporarily unavailable"
     const weatherContext = weather
       ? {
@@ -186,13 +233,24 @@ export async function GET(
           authority: weatherSource.type,
           // Source info for transparency (deprecated, use authority)
           source: weatherSource.type,
-          // NWS station fields (only present when authority is 'nws_observation')
-          station_id: weatherSource.station_id,
-          station_name: weatherSource.station_name,
+          // Observation time (works for both operator and ZIP)
           observation_time: weatherSource.observation_time,
           // Operator condition fields (only present when authority is 'operator')
           terminal_slug: weatherSource.terminal_slug,
           age_minutes: weatherSource.age_minutes,
+          // Phase 56: ZIP observation fields (only present when authority is 'local_zip_observation')
+          zip_code: weatherSource.zip_code,
+          town_name: weatherSource.town_name,
+          wind_speed_mph: weatherSource.wind_speed_mph,
+          wind_speed_kts: weatherSource.wind_speed_kts,
+          wind_direction_text: weatherSource.wind_direction_text,
+          // Source label for UI display
+          source_label:
+            weatherSource.type === 'operator'
+              ? 'Measured at ferry terminal'
+              : weatherSource.type === 'local_zip_observation'
+              ? `Current conditions near ${weatherSource.town_name || 'terminal'}`
+              : 'Data unavailable',
         }
       : {
           // No wind data available - return empty object with authority='unavailable'
@@ -203,6 +261,7 @@ export async function GET(
           advisory_level: null,
           authority: 'unavailable' as const,
           source: 'unavailable',
+          source_label: 'Data unavailable',
         };
 
     // Phase 46: Run cancellation regression guard (non-blocking)

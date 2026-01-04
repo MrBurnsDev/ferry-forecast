@@ -48,21 +48,27 @@ function FerryIcon({ className }: { className?: string }) {
   );
 }
 
-// Phase 55: WeatherContext with authority field for three-state weather display
+// Phase 56: WeatherContext with authority field for three-state weather display
 // authority determines UI messaging:
 // - 'operator': "Measured at ferry terminal"
-// - 'nws_observation': "Measured at nearby weather station"
+// - 'local_zip_observation': "Current conditions near [town_name]"
 // - 'unavailable': Show empty state with "Terminal wind data is temporarily unavailable"
 interface WeatherContext {
   wind_speed: number | null;
   wind_gusts: number | null;
   wind_direction: number | null;
   advisory_level: string | null;
-  authority: 'operator' | 'nws_observation' | 'unavailable';
+  authority: 'operator' | 'local_zip_observation' | 'unavailable';
   terminal_slug?: string;
   age_minutes?: number;
-  station_id?: string;
-  station_name?: string;
+  observation_time?: string;
+  // Phase 56: ZIP observation fields
+  zip_code?: string;
+  town_name?: string;
+  wind_speed_mph?: number;
+  wind_speed_kts?: number;
+  wind_direction_text?: string;
+  source_label?: string;
 }
 
 interface BoardState {
