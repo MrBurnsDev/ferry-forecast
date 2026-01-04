@@ -82,14 +82,16 @@ export async function GET(
     // like showing 33 mph (airport) when SSA terminal shows 6 mph.
     const corridor = getCorridorById(corridorId);
     let weather: WeatherContext | null = null;
+    // Phase 55: weatherSource is ALWAYS set (never null) per PATCH PROMPT
+    // authority field determines UI state: operator, nws_observation, or unavailable
     let weatherSource: {
-      type: 'operator' | 'nws_station' | 'noaa_forecast';
+      type: 'operator' | 'nws_observation' | 'unavailable';
       station_id?: string;
       station_name?: string;
       observation_time?: string;
       terminal_slug?: string;
       age_minutes?: number;
-    } | null = null;
+    } = { type: 'unavailable' }; // Default to unavailable
 
     if (corridor) {
       try {
@@ -98,7 +100,7 @@ export async function GET(
         const operatorConditions = await getLatestOperatorConditions('ssa', corridor.terminal_a, 30);
 
         if (operatorConditions && operatorConditions.wind_speed_mph !== null) {
-          // Use operator conditions for weather context
+          // State A: Operator conditions available - highest authority
           weather = {
             windSpeed: operatorConditions.wind_speed_mph,
             windGusts: operatorConditions.wind_speed_mph, // SSA doesn't report gusts separately
@@ -121,28 +123,32 @@ export async function GET(
             `(${ageMinutes} min ago)`
           );
         } else {
-          // Phase 54: NO LONGER FALL BACK TO NWS STATION DATA
+          // Phase 55: State C - No observation available
           //
-          // RATIONALE: NWS stations like KHYA (Hyannis Airport) are 20+ miles from
-          // Woods Hole terminal. Showing "41.4 mph" from the airport when SSA terminal
-          // shows "6 mph" is actively misleading and confusing to users.
+          // PATCH PROMPT RULE: Weather card must ALWAYS render.
+          // Missing data ≠ hide UI. Authority affects messaging, not visibility.
           //
-          // DECISION: If we don't have operator conditions, show NOTHING rather than
-          // showing inaccurate distant weather data. This is the "common sense" fix.
+          // We do NOT fall back to NWS station data because stations like KHYA
+          // (Hyannis Airport) are 20+ miles from terminals and actively misleading.
           //
-          // The NWS data can still be used internally for risk scoring in the forecast
-          // pipeline, but it should NOT be displayed to users as "current conditions".
+          // Instead, we return authority='unavailable' so UI can show appropriate
+          // messaging: "Terminal wind data is temporarily unavailable."
           console.log(
             `[CORRIDOR_API] No operator conditions for ${corridorId}. ` +
-            `NOT falling back to distant NWS station data for user display. ` +
-            `Weather context will be null.`
+            `Returning authority=unavailable for proper UI empty state.`
           );
           weather = null;
-          weatherSource = null;
+          weatherSource = {
+            type: 'unavailable' as const,
+          };
         }
       } catch (weatherError) {
-        // Weather fetch failed - continue without risk scores
+        // Weather fetch failed - still return unavailable state
         console.warn(`Weather fetch failed for corridor ${corridorId}:`, weatherError);
+        weather = null;
+        weatherSource = {
+          type: 'unavailable' as const,
+        };
       }
     }
 
@@ -163,26 +169,41 @@ export async function GET(
       );
     }
 
-    // Build response with optional weather context debug info (Phase 22)
-    // Phase 52: Include source info so UI can show where data comes from
-    // Phase 53: Include operator-specific fields when using operator conditions
+    // Phase 55: Build weather_context - ALWAYS returns an object (never null)
+    // Per PATCH PROMPT: "Weather card must ALWAYS render"
+    // authority field determines UI messaging:
+    // - 'operator': "Measured at ferry terminal"
+    // - 'nws_observation': "Measured at nearby weather station" (currently disabled)
+    // - 'unavailable': Show empty state with "Terminal wind data is temporarily unavailable"
     const weatherContext = weather
       ? {
+          // Wind data available
           wind_speed: weather.windSpeed,
           wind_gusts: weather.windGusts,
           wind_direction: weather.windDirection,
           advisory_level: weather.advisoryLevel,
-          // Phase 52/53: Source info for transparency
-          source: weatherSource?.type ?? 'unknown',
-          // NWS station fields (only present when source is 'nws_station')
-          station_id: weatherSource?.station_id,
-          station_name: weatherSource?.station_name,
-          observation_time: weatherSource?.observation_time,
-          // Operator condition fields (only present when source is 'operator')
-          terminal_slug: weatherSource?.terminal_slug,
-          age_minutes: weatherSource?.age_minutes,
+          // Authority field for UI messaging
+          authority: weatherSource.type,
+          // Source info for transparency (deprecated, use authority)
+          source: weatherSource.type,
+          // NWS station fields (only present when authority is 'nws_observation')
+          station_id: weatherSource.station_id,
+          station_name: weatherSource.station_name,
+          observation_time: weatherSource.observation_time,
+          // Operator condition fields (only present when authority is 'operator')
+          terminal_slug: weatherSource.terminal_slug,
+          age_minutes: weatherSource.age_minutes,
         }
-      : null;
+      : {
+          // No wind data available - return empty object with authority='unavailable'
+          // UI should show: "Terminal wind data is temporarily unavailable. Conditions may change rapidly."
+          wind_speed: null,
+          wind_gusts: null,
+          wind_direction: null,
+          advisory_level: null,
+          authority: 'unavailable' as const,
+          source: 'unavailable',
+        };
 
     // Phase 46: Run cancellation regression guard (non-blocking)
     // This logs CRITICAL if DB has more cancellations than the response

@@ -23,11 +23,24 @@ import type { DailyCorridorBoard } from '@/types/corridor';
 
 type TabId = 'today' | '7_day' | '14_day';
 
+/**
+ * Phase 55: WeatherContext with authority field for three-state display
+ * - 'operator': Measured at ferry terminal (SSA ground truth)
+ * - 'nws_observation': Measured at nearby weather station (currently disabled)
+ * - 'unavailable': No observation available - show empty state message
+ */
 interface WeatherContext {
-  wind_speed: number;
-  wind_gusts: number;
-  wind_direction: number;
-  advisory_level: string;
+  wind_speed: number | null;
+  wind_gusts: number | null;
+  wind_direction: number | null;
+  advisory_level: string | null;
+  authority: 'operator' | 'nws_observation' | 'unavailable';
+  // Operator fields (when authority='operator')
+  terminal_slug?: string;
+  age_minutes?: number;
+  // NWS fields (when authority='nws_observation')
+  station_id?: string;
+  station_name?: string;
 }
 
 interface ForecastPrediction {

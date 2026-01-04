@@ -4,11 +4,24 @@ import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
 import Link from 'next/link';
 
+/**
+ * Phase 55: WeatherContext with authority field for three-state display
+ * - 'operator': Measured at ferry terminal (SSA ground truth)
+ * - 'nws_observation': Measured at nearby weather station (currently disabled)
+ * - 'unavailable': No observation available - show empty state message
+ */
 interface WeatherContext {
-  wind_speed: number;
-  wind_gusts: number;
-  wind_direction: number;
-  advisory_level: string;
+  wind_speed: number | null;
+  wind_gusts: number | null;
+  wind_direction: number | null;
+  advisory_level: string | null;
+  authority: 'operator' | 'nws_observation' | 'unavailable';
+  // Operator fields (when authority='operator')
+  terminal_slug?: string;
+  age_minutes?: number;
+  // NWS fields (when authority='nws_observation')
+  station_id?: string;
+  station_name?: string;
 }
 
 interface CorridorBoardProps {
@@ -342,8 +355,42 @@ function AdvisoryBanner({ advisories }: { advisories: BoardAdvisory[] }) {
 
 /**
  * Weather Context Panel
+ *
+ * Phase 55: Three-state weather display per PATCH PROMPT
+ * - State A (authority='operator'): "Measured at ferry terminal"
+ * - State B (authority='nws_observation'): "Measured at nearby weather station"
+ * - State C (authority='unavailable'): Show empty state with message
+ *
+ * RULE: Weather card must ALWAYS render. Missing data ≠ hide UI.
  */
 function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
+  // State C: Unavailable - show empty state with explanatory message
+  if (weather.authority === 'unavailable') {
+    return (
+      <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <WindIcon className="w-5 h-5 text-muted-foreground" />
+          <h3 className="font-semibold text-foreground">Weather &amp; Conditions</h3>
+        </div>
+
+        <div className="bg-accent-muted/30 border border-accent/20 rounded-lg p-4">
+          <p className="text-sm text-foreground font-medium">
+            Terminal wind data is temporarily unavailable.
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Conditions may change rapidly. Check the official SSA website for current updates.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // State A or B: We have wind data - display it
+  // Null check for wind values (shouldn't happen when authority is not 'unavailable', but be safe)
+  if (weather.wind_speed === null || weather.wind_direction === null) {
+    return null; // Shouldn't happen, but fallback
+  }
+
   const cardinal = getWindCardinal(weather.wind_direction);
   const exposureExplanation = getExposureExplanation(weather.wind_direction, weather.wind_speed);
 
@@ -359,11 +406,22 @@ function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
       ? 'Weather Watch Active'
       : 'No Active Advisories';
 
+  // Authority-based label
+  const authorityLabel = weather.authority === 'operator'
+    ? 'Measured at ferry terminal'
+    : weather.authority === 'nws_observation'
+      ? 'Measured at nearby weather station'
+      : 'Weather observation';
+
   return (
     <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">
-      <div className="flex items-center gap-2 mb-3">
-        <WindIcon className="w-5 h-5 text-accent" />
-        <h3 className="font-semibold text-foreground">Weather &amp; Conditions</h3>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <WindIcon className="w-5 h-5 text-accent" />
+          <h3 className="font-semibold text-foreground">Weather &amp; Conditions</h3>
+        </div>
+        {/* Authority label */}
+        <span className="text-xs text-muted-foreground">{authorityLabel}</span>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
@@ -382,7 +440,7 @@ function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Gusts</p>
           <p className="text-lg font-semibold text-foreground">
-            {weather.wind_gusts > weather.wind_speed ? (
+            {weather.wind_gusts !== null && weather.wind_gusts > weather.wind_speed ? (
               <>
                 {weather.wind_gusts} mph
                 <span className="text-sm font-normal text-muted-foreground ml-1">
@@ -599,8 +657,25 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
         </p>
       </div>
 
-      {/* Weather Context Panel */}
+      {/* Weather Context Panel - Phase 55: ALWAYS renders per PATCH PROMPT */}
       {weatherContext && <WeatherContextPanel weather={weatherContext} />}
+      {/* If weatherContext is missing entirely (API error), still show the card */}
+      {!weatherContext && (
+        <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <WindIcon className="w-5 h-5 text-muted-foreground" />
+            <h3 className="font-semibold text-foreground">Weather &amp; Conditions</h3>
+          </div>
+          <div className="bg-accent-muted/30 border border-accent/20 rounded-lg p-4">
+            <p className="text-sm text-foreground font-medium">
+              Terminal wind data is temporarily unavailable.
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Conditions may change rapidly. Check the official SSA website for current updates.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Status Unavailable Banner (when no live status) */}
       {!hasLiveStatus && <StatusUnavailableBanner />}
