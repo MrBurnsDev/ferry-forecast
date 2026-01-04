@@ -27,6 +27,7 @@ export const revalidate = 0;
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
 import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
 import { fetchCurrentWeather } from '@/lib/weather/noaa';
+import { fetchNWSObservationForTerminal } from '@/lib/weather/nws-station-collector';
 import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
 import type { CorridorBoardResponse } from '@/types/corridor';
 import type { WeatherContext } from '@/lib/scoring/sailing-risk';
@@ -54,20 +55,53 @@ export async function GET(
   }
 
   try {
-    // Phase 22: Fetch weather for risk scoring (fallback when forecast unavailable)
+    // Phase 22: Fetch weather for risk scoring
+    // Phase 52: Use NWS station observations for current conditions (more accurate)
+    // with NOAA forecast as fallback
     const corridor = getCorridorById(corridorId);
     let weather: WeatherContext | null = null;
+    let weatherSource: { type: 'nws_station' | 'noaa_forecast'; station_id?: string; station_name?: string; observation_time?: string } | null = null;
 
     if (corridor) {
       try {
-        // Use the first terminal for weather (close enough for same corridor)
-        const weatherSnapshot = await fetchCurrentWeather(corridor.terminal_a);
-        weather = {
-          windSpeed: weatherSnapshot.wind_speed,
-          windGusts: weatherSnapshot.wind_gusts,
-          windDirection: weatherSnapshot.wind_direction,
-          advisoryLevel: weatherSnapshot.advisory_level,
-        };
+        // First, try NWS station observations (real-time data, matches SSA's sources)
+        const nwsResult = await fetchNWSObservationForTerminal(corridor.terminal_a);
+
+        if (nwsResult.success && nwsResult.observation) {
+          const obs = nwsResult.observation;
+          weather = {
+            windSpeed: obs.wind_speed_mph ?? 0,
+            windGusts: obs.wind_gust_mph ?? obs.wind_speed_mph ?? 0,
+            windDirection: obs.wind_direction_deg ?? 0,
+            advisoryLevel: 'none', // NWS observations don't include advisory level directly
+          };
+          weatherSource = {
+            type: 'nws_station',
+            station_id: obs.station_id,
+            station_name: obs.station_name,
+            observation_time: obs.observation_time.toISOString(),
+          };
+          console.log(
+            `[CORRIDOR_API] Using NWS station ${obs.station_id} for ${corridorId}: ` +
+            `wind=${obs.wind_speed_mph} mph, dir=${obs.wind_direction_deg}°`
+          );
+        } else {
+          // Fallback to NOAA forecast if NWS station fails
+          console.warn(
+            `[CORRIDOR_API] NWS station fetch failed for ${corridor.terminal_a}: ${nwsResult.error}. ` +
+            `Falling back to NOAA forecast.`
+          );
+          const weatherSnapshot = await fetchCurrentWeather(corridor.terminal_a);
+          weather = {
+            windSpeed: weatherSnapshot.wind_speed,
+            windGusts: weatherSnapshot.wind_gusts,
+            windDirection: weatherSnapshot.wind_direction,
+            advisoryLevel: weatherSnapshot.advisory_level,
+          };
+          weatherSource = {
+            type: 'noaa_forecast',
+          };
+        }
       } catch (weatherError) {
         // Weather fetch failed - continue without risk scores
         console.warn(`Weather fetch failed for corridor ${corridorId}:`, weatherError);
@@ -92,12 +126,18 @@ export async function GET(
     }
 
     // Build response with optional weather context debug info (Phase 22)
+    // Phase 52: Include source info so UI can show where data comes from
     const weatherContext = weather
       ? {
           wind_speed: weather.windSpeed,
           wind_gusts: weather.windGusts,
           wind_direction: weather.windDirection,
           advisory_level: weather.advisoryLevel,
+          // Phase 52: Source info for transparency
+          source: weatherSource?.type ?? 'unknown',
+          station_id: weatherSource?.station_id,
+          station_name: weatherSource?.station_name,
+          observation_time: weatherSource?.observation_time,
         }
       : null;
 

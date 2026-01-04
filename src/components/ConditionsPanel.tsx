@@ -198,7 +198,7 @@ export function ConditionsPanel({
             {weather.wind_speed} <span className="text-sm font-normal text-muted-foreground">mph</span>
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            {Math.round(weather.wind_speed * 0.868976)} kts
+            {Math.round(weather.wind_speed * 0.868976)} kt
           </div>
         </div>
         <div className="p-4 bg-secondary rounded-lg">
@@ -209,7 +209,7 @@ export function ConditionsPanel({
             {weather.wind_gusts} <span className="text-sm font-normal text-muted-foreground">mph</span>
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            {Math.round(weather.wind_gusts * 0.868976)} kts
+            {Math.round(weather.wind_gusts * 0.868976)} kt
           </div>
         </div>
       </div>

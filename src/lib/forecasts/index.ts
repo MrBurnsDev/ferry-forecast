@@ -4,9 +4,15 @@
  * Phase 33: 7-Day and 14-Day Travel Forecast UX
  * Phase 35: Forecast API Auth Hardening + Regression Guard
  * Phase 51: Cancellation Forecast UI + Prediction Layer
+ * Phase 52: Ensure forecasts NEVER render empty
  *
  * Reads predictions from ferry_forecast.prediction_snapshots_v2
- * This is READ-ONLY - no prediction computation happens here.
+ * Falls back to weather-only heuristic baseline when no DB predictions exist.
+ *
+ * PHASE 52 CRITICAL REQUIREMENT:
+ * - 7-day and 14-day forecasts must NEVER be empty
+ * - If no DB predictions, use heuristic baseline from Open-Meteo
+ * - Confidence labeling must be explicit and honest
  *
  * AUTHENTICATION:
  * Uses service role key (NOT anon key) because:
@@ -39,6 +45,7 @@ import {
   calculateDailyRiskFromPredictions,
   type PredictionInput,
 } from '@/lib/forecast/daily-risk';
+import { generateHeuristicForecast } from '@/lib/forecast/heuristic-baseline';
 
 /**
  * A single prediction row from prediction_snapshots_v2
@@ -83,6 +90,9 @@ export interface CorridorForecast {
   total_predictions: number;
   generated_at: string;
   // Phase 51: Export DailyRiskSummary for UI consumption
+  // Phase 52: Source attribution and confidence disclaimer
+  source?: 'database' | 'heuristic_baseline';
+  confidence_disclaimer?: string;
 }
 
 // Re-export DailyRiskSummary for API consumers
@@ -216,7 +226,50 @@ export async function getCorridorForecast(
   }
 
   if (!data || data.length === 0) {
-    // No predictions available - return empty forecast
+    // Phase 52: No DB predictions available - use heuristic baseline
+    // This ensures forecasts NEVER render empty
+    console.log(
+      `[FORECAST] No DB predictions for ${corridorId}, falling back to heuristic baseline`
+    );
+
+    const heuristicForecast = await generateHeuristicForecast(corridorId, forecastType);
+
+    if (heuristicForecast) {
+      // Convert heuristic forecast to CorridorForecast format
+      return {
+        corridor_id: corridorId,
+        forecast_type: forecastType,
+        days: heuristicForecast.days.map((day) => ({
+          service_date: day.service_date,
+          predictions: day.predictions.map((p) => ({
+            service_date: p.service_date,
+            departure_time_local: p.departure_time_local,
+            risk_level: p.risk_level,
+            risk_score: p.risk_score,
+            confidence: p.confidence,
+            explanation: p.explanation,
+            model_version: p.model_version,
+            hours_ahead: p.hours_ahead,
+            sailing_time: p.sailing_time,
+            wind_speed_mph: p.wind_speed_mph,
+            wind_gust_mph: p.wind_gust_mph,
+            wind_direction_deg: p.wind_direction_deg,
+            advisory_level: null,
+          })),
+          highest_risk_level: day.highest_risk_level,
+          prediction_count: day.prediction_count,
+          daily_risk: day.daily_risk,
+        })),
+        total_predictions: heuristicForecast.total_predictions,
+        generated_at: heuristicForecast.generated_at,
+        // Phase 52: Add source attribution
+        source: 'heuristic_baseline' as const,
+        confidence_disclaimer: heuristicForecast.confidence_disclaimer,
+      };
+    }
+
+    // If even heuristic fails, return empty (should rarely happen)
+    console.error(`[FORECAST] Heuristic baseline also failed for ${corridorId}`);
     return {
       corridor_id: corridorId,
       forecast_type: forecastType,

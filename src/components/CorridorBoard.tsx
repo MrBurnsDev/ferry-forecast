@@ -217,24 +217,40 @@ function getWindCardinal(degrees: number): string {
 }
 
 /**
+ * Convert mph to knots for display
+ * 1 mph = 0.868976 knots
+ */
+function mphToKnots(mph: number): number {
+  return Math.round(mph * 0.868976);
+}
+
+/**
+ * Format wind speed with both units: "9 mph (8 kt)"
+ */
+function formatWindWithUnits(mph: number): string {
+  const knots = mphToKnots(mph);
+  return `${mph} mph (${knots} kt)`;
+}
+
+/**
  * Get exposure context for this corridor
  */
-function getExposureExplanation(windDir: number, windSpeed: number): string {
+function getExposureExplanation(windDir: number, windSpeedMph: number): string {
   const cardinal = getWindCardinal(windDir);
   const isExposed = ['S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'].includes(cardinal);
 
-  if (windSpeed < 15) {
+  if (windSpeedMph < 15) {
     return 'Light winds - typical conditions for this crossing.';
-  } else if (windSpeed < 25) {
+  } else if (windSpeedMph < 25) {
     if (isExposed) {
-      return `${cardinal} winds at ${windSpeed} kt may cause moderate chop. This crossing is exposed to southwest through northwest winds.`;
+      return `${cardinal} winds at ${formatWindWithUnits(windSpeedMph)} may cause moderate chop. This crossing is exposed to southwest through northwest winds.`;
     }
-    return `${cardinal} winds at ${windSpeed} kt - conditions are manageable for this protected crossing.`;
+    return `${cardinal} winds at ${formatWindWithUnits(windSpeedMph)} - conditions are manageable for this protected crossing.`;
   } else {
     if (isExposed) {
-      return `Strong ${cardinal} winds at ${windSpeed} kt. This crossing is exposed to these conditions. Watch for delays or cancellations.`;
+      return `Strong ${cardinal} winds at ${formatWindWithUnits(windSpeedMph)}. This crossing is exposed to these conditions. Watch for delays or cancellations.`;
     }
-    return `${cardinal} winds at ${windSpeed} kt. While this crossing has some protection, expect rougher conditions.`;
+    return `${cardinal} winds at ${formatWindWithUnits(windSpeedMph)}. While this crossing has some protection, expect rougher conditions.`;
   }
 }
 
@@ -351,24 +367,36 @@ function WeatherContextPanel({ weather }: { weather: WeatherContext }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
-        {/* Wind Speed */}
+        {/* Wind Speed - Primary: mph, Secondary: knots */}
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Wind</p>
-          <p className="text-lg font-semibold text-foreground">{weather.wind_speed} kt</p>
-        </div>
-
-        {/* Gusts */}
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Gusts</p>
           <p className="text-lg font-semibold text-foreground">
-            {weather.wind_gusts > weather.wind_speed ? `${weather.wind_gusts} kt` : '—'}
+            {weather.wind_speed} mph
+            <span className="text-sm font-normal text-muted-foreground ml-1">
+              ({mphToKnots(weather.wind_speed)} kt)
+            </span>
           </p>
         </div>
 
-        {/* Direction */}
+        {/* Gusts - Primary: mph, Secondary: knots */}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Gusts</p>
+          <p className="text-lg font-semibold text-foreground">
+            {weather.wind_gusts > weather.wind_speed ? (
+              <>
+                {weather.wind_gusts} mph
+                <span className="text-sm font-normal text-muted-foreground ml-1">
+                  ({mphToKnots(weather.wind_gusts)} kt)
+                </span>
+              </>
+            ) : '—'}
+          </p>
+        </div>
+
+        {/* Direction - Cardinal direction only, no degrees in main display */}
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Direction</p>
-          <p className="text-lg font-semibold text-foreground">{cardinal} ({weather.wind_direction}°)</p>
+          <p className="text-lg font-semibold text-foreground">{cardinal}</p>
         </div>
 
         {/* Advisory */}

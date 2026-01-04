@@ -145,22 +145,28 @@ const RISK_STYLES: Record<string, { bg: string; text: string; label: string; bor
 const MPH_TO_KNOTS = 0.868976;
 
 /**
- * Format wind speed: "9 mph (8 kts)"
+ * Format wind speed: "9 mph (8 kt)"
+ * Phase 52: Uses "kt" not "kts" per specification
  */
 function formatWindSpeed(mph: number | null): string {
   if (mph === null || isNaN(mph)) return '--';
   const knots = Math.round(mph * MPH_TO_KNOTS);
-  return `${Math.round(mph)} mph (${knots} kts)`;
+  return `${Math.round(mph)} mph (${knots} kt)`;
 }
 
 /**
- * Format wind with direction: "9 mph (8 kts) WNW"
+ * Format wind with direction: "15 mph WNW (13 kt)"
+ * Phase 52: Direction comes before knots per specification
+ * Example: "15 mph WNW (13 kt)"
  */
 function formatWindWithDirection(mph: number | null, direction: string | null): string {
-  const speedStr = formatWindSpeed(mph);
-  if (speedStr === '--') return '--';
-  if (!direction) return speedStr;
-  return `${speedStr} ${direction}`;
+  if (mph === null || isNaN(mph)) return '--';
+  const roundedMph = Math.round(mph);
+  const knots = Math.round(mph * MPH_TO_KNOTS);
+  if (!direction) {
+    return `${roundedMph} mph (${knots} kt)`;
+  }
+  return `${roundedMph} mph ${direction} (${knots} kt)`;
 }
 
 /**

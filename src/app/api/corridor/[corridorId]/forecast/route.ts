@@ -3,11 +3,17 @@
  *
  * Phase 33: 7-Day and 14-Day Travel Forecast UX
  * Phase 35: Forecast API Auth Hardening + Regression Guard
+ * Phase 52: Ensure forecasts NEVER render empty (heuristic baseline)
  *
  * GET /api/corridor/[corridorId]/forecast?type=7_day|14_day
  *
  * Returns predictions from ferry_forecast.prediction_snapshots_v2
  * grouped by service_date for UI display.
+ *
+ * PHASE 52 CRITICAL REQUIREMENT:
+ * - 7-day and 14-day forecasts must NEVER be empty
+ * - If DB unavailable or no predictions, use heuristic baseline from Open-Meteo
+ * - Confidence labeling must be explicit and honest
  *
  * AUTHENTICATION:
  * Uses SUPABASE_SERVICE_ROLE_KEY (NOT anon key) because:
@@ -32,6 +38,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isValidCorridor } from '@/lib/config/corridors';
 import { getCorridorForecast, type CorridorForecast } from '@/lib/forecasts';
 import { isServiceRoleConfigured } from '@/lib/supabase/serverServiceClient';
+import { generateHeuristicForecast } from '@/lib/forecast/heuristic-baseline';
 
 export interface ForecastResponse {
   success: boolean;
@@ -61,16 +68,57 @@ export async function GET(
     );
   }
 
-  // REGRESSION GUARD: Check service role configuration before attempting query
-  // If this fails, it means SUPABASE_SERVICE_ROLE_KEY is missing from Vercel env vars
+  // Phase 52: If service role is not configured, fall back to heuristic baseline
+  // This ensures forecasts NEVER render empty
   if (!isServiceRoleConfigured()) {
-    console.error(
-      `[FORECAST_API] REGRESSION: Service role key not configured. ` +
-        `Corridor ${corridorId} forecast request will fail. ` +
-        `Check Vercel environment variables for SUPABASE_SERVICE_ROLE_KEY.`
+    console.warn(
+      `[FORECAST_API] Service role key not configured for ${corridorId}. ` +
+        `Falling back to heuristic baseline (Phase 52).`
     );
-    // Return empty forecast rather than exposing internal error
-    // This matches the "graceful degradation" behavior specified in the requirements
+
+    // Generate heuristic forecast from Open-Meteo weather data
+    const heuristicForecast = await generateHeuristicForecast(corridorId, forecastType);
+
+    if (heuristicForecast) {
+      // Convert heuristic format to CorridorForecast format
+      const forecast: CorridorForecast = {
+        corridor_id: corridorId,
+        forecast_type: forecastType,
+        days: heuristicForecast.days.map((day) => ({
+          service_date: day.service_date,
+          predictions: day.predictions.map((p) => ({
+            service_date: p.service_date,
+            departure_time_local: p.departure_time_local,
+            risk_level: p.risk_level,
+            risk_score: p.risk_score,
+            confidence: p.confidence,
+            explanation: p.explanation,
+            model_version: p.model_version,
+            hours_ahead: p.hours_ahead,
+            sailing_time: p.sailing_time,
+            wind_speed_mph: p.wind_speed_mph,
+            wind_gust_mph: p.wind_gust_mph,
+            wind_direction_deg: p.wind_direction_deg,
+            advisory_level: null,
+          })),
+          highest_risk_level: day.highest_risk_level,
+          prediction_count: day.prediction_count,
+          daily_risk: day.daily_risk,
+        })),
+        total_predictions: heuristicForecast.total_predictions,
+        generated_at: heuristicForecast.generated_at,
+        source: 'heuristic_baseline',
+        confidence_disclaimer: heuristicForecast.confidence_disclaimer,
+      };
+
+      return NextResponse.json({
+        success: true,
+        forecast,
+      });
+    }
+
+    // If heuristic also fails, return empty (should rarely happen)
+    console.error(`[FORECAST_API] Heuristic baseline also failed for ${corridorId}`);
     return NextResponse.json({
       success: true,
       forecast: {
