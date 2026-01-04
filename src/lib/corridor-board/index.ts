@@ -42,7 +42,7 @@ import {
   getCorridorStatusUrl,
 } from '@/lib/config/corridors';
 import { getTodaySchedule } from '@/lib/schedules';
-import type { Sailing, ScheduleFetchResult } from '@/lib/schedules/types';
+import type { Sailing, ScheduleFetchResult, ScheduleSourceType } from '@/lib/schedules/types';
 import { getTodayInTimezone } from '@/lib/schedules/time';
 import {
   computeSailingRisk,
@@ -591,9 +591,9 @@ function convertSailingsToBoard(
       forecast_risk: forecastRisk,
 
       // Provenance
-      schedule_source: scheduleResult.provenance.source_type === 'operator_live'
-        ? 'operator_live'
-        : 'template',
+      // Phase 60: Use sailing's scheduleSource if available, fallback to provenance
+      schedule_source: (sailing.scheduleSource ||
+        (scheduleResult.provenance.source_type === 'operator_live' ? 'operator_live' : 'template')) as ScheduleSourceType,
       status_overlay_applied: statusOverlayApplied,
 
       vessel_name: sailing.vesselName,
@@ -747,8 +747,9 @@ function createSyntheticSailing(
       // Layer 2: No forecast risk for synthetic sailings
       forecast_risk: null,
 
-      // Provenance: Mark as synthetic/DB-derived
-      schedule_source: 'template',  // Technically not from template, but closest match
+      // Provenance: Phase 60 - Mark as operator_scraped since it came from DB
+      // (ingested from operator scraping, not template)
+      schedule_source: 'operator_scraped',
       status_overlay_applied: true,
 
       // No vessel name for synthetic sailings

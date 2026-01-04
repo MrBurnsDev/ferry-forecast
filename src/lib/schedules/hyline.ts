@@ -21,6 +21,7 @@ import type {
   SailingStatus,
   ScheduleFetchResult,
   ScheduleProvenance,
+  ScheduleSourceType,
 } from './types';
 import {
   parseTimeInTimezone,
@@ -213,6 +214,7 @@ function parseHyLineScheduleFromHtml(
   }
 
   // If we extracted times from HTML, create sailings
+  // Phase 60: Sailings parsed from operator website are 'operator_live'
   if (extractedTimes.length >= 3) {
     const sortedTimes = sortTimeStrings(extractedTimes);
 
@@ -229,6 +231,7 @@ function parseHyLineScheduleFromHtml(
         operatorSlug: route.operatorSlug,
         status: 'scheduled' as SailingStatus,
         statusFromOperator: false,
+        scheduleSource: 'operator_live', // Phase 60: Parsed from operator website
       });
     }
 
@@ -263,12 +266,15 @@ function sortTimeStrings(times: string[]): string[] {
 
 /**
  * Create sailings from known schedule data
+ *
+ * Phase 60: Every sailing must declare its scheduleSource
  */
 function createSailingsFromKnownSchedule(
   routeId: string,
   direction: SailingDirection,
   serviceDateLocal: string,
-  timezone: string
+  timezone: string,
+  scheduleSource: ScheduleSourceType = 'template'
 ): Sailing[] {
   const route = HYLINE_ROUTES[routeId];
   if (!route) return [];
@@ -294,6 +300,7 @@ function createSailingsFromKnownSchedule(
       operatorSlug: route.operatorSlug,
       status: 'scheduled' as SailingStatus,
       statusFromOperator: false,
+      scheduleSource, // Phase 60: Every sailing must declare its source
     });
   }
 
@@ -398,6 +405,8 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
 
 /**
  * Create a template result using known schedule data
+ *
+ * Phase 60: Template sailings are explicitly labeled - NOT allowed in Today views
  */
 function createTemplateResult(
   routeId: string,
@@ -406,7 +415,8 @@ function createTemplateResult(
   serviceDateLocal: string,
   timezone: string
 ): ScheduleFetchResult {
-  const sailings = createSailingsFromKnownSchedule(routeId, direction, serviceDateLocal, timezone);
+  // Phase 60: Explicitly pass 'template' as scheduleSource
+  const sailings = createSailingsFromKnownSchedule(routeId, direction, serviceDateLocal, timezone, 'template');
 
   if (sailings.length === 0) {
     return createUnavailableResult(

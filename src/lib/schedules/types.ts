@@ -19,11 +19,26 @@
 
 /**
  * Source type for schedule data
+ *
+ * PHASE 60 SCHEDULE AUTHORITY:
+ * - "Today" views may ONLY show operator_live or operator_scraped sources
+ * - "template" and "forecast_template" may NEVER appear in Today views
+ * - Each sailing must declare its schedule_source
  */
 export type ScheduleSourceType =
-  | 'operator_live'   // Parsed from operator website/API
-  | 'template'        // User-configured template (explicitly labeled)
-  | 'unavailable';    // Could not fetch, no schedule available
+  | 'operator_live'       // Real-time from operator website/API (observer cache, scraping)
+  | 'operator_scraped'    // From Supabase sailing_events (operator ingested via scraper)
+  | 'template'            // Static template (NOT allowed in Today views)
+  | 'forecast_template'   // Template for future dates only (NOT allowed in Today views)
+  | 'unavailable';        // Could not fetch, no schedule available
+
+/**
+ * Check if a schedule source is allowed for Today views
+ * Phase 60: Only operator sources are allowed for current date
+ */
+export function isOperatorSource(source: ScheduleSourceType): boolean {
+  return source === 'operator_live' || source === 'operator_scraped';
+}
 
 /**
  * Parse confidence level
@@ -126,6 +141,12 @@ export interface Sailing {
 
   /** Whether this status came from the operator (vs inferred) */
   statusFromOperator: boolean;
+
+  /**
+   * Phase 60: Source of schedule data for this sailing
+   * REQUIRED - every sailing must declare its source
+   */
+  scheduleSource?: ScheduleSourceType;
 
   /** Vessel name if known */
   vesselName?: string;

@@ -722,12 +722,26 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
 
       {/* Footer with provenance */}
       <div className="mt-6 pt-4 border-t border-border/50 flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground flex items-center gap-3">
           {provenance.operator_status_sources.length > 0 && (
             <span>
               Updated {formatFetchedAt(provenance.operator_status_sources[0].fetched_at)}
             </span>
           )}
+          {/* Phase 60: Schedule source badge */}
+          {provenance.schedule_source === 'operator_live' || provenance.schedule_source === 'operator_scraped' ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-muted/50 text-success border border-success/30">
+              From Operator
+            </span>
+          ) : provenance.schedule_source === 'template' || provenance.schedule_source === 'forecast_template' ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-muted/50 text-warning border border-warning/30">
+              Estimated Schedule
+            </span>
+          ) : provenance.schedule_source === 'mixed' ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent-muted/50 text-accent border border-accent/30">
+              Mixed Sources
+            </span>
+          ) : null}
         </div>
 
         {operator_status_url && (

@@ -2,6 +2,7 @@
  * Daily Terminal Board Types
  *
  * Phase 19: Terminal-Centric Architecture
+ * Phase 60: Schedule Authority Lock
  *
  * Ferries operate as terminal departure boards, not abstract routes.
  * Operators (SSA, etc.) think: "What is leaving this terminal today?"
@@ -14,11 +15,22 @@
  * - Layer 1: Operator Status (Sparse Overlay) - updates matching sailings
  * - Layer 2: Ferry Forecast Risk (Interpretive Only) - direction-aware
  *
+ * PHASE 60 SCHEDULE AUTHORITY:
+ * - "Today" views may ONLY show operator_live or operator_scraped sources
+ * - "template" and "forecast_template" may NEVER appear in Today views
+ * - Each sailing must declare its schedule_source
+ *
  * DESIGN FOR SCALE:
  * - Terminal Board is operator-agnostic
  * - Status overlay logic is operator-specific
  * - Risk logic is operator-independent
  */
+
+import { ScheduleSourceType, isOperatorSource } from '@/lib/schedules/types';
+
+// Re-export for convenience
+export type { ScheduleSourceType };
+export { isOperatorSource };
 
 // ============================================================
 // TERMINAL TYPES
@@ -159,11 +171,18 @@ export interface TerminalBoardSailing {
   forecast_risk: ForecastRisk | null;
 
   // ============================================================
-  // PROVENANCE
+  // PROVENANCE (Phase 60: Schedule Authority Lock)
   // ============================================================
 
-  /** Where the schedule data came from */
-  schedule_source: 'template' | 'operator_live';
+  /**
+   * Where the schedule data came from
+   *
+   * PHASE 60 SCHEDULE AUTHORITY:
+   * - Today views ONLY allow: 'operator_live' | 'operator_scraped'
+   * - Future views may show: 'forecast_template'
+   * - 'template' and 'forecast_template' NEVER appear in Today views
+   */
+  schedule_source: ScheduleSourceType;
 
   /** Whether operator status overlay was applied to this sailing */
   status_overlay_applied: boolean;
@@ -195,10 +214,19 @@ export interface BoardAdvisory {
 
 /**
  * Provenance metadata for the board
+ *
+ * Phase 60: Schedule Authority Lock
+ * - Today boards MUST have schedule_source of 'operator_live' | 'operator_scraped' | 'mixed'
+ * - 'mixed' allowed only if ALL components are operator sources
+ * - 'unavailable' returned if no operator data
  */
 export interface BoardProvenance {
-  /** Overall data freshness indicator */
-  schedule_source: 'template' | 'operator_live' | 'mixed';
+  /**
+   * Overall data freshness indicator
+   *
+   * Phase 60: For Today views, only operator sources allowed
+   */
+  schedule_source: ScheduleSourceType | 'mixed';
 
   /** Whether any operator status overlays were applied */
   status_overlay_available: boolean;

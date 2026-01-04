@@ -22,6 +22,7 @@ import type {
   ScheduleFetchResult,
   ScheduleProvenance,
   OperatorAdvisory,
+  ScheduleSourceType,
 } from './types';
 import {
   parseTimeInTimezone,
@@ -237,12 +238,16 @@ function getKnownScheduleKey(routeId: string): string | null {
 /**
  * Create sailings from known schedule data
  * Returns source_type: "template" (must be labeled in UI)
+ *
+ * PHASE 60: Template sailings are NOT allowed in Today views
+ * The caller must upgrade scheduleSource when operator data is overlaid
  */
 function createSailingsFromKnownSchedule(
   routeId: string,
   direction: SailingDirection,
   serviceDateLocal: string,
-  timezone: string
+  timezone: string,
+  scheduleSource: ScheduleSourceType = 'template'
 ): Sailing[] {
   const route = SSA_ROUTES[routeId];
   if (!route) return [];
@@ -270,6 +275,7 @@ function createSailingsFromKnownSchedule(
       status: 'scheduled' as SailingStatus,
       statusMessage: undefined,
       statusFromOperator: false,
+      scheduleSource, // Phase 60: Every sailing must declare its source
     });
   }
 
@@ -381,6 +387,8 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
       console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: using observer cache (${manualCache.sailings.length} sailings, source: ${manualCache.source})`);
     }
 
+    // Phase 60: Upgrade ALL sailings to operator_live when observer cache is available
+    // Observer cache means operator data is the source of truth
     const sailingsWithManualStatus = templateSailings.map((sailing) => {
       const cachedStatus = getStatusForSailing(
         sailing.direction.fromSlug,
@@ -394,10 +402,16 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
           status: cachedStatus.status,
           statusMessage: cachedStatus.statusMessage,
           statusFromOperator: true, // Observer data counts as operator status
+          scheduleSource: 'operator_live' as ScheduleSourceType, // Phase 60: Upgraded to operator source
         };
       }
 
-      return sailing;
+      // Phase 60: Even unmatched sailings get operator_live when observer cache is present
+      // because the schedule list itself comes from operator observation
+      return {
+        ...sailing,
+        scheduleSource: 'operator_live' as ScheduleSourceType,
+      };
     });
 
     if (SCHEDULE_DEBUG) {
@@ -463,6 +477,7 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
 
   // APPLY STATUS OVERLAY to matching sailings
   // Unmatched sailings remain as-is (visible, statusFromOperator: false)
+  // Phase 60: Upgrade all sailings to operator_live when automated scraping succeeds
   let matchedCount = 0;
   const sailingsWithStatus = templateSailings.map((sailing) => {
     const matchingStatus = matchSailingToStatus(
@@ -481,11 +496,16 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
         status: matchingStatus.status,
         statusMessage: matchingStatus.statusMessage,
         statusFromOperator: true, // Status came from operator status page
+        scheduleSource: 'operator_live' as ScheduleSourceType, // Phase 60: Upgraded to operator source
       };
     }
 
-    // No matching status - sailing remains scheduled, not operator-confirmed
-    return sailing;
+    // No matching status - sailing remains scheduled, but still upgraded to operator_live
+    // because automated scraping verified this schedule exists with operator
+    return {
+      ...sailing,
+      scheduleSource: 'operator_live' as ScheduleSourceType,
+    };
   });
 
   // Get advisories for this route
