@@ -47,12 +47,11 @@ function AlertTriangleIcon({ className }: { className?: string }) {
   );
 }
 
-const terminals = [
-  { id: 'woods-hole', name: 'Woods Hole', description: 'To Martha\'s Vineyard' },
-  { id: 'vineyard-haven', name: 'Vineyard Haven', description: 'Martha\'s Vineyard' },
-  { id: 'oak-bluffs', name: 'Oak Bluffs', description: 'Martha\'s Vineyard' },
-  { id: 'hyannis', name: 'Hyannis', description: 'To Nantucket' },
-  { id: 'nantucket', name: 'Nantucket', description: 'Nantucket Island' },
+const regions = [
+  { id: 'cape-cod', name: 'Cape Cod & Islands', description: 'Martha\'s Vineyard & Nantucket' },
+  // Future regions will be added here as support expands
+  // { id: 'puget-sound', name: 'Puget Sound', description: 'Washington State Ferries' },
+  // { id: 'san-francisco-bay', name: 'San Francisco Bay', description: 'Golden Gate & Blue & Gold' },
 ];
 
 export default function Home() {
@@ -75,7 +74,7 @@ export default function Home() {
               <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
             </Link>
             <div className="hidden md:flex items-center gap-8">
-              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
+              {/* Region indicator will be shown when user selects a region */}
             </div>
           </div>
         </div>
@@ -85,40 +84,35 @@ export default function Home() {
       <section className="relative pt-24 lg:pt-32 pb-8 lg:pb-12 bathymetric-bg overflow-hidden">
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border/50 mb-6">
-              <WavesIcon className="w-4 h-4 text-accent" />
-              <span className="text-sm font-medium text-muted-foreground">Cape Cod Ferry Status</span>
-            </div>
-
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
               Is Your Ferry Running?
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-4 leading-relaxed">
-              Select your terminal to see today&apos;s sailings and operator status.
+              Select your region to see today&apos;s sailings and operator status.
             </p>
           </div>
         </div>
       </section>
 
-      {/* PRIMARY: Terminal Selection */}
-      <section id="main-content" className="py-8 lg:py-12" aria-label="Select Terminal">
+      {/* PRIMARY: Region Selection */}
+      <section id="main-content" className="py-8 lg:py-12" aria-label="Select Region">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-8">
               <h2 className="text-2xl lg:text-3xl font-bold text-foreground mb-2">
-                Select Your Terminal
+                Select Your Region
               </h2>
               <p className="text-muted-foreground">
-                View all departures, arrivals, and operator status
+                Choose a region to view terminals, routes, and operator status
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {terminals.map((terminal) => (
+              {regions.map((region) => (
                 <Link
-                  key={terminal.id}
-                  href={`/terminal/${terminal.id}`}
+                  key={region.id}
+                  href={`/region/${region.id}`}
                   className="group p-6 rounded-xl bg-card border border-border/30 hover:border-accent hover:shadow-card transition-all duration-300"
                 >
                   <div className="flex items-start gap-4">
@@ -127,10 +121,10 @@ export default function Home() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="text-lg font-semibold text-foreground group-hover:text-accent transition-colors">
-                        {terminal.name}
+                        {region.name}
                       </h3>
                       <p className="text-sm text-muted-foreground mt-1">
-                        {terminal.description}
+                        {region.description}
                       </p>
                     </div>
                   </div>
