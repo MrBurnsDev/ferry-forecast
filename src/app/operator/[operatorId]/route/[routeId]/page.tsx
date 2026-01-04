@@ -3,26 +3,60 @@
 /**
  * Route Page
  *
- * Phase 59: Region/Operator/Route Authority
+ * Phase 63: Restore Corridor-style UI
  *
- * Shows sailings for a specific operator route on a given date.
- * Navigation: Home → Region → Operator → Route (THIS PAGE)
+ * This page embeds the full "Corridor experience" within the new navigation hierarchy:
+ * Region → Operator → Route (THIS PAGE)
+ *
+ * Features restored from Phase 34B Corridor UI:
+ * - Tabs: Today / Next 7 Days / Next 14 Days
+ * - Weather & Conditions card (with wind authority tiers)
+ * - Risk badges on sailings
+ * - Daily forecast cards with risk levels
+ * - BOTH directions shown by default (bidirectional display)
  *
  * AUTHORITY HIERARCHY (ENFORCED):
- * 1. Region (top-level grouping)
- * 2. Operator (region-scoped, source of schedule truth)
- * 3. Route (operator-defined, explicit direction) ← THIS PAGE
- * 4. Sailings (operator-published, NEVER inferred)
- *
- * HARD RULES:
- * - Sailings are NEVER inferred from the reverse direction
- * - If operator shows ZERO sailings → this page shows ZERO sailings
- * - Canceled sailings are included with status="canceled"
+ * - Operator schedule is source of truth for Today tab
+ * - Weather authority tiers: operator_live > operator_stale > local_zip_observation > unavailable
+ * - Forecasts ALWAYS render (heuristic fallback if needed)
  */
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { getCorridorByRouteId } from '@/lib/config/corridors';
+import { CorridorTabs } from '@/components/CorridorTabs';
+import type { DailyCorridorBoard } from '@/types/corridor';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface WeatherContext {
+  wind_speed: number | null;
+  wind_gusts: number | null;
+  wind_direction: number | null;
+  advisory_level: string | null;
+  authority: 'operator' | 'local_zip_observation' | 'unavailable';
+  terminal_slug?: string;
+  age_minutes?: number;
+  observation_time?: string;
+  zip_code?: string;
+  town_name?: string;
+  wind_speed_mph?: number;
+  wind_speed_kts?: number;
+  wind_direction_text?: string;
+  source_label?: string;
+}
+
+interface CorridorState {
+  corridorId: string | null;
+  displayName: string | null;
+  board: DailyCorridorBoard | null;
+  weatherContext: WeatherContext | null;
+  loading: boolean;
+  error: string | null;
+}
 
 // ============================================================
 // ICONS
@@ -57,70 +91,6 @@ function FerryIcon({ className }: { className?: string }) {
   );
 }
 
-function ClockIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
-    </svg>
-  );
-}
-
-function CheckCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  );
-}
-
-function XCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-    </svg>
-  );
-}
-
-function AlertCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
-// ============================================================
-// TYPES
-// ============================================================
-
-interface Sailing {
-  id: string;
-  departure_time_local: string;
-  arrival_time_local: string | null;
-  status: 'scheduled' | 'on_time' | 'delayed' | 'canceled';
-  status_message: string | null;
-  vessel_name: string | null;
-}
-
-interface RouteState {
-  operator_id: string | null;
-  route_id: string | null;
-  service_date: string | null;
-  from_terminal: string | null;
-  to_terminal: string | null;
-  sailings: Sailing[];
-  sailing_count: number;
-  source: string | null;
-  loading: boolean;
-  error: string | null;
-}
-
 // ============================================================
 // DISPLAY NAME LOOKUPS
 // ============================================================
@@ -128,14 +98,6 @@ interface RouteState {
 const OPERATOR_DISPLAY_NAMES: Record<string, string> = {
   ssa: 'The Steamship Authority',
   hyline: 'Hy-Line Cruises',
-};
-
-const TERMINAL_NAMES: Record<string, string> = {
-  'woods-hole': 'Woods Hole',
-  'vineyard-haven': 'Vineyard Haven',
-  'oak-bluffs': 'Oak Bluffs',
-  'hyannis': 'Hyannis',
-  'nantucket': 'Nantucket',
 };
 
 // ============================================================
@@ -147,70 +109,81 @@ export default function RoutePage() {
   const operatorId = params.operatorId as string;
   const routeId = params.routeId as string;
 
-  const [state, setState] = useState<RouteState>({
-    operator_id: null,
-    route_id: null,
-    service_date: null,
-    from_terminal: null,
-    to_terminal: null,
-    sailings: [],
-    sailing_count: 0,
-    source: null,
+  const [state, setState] = useState<CorridorState>({
+    corridorId: null,
+    displayName: null,
+    board: null,
+    weatherContext: null,
     loading: true,
     error: null,
   });
 
+  // Look up the corridor for this route
   useEffect(() => {
-    async function fetchSailings() {
+    const corridor = getCorridorByRouteId(routeId);
+
+    if (!corridor) {
+      setState({
+        corridorId: null,
+        displayName: null,
+        board: null,
+        weatherContext: null,
+        loading: false,
+        error: `Route "${routeId}" not found. This route may have been renamed or is no longer available.`,
+      });
+      return;
+    }
+
+    // Capture for closure
+    const corridorId = corridor.id;
+    const displayName = corridor.display_name;
+
+    // Fetch corridor data
+    async function fetchCorridorData() {
       try {
-        const response = await fetch(`/api/operators/${operatorId}/routes/${routeId}/sailings`);
+        const response = await fetch(`/api/corridor/${corridorId}`);
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-          setState((prev) => ({
-            ...prev,
+          setState({
+            corridorId,
+            displayName,
+            board: null,
+            weatherContext: null,
             loading: false,
             error: result.error || `Error: ${response.status}`,
-          }));
+          });
           return;
         }
 
         setState({
-          operator_id: result.operator_id,
-          route_id: result.route_id,
-          service_date: result.service_date,
-          from_terminal: result.from_terminal,
-          to_terminal: result.to_terminal,
-          sailings: result.sailings || [],
-          sailing_count: result.sailing_count || 0,
-          source: result.source,
+          corridorId,
+          displayName,
+          board: result.board,
+          weatherContext: result.weather_context,
           loading: false,
           error: null,
         });
       } catch (err) {
-        setState((prev) => ({
-          ...prev,
+        setState({
+          corridorId,
+          displayName,
+          board: null,
+          weatherContext: null,
           loading: false,
-          error: err instanceof Error ? err.message : 'Failed to fetch sailings',
-        }));
+          error: err instanceof Error ? err.message : 'Failed to fetch corridor data',
+        });
       }
     }
 
-    fetchSailings();
-  }, [operatorId, routeId]);
+    setState((prev) => ({ ...prev, corridorId, displayName, loading: true }));
+    fetchCorridorData();
+  }, [routeId]);
 
   const operatorDisplayName = OPERATOR_DISPLAY_NAMES[operatorId] || operatorId;
-  const fromTerminalName = state.from_terminal ? TERMINAL_NAMES[state.from_terminal] || state.from_terminal : '';
-  const toTerminalName = state.to_terminal ? TERMINAL_NAMES[state.to_terminal] || state.to_terminal : '';
 
-  // Format route ID for display while loading
-  const routeDisplayName = routeId
-    .split('-')
-    .map((part) => part.toUpperCase())
-    .join(' → ');
-
-  // Error state
-  if (state.error) {
+  // Error state - route not found
+  if (state.error && !state.corridorId) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="card-maritime p-8 max-w-md text-center">
@@ -271,13 +244,11 @@ export default function RoutePage() {
             <div className="flex items-center gap-3 mb-2">
               <FerryIcon className="w-8 h-8 text-accent" />
               <h1 className="text-3xl lg:text-4xl font-bold text-foreground">
-                {fromTerminalName && toTerminalName
-                  ? `${fromTerminalName} → ${toTerminalName}`
-                  : routeDisplayName}
+                {state.displayName || routeId.toUpperCase().replace(/-/g, ' ')}
               </h1>
             </div>
             <p className="text-muted-foreground text-lg">
-              {operatorDisplayName} • {state.service_date || 'Today'}
+              {operatorDisplayName}
             </p>
           </div>
         </div>
@@ -286,63 +257,17 @@ export default function RoutePage() {
       {/* Main Content */}
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
-          <div className="max-w-2xl mx-auto">
-            {/* Sailings List */}
-            <div className="card-maritime p-6 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-foreground">
-                  Today&apos;s Sailings
-                </h2>
-                <span className="text-sm text-muted-foreground">
-                  {state.sailing_count} sailing{state.sailing_count !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {state.loading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="animate-pulse">
-                      <div className="h-16 bg-secondary/50 rounded-lg" />
-                    </div>
-                  ))}
-                </div>
-              ) : state.sailings.length === 0 ? (
-                <div className="text-center py-12">
-                  <FerryIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    No Sailings Today
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {operatorDisplayName} has no sailings on this route today.
-                    This could be due to seasonal service or schedule changes.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {state.sailings.map((sailing) => (
-                    <SailingCard key={sailing.id} sailing={sailing} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Source Info */}
-            {state.source && (
-              <div className="text-center mb-8">
-                <span className="text-xs text-muted-foreground">
-                  Data source: {state.source}
-                </span>
-              </div>
+          <div className="max-w-4xl mx-auto">
+            {/* Corridor Tabs - The full corridor experience */}
+            {state.corridorId && (
+              <CorridorTabs
+                corridorId={state.corridorId}
+                board={state.board}
+                weatherContext={state.weatherContext}
+                boardLoading={state.loading}
+                boardError={state.error}
+              />
             )}
-
-            {/* Authority Notice */}
-            <div className="bg-warning-muted border border-warning/30 rounded-xl p-6">
-              <p className="text-sm text-warning-foreground leading-relaxed">
-                <strong>Important:</strong> Sailings shown are exactly as published by {operatorDisplayName}.
-                No sailings are inferred from the reverse direction. If a sailing is not listed,
-                the operator has not published it. Always verify with the operator before traveling.
-              </p>
-            </div>
           </div>
         </div>
       </main>
@@ -363,102 +288,4 @@ export default function RoutePage() {
       </footer>
     </div>
   );
-}
-
-// ============================================================
-// SAILING CARD COMPONENT
-// ============================================================
-
-interface SailingCardProps {
-  sailing: Sailing;
-}
-
-function SailingCard({ sailing }: SailingCardProps) {
-  const statusConfig = getStatusConfig(sailing.status);
-
-  return (
-    <div className={`p-4 rounded-lg border ${statusConfig.borderClass} ${statusConfig.bgClass}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg ${statusConfig.iconBgClass} flex items-center justify-center`}>
-            <ClockIcon className={`w-5 h-5 ${statusConfig.iconClass}`} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-foreground">
-                {sailing.departure_time_local}
-              </span>
-              {sailing.arrival_time_local && (
-                <span className="text-sm text-muted-foreground">
-                  → {sailing.arrival_time_local}
-                </span>
-              )}
-            </div>
-            {sailing.vessel_name && (
-              <p className="text-sm text-muted-foreground">
-                {sailing.vessel_name}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {statusConfig.icon}
-          <span className={`text-sm font-medium ${statusConfig.textClass}`}>
-            {statusConfig.label}
-          </span>
-        </div>
-      </div>
-      {sailing.status_message && (
-        <p className="mt-2 text-sm text-muted-foreground pl-13">
-          {sailing.status_message}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function getStatusConfig(status: Sailing['status']) {
-  switch (status) {
-    case 'on_time':
-    case 'scheduled':
-      return {
-        label: 'On Time',
-        icon: <CheckCircleIcon className="w-5 h-5 text-success" />,
-        textClass: 'text-success',
-        bgClass: 'bg-success/5',
-        borderClass: 'border-success/20',
-        iconBgClass: 'bg-success/10',
-        iconClass: 'text-success',
-      };
-    case 'delayed':
-      return {
-        label: 'Delayed',
-        icon: <AlertCircleIcon className="w-5 h-5 text-warning" />,
-        textClass: 'text-warning',
-        bgClass: 'bg-warning/5',
-        borderClass: 'border-warning/20',
-        iconBgClass: 'bg-warning/10',
-        iconClass: 'text-warning',
-      };
-    case 'canceled':
-      return {
-        label: 'Canceled',
-        icon: <XCircleIcon className="w-5 h-5 text-danger" />,
-        textClass: 'text-danger',
-        bgClass: 'bg-danger/5',
-        borderClass: 'border-danger/20',
-        iconBgClass: 'bg-danger/10',
-        iconClass: 'text-danger',
-      };
-    default:
-      return {
-        label: 'Unknown',
-        icon: <AlertCircleIcon className="w-5 h-5 text-muted-foreground" />,
-        textClass: 'text-muted-foreground',
-        bgClass: 'bg-secondary/50',
-        borderClass: 'border-border',
-        iconBgClass: 'bg-secondary',
-        iconClass: 'text-muted-foreground',
-      };
-  }
 }

@@ -210,6 +210,16 @@ export function getCorridorTerminals(corridorId: string): { a: Terminal; b: Term
 }
 
 /**
+ * Get corridor by route ID
+ *
+ * Phase 63: Maps a route ID (e.g., 'wh-vh-ssa') to its parent corridor.
+ * This enables the route page to embed the corridor-style experience.
+ */
+export function getCorridorByRouteId(routeId: string): ServiceCorridor | null {
+  return CORRIDORS.find((c) => c.active && c.route_ids.includes(routeId)) || null;
+}
+
+/**
  * Get the primary status URL for a corridor
  *
  * Prefers SSA if available, falls back to first available operator.
