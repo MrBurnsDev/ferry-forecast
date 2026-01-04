@@ -153,6 +153,21 @@ export interface ReconcileResult {
   previous_status?: string;
   new_status?: string;
   reason?: string;
+  /**
+   * Phase 49: Sailing event ID for first cancellations
+   * Set when:
+   * - INSERT with status='canceled'
+   * - UPDATE transitioning to status='canceled'
+   *
+   * NOT set when:
+   * - Sailing was already canceled (immutable)
+   * - Sailing is on_time or delayed
+   *
+   * Used to trigger cancellation_operator_conditions insert.
+   */
+  first_cancellation_id?: string;
+  /** The departure port slug (for cancellation conditions) */
+  from_port?: string;
 }
 
 // Port slug mappings for corridor detection
@@ -504,12 +519,25 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       console.log(
         `[RECONCILE] UPDATED: ${event.from_port} → ${event.to_port} @ ${event.departure_time}: ${existing.status} → ${event.status}`
       );
-      return {
+
+      // Phase 49: If transitioning TO canceled, this is a first cancellation
+      const result: ReconcileResult = {
         action: 'updated',
         previous_status: existing.status,
         new_status: event.status,
         reason: finalReason,
       };
+
+      if (event.status === 'canceled') {
+        result.first_cancellation_id = existing.id;
+        result.from_port = event.from_port;
+        console.log(
+          `[RECONCILE] Phase 49: First cancellation detected (UPDATE), ` +
+          `sailing_event_id=${existing.id} from_port=${event.from_port}`
+        );
+      }
+
+      return result;
     }
 
     // Step 3: No existing row - INSERT
@@ -529,7 +557,11 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       observed_at: event.observed_at,
     };
 
-    const { error: insertError } = await supabase.from('sailing_events').insert(record);
+    const { data: insertedData, error: insertError } = await supabase
+      .from('sailing_events')
+      .insert(record)
+      .select('id')
+      .single();
 
     if (insertError) {
       // Handle unique constraint violation (concurrent insert)
@@ -545,7 +577,20 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
     console.log(
       `[RECONCILE] INSERTED: ${event.from_port} → ${event.to_port} @ ${event.departure_time} = ${event.status}`
     );
-    return { action: 'inserted', new_status: event.status };
+
+    // Phase 49: If inserting with status='canceled', this is a first cancellation
+    const result: ReconcileResult = { action: 'inserted', new_status: event.status };
+
+    if (event.status === 'canceled' && insertedData?.id) {
+      result.first_cancellation_id = insertedData.id;
+      result.from_port = event.from_port;
+      console.log(
+        `[RECONCILE] Phase 49: First cancellation detected (INSERT), ` +
+        `sailing_event_id=${insertedData.id} from_port=${event.from_port}`
+      );
+    }
+
+    return result;
   } catch (error) {
     console.error('[RECONCILE] Unexpected error:', error);
     return { action: 'failed', reason: String(error) };

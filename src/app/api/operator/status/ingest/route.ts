@@ -8,6 +8,7 @@
  * Phase 37: Live Operator Status Reconciliation
  * Phase 41: 2-Source Operator Ingestion (schedule_rows + reason_rows)
  * Phase 43: Operator Conditions - Store terminal wind exactly as shown
+ * Phase 49: Cancellation Operator Conditions - Capture wind at first cancellation
  *
  * POST /api/operator/status/ingest
  *
@@ -42,16 +43,20 @@ import { NextRequest, NextResponse } from 'next/server';
 // Phase 31: Force Node.js runtime for reliable Supabase writes
 export const runtime = 'nodejs';
 import {
-  persistSailingEvents,
+  reconcileSailingEvent,
   getCorridorId,
   mapOperatorId,
   normalizePortSlug,
   type SailingEventInput,
+  type ReconcileResult,
 } from '@/lib/events/sailing-events';
 import {
   upsertOperatorConditions,
+  insertCancellationCondition,
   type ConditionPayload,
+  type CancellationConditionPayload,
 } from '@/lib/events/operator-conditions';
+import { enrichCancellation } from '@/lib/weather/cancellation-enrichment';
 
 // Rate limiting: track last ingest time per source
 const lastIngestTime: Record<string, number> = {};
@@ -439,15 +444,129 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
     });
 
-    // Await persistence
-    console.log(`[INGEST] ENTERING persistSailingEvents call with ${eventInputs.length} events`);
-    let persistedCount = 0;
-    try {
-      persistedCount = await persistSailingEvents(eventInputs);
-      console.log(`[INGEST] EXITED persistSailingEvents: ${persistedCount}/${eventInputs.length} persisted`);
-    } catch (err) {
-      console.error('[INGEST] persistSailingEvents threw exception:', err);
+    // ============================================================
+    // PHASE 49: Persist sailing events with cancellation conditions capture
+    // ============================================================
+
+    // Build a lookup map of conditions by terminal slug for fast access
+    const conditionsByTerminal = new Map<string, IngestCondition>();
+    if (isDualSourcePayload(payload) && payload.conditions) {
+      for (const cond of payload.conditions) {
+        conditionsByTerminal.set(cond.terminal_slug, cond);
+      }
     }
+
+    // Process events sequentially with cancellation conditions capture
+    console.log(`[INGEST] ENTERING reconciliation with ${eventInputs.length} events`);
+    let persistedCount = 0;
+    let cancellationConditionsInserted = 0;
+    let cancellationConditionsSkipped = 0;
+    let noaaSnapshotsInserted = 0;
+    let noaaSnapshotsFailed = 0;
+    const reconcileResults: ReconcileResult[] = [];
+
+    for (let i = 0; i < eventInputs.length; i++) {
+      const event = eventInputs[i];
+      try {
+        const result = await reconcileSailingEvent(event);
+        reconcileResults.push(result);
+
+        if (result.action !== 'failed') {
+          persistedCount++;
+        }
+
+        // Phase 49: If this is a first cancellation, capture operator conditions
+        if (result.first_cancellation_id && result.from_port) {
+          const terminalCondition = conditionsByTerminal.get(result.from_port);
+          const sourceUrl = (isDualSourcePayload(payload) && payload.source_meta?.schedule_url) ||
+            'https://www.steamshipauthority.com/traveling_today/status';
+
+          // Build the cancellation condition payload
+          // Store NULLs if operator wind data is not available (never guess)
+          const cancelCondPayload: CancellationConditionPayload = {
+            sailing_event_id: result.first_cancellation_id,
+            operator_id: operatorId,
+            terminal_slug: result.from_port,
+            wind_speed: terminalCondition?.wind_speed_mph ?? null,
+            wind_direction_text: terminalCondition?.wind_direction_text ?? null,
+            wind_direction_degrees: terminalCondition?.wind_direction_degrees ?? null,
+            raw_text: terminalCondition?.raw_wind_text ?? null,
+            source_url: terminalCondition?.source_url || sourceUrl,
+            captured_at: payload.scraped_at_utc,
+          };
+
+          const cancelCondResult = await insertCancellationCondition(cancelCondPayload);
+
+          if (cancelCondResult.inserted) {
+            cancellationConditionsInserted++;
+            console.log(
+              `[INGEST] Phase 49: Captured cancellation conditions for sailing_event_id=${result.first_cancellation_id}`
+            );
+          } else {
+            cancellationConditionsSkipped++;
+            if (cancelCondResult.reason !== 'Conditions already captured (immutable)') {
+              console.warn(
+                `[INGEST] Phase 49: Failed to capture cancellation conditions: ${cancelCondResult.reason}`
+              );
+            }
+          }
+
+          // ============================================================
+          // PHASE 50: Fetch and persist NOAA weather snapshot
+          // ============================================================
+          // This happens IMMEDIATELY in the same request cycle
+          // If NWS fetch fails, we still insert with NULL values (never block)
+          try {
+            const enrichResult = await enrichCancellation({
+              sailing_event_id: result.first_cancellation_id,
+              operator_id: operatorId,
+              from_port: result.from_port,
+              to_port: event.to_port,
+              captured_at: payload.scraped_at_utc,
+              operator_wind_speed: terminalCondition?.wind_speed_mph ?? null,
+              operator_wind_direction_text: terminalCondition?.wind_direction_text ?? null,
+              operator_wind_direction_degrees: terminalCondition?.wind_direction_degrees ?? null,
+              operator_raw_text: terminalCondition?.raw_wind_text ?? null,
+              operator_source_url: terminalCondition?.source_url ?? null,
+            });
+
+            if (enrichResult.noaa_snapshot_inserted) {
+              noaaSnapshotsInserted++;
+              console.log(
+                `[INGEST] Phase 50: NOAA snapshot captured for sailing_event_id=${result.first_cancellation_id} ` +
+                `station=${enrichResult.nws_station_used} wind=${enrichResult.nws_wind_speed_mph ?? 'N/A'} mph`
+              );
+            } else if (enrichResult.errors.length > 0) {
+              noaaSnapshotsFailed++;
+              console.warn(
+                `[INGEST] Phase 50: NOAA snapshot failed for sailing_event_id=${result.first_cancellation_id}: ` +
+                enrichResult.errors.join(', ')
+              );
+            }
+          } catch (enrichErr) {
+            noaaSnapshotsFailed++;
+            console.error(`[INGEST] Phase 50: NOAA enrichment exception:`, enrichErr);
+            // NEVER block the ingest - continue processing
+          }
+        }
+      } catch (err) {
+        console.error(`[INGEST] Event ${i} reconciliation threw exception:`, err);
+        reconcileResults.push({ action: 'failed', reason: String(err) });
+      }
+    }
+
+    // Log summary
+    const inserted = reconcileResults.filter(r => r.action === 'inserted').length;
+    const updated = reconcileResults.filter(r => r.action === 'updated').length;
+    const unchanged = reconcileResults.filter(r => r.action === 'unchanged').length;
+    const failed = reconcileResults.filter(r => r.action === 'failed').length;
+
+    console.log(
+      `[INGEST] EXITED reconciliation: ${persistedCount}/${eventInputs.length} succeeded ` +
+      `(${inserted} inserted, ${updated} updated, ${unchanged} unchanged, ${failed} failed). ` +
+      `Phase 49: ${cancellationConditionsInserted} cancel conditions inserted, ${cancellationConditionsSkipped} skipped. ` +
+      `Phase 50: ${noaaSnapshotsInserted} NOAA snapshots, ${noaaSnapshotsFailed} failed`
+    );
 
     // ============================================================
     // PHASE 43: Persist operator conditions (terminal wind)
@@ -514,6 +633,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       conditions_inserted: conditionsInserted,
       conditions_skipped: conditionsSkipped,
       conditions_errors: conditionsErrors.length > 0 ? conditionsErrors : undefined,
+      // Phase 49: Include cancellation conditions stats
+      cancellation_conditions_inserted: cancellationConditionsInserted,
+      cancellation_conditions_skipped: cancellationConditionsSkipped,
+      // Phase 50: Include NOAA weather snapshot stats
+      noaa_snapshots_inserted: noaaSnapshotsInserted,
+      noaa_snapshots_failed: noaaSnapshotsFailed,
     });
   } catch (error) {
     console.error('[INGEST] Unexpected error:', error);
@@ -535,6 +660,6 @@ export async function GET(): Promise<NextResponse> {
     method: 'POST',
     auth: 'Bearer OBSERVER_SECRET',
     status: 'ready',
-    version: 'Phase 43: Operator Conditions ingestion',
+    version: 'Phase 50: Cancellation Weather Enrichment (NOAA Snapshots)',
   });
 }

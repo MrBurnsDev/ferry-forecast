@@ -39,6 +39,34 @@ interface ForecastPrediction {
   explanation: string[];
   model_version: string;
   hours_ahead: number;
+  sailing_time: string;
+  // Phase 51: Wind data
+  wind_speed_mph: number | null;
+  wind_gust_mph: number | null;
+  wind_direction_deg: number | null;
+  advisory_level: string | null;
+}
+
+// Phase 51: Daily risk summary from API
+interface DailyRiskSummary {
+  date: string;
+  risk_level: 'low' | 'moderate' | 'elevated' | 'high' | 'severe';
+  risk_score: number;
+  confidence: number;
+  confidence_level: 'low' | 'medium' | 'high';
+  primary_factors: string[];
+  secondary_factors: string[];
+  wind: {
+    max_speed_mph: number | null;
+    max_gust_mph: number | null;
+    predominant_direction: string | null;
+    worst_period: string | null;
+  };
+  sailings_analyzed: number;
+  high_risk_sailings: number;
+  source: 'forecast';
+  model: 'gfs' | 'ecmwf' | null;
+  hours_ahead: number;
 }
 
 interface DayForecast {
@@ -46,6 +74,8 @@ interface DayForecast {
   predictions: ForecastPrediction[];
   highest_risk_level: string;
   prediction_count: number;
+  // Phase 51: Daily risk summary
+  daily_risk: DailyRiskSummary;
 }
 
 interface CorridorForecast {
@@ -100,13 +130,70 @@ function WindIcon({ className }: { className?: string }) {
 // RISK STYLES
 // ============================================================
 
-const RISK_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  low: { bg: 'bg-green-100', text: 'text-green-800', label: 'Low Risk' },
-  moderate: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Moderate' },
-  elevated: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Elevated' },
-  high: { bg: 'bg-red-100', text: 'text-red-800', label: 'High Risk' },
-  severe: { bg: 'bg-red-200', text: 'text-red-900', label: 'Severe' },
+const RISK_STYLES: Record<string, { bg: string; text: string; label: string; border: string }> = {
+  low: { bg: 'bg-green-100', text: 'text-green-800', label: 'Low Risk', border: 'border-green-200' },
+  moderate: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Moderate', border: 'border-yellow-200' },
+  elevated: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Elevated', border: 'border-orange-200' },
+  high: { bg: 'bg-red-100', text: 'text-red-800', label: 'High Risk', border: 'border-red-200' },
+  severe: { bg: 'bg-red-200', text: 'text-red-900', label: 'Severe', border: 'border-red-300' },
 };
+
+// ============================================================
+// PHASE 51: WIND FORMATTING UTILITIES
+// ============================================================
+
+const MPH_TO_KNOTS = 0.868976;
+
+/**
+ * Format wind speed: "9 mph (8 kts)"
+ */
+function formatWindSpeed(mph: number | null): string {
+  if (mph === null || isNaN(mph)) return '--';
+  const knots = Math.round(mph * MPH_TO_KNOTS);
+  return `${Math.round(mph)} mph (${knots} kts)`;
+}
+
+/**
+ * Format wind with direction: "9 mph (8 kts) WNW"
+ */
+function formatWindWithDirection(mph: number | null, direction: string | null): string {
+  const speedStr = formatWindSpeed(mph);
+  if (speedStr === '--') return '--';
+  if (!direction) return speedStr;
+  return `${speedStr} ${direction}`;
+}
+
+/**
+ * Generate human-readable risk description
+ * Examples:
+ * - "Low cancellation risk"
+ * - "Moderate cancellation risk - strong WNW winds likely"
+ */
+function formatRiskDescription(dailyRisk: DailyRiskSummary): string {
+  const riskLabels: Record<string, string> = {
+    low: 'Low cancellation risk',
+    moderate: 'Moderate cancellation risk',
+    elevated: 'Elevated cancellation risk',
+    high: 'High cancellation risk',
+    severe: 'Severe cancellation risk',
+  };
+
+  const baseLabel = riskLabels[dailyRisk.risk_level] || 'Unknown risk';
+
+  // For low risk, no additional detail
+  if (dailyRisk.risk_level === 'low') {
+    return baseLabel;
+  }
+
+  // Add primary factor for moderate+ risk
+  if (dailyRisk.primary_factors.length > 0 &&
+      dailyRisk.primary_factors[0] !== 'Forecast unavailable') {
+    const factor = dailyRisk.primary_factors[0].toLowerCase();
+    return `${baseLabel} - ${factor}`;
+  }
+
+  return baseLabel;
+}
 
 // ============================================================
 // HELPER COMPONENTS
@@ -175,9 +262,23 @@ function LoadingSpinner() {
   );
 }
 
+/**
+ * Phase 51: Enhanced DayCard with daily cancellation risk summary
+ *
+ * Displays:
+ * - Human-readable risk description (e.g., "Moderate cancellation risk - strong WNW winds likely")
+ * - Wind data in "mph (kts) direction" format
+ * - Confidence indicator
+ * - Source attribution (Forecast NOAA)
+ */
 function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: boolean; onToggle: () => void }) {
+  const style = RISK_STYLES[day.daily_risk?.risk_level || day.highest_risk_level] || RISK_STYLES.moderate;
+  const riskDescription = day.daily_risk ? formatRiskDescription(day.daily_risk) : null;
+  const hasWindData = day.daily_risk?.wind?.max_speed_mph !== null;
+
   return (
-    <div className="border border-border/50 rounded-lg overflow-hidden bg-card">
+    <div className={`border rounded-lg overflow-hidden bg-card ${style.border}`}>
+      {/* Header - always visible */}
       <button
         onClick={onToggle}
         className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
@@ -192,7 +293,7 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <RiskBadge level={day.highest_risk_level} />
+          <RiskBadge level={day.daily_risk?.risk_level || day.highest_risk_level} />
           <svg
             className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             viewBox="0 0 24 24"
@@ -205,6 +306,61 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
         </div>
       </button>
 
+      {/* Phase 51: Daily Risk Summary - always visible below header */}
+      {day.daily_risk && (
+        <div className={`px-4 pb-3 ${style.bg}`}>
+          {/* Risk description */}
+          <p className={`text-sm font-medium ${style.text}`}>
+            {riskDescription}
+          </p>
+
+          {/* Wind & details row */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+            {/* Wind display: "9 mph (8 kts) WNW" */}
+            {hasWindData && (
+              <span className="flex items-center gap-1">
+                <WindIcon className="w-3.5 h-3.5" />
+                <span>
+                  {formatWindWithDirection(
+                    day.daily_risk.wind.max_speed_mph,
+                    day.daily_risk.wind.predominant_direction
+                  )}
+                </span>
+                {day.daily_risk.wind.max_gust_mph !== null &&
+                  day.daily_risk.wind.max_gust_mph > (day.daily_risk.wind.max_speed_mph || 0) * 1.2 && (
+                  <span className="text-orange-600">
+                    (gusts {formatWindSpeed(day.daily_risk.wind.max_gust_mph)})
+                  </span>
+                )}
+              </span>
+            )}
+
+            {/* Worst period */}
+            {day.daily_risk.wind.worst_period && (
+              <span>Worst: {day.daily_risk.wind.worst_period}</span>
+            )}
+
+            {/* Confidence */}
+            <span>
+              {day.daily_risk.confidence_level} confidence
+            </span>
+
+            {/* Source attribution */}
+            <span className="text-muted-foreground/70">
+              Forecast (NOAA)
+            </span>
+          </div>
+
+          {/* High-risk sailings warning */}
+          {day.daily_risk.high_risk_sailings > 0 && (
+            <div className="mt-2 text-xs text-orange-700 dark:text-orange-400">
+              {day.daily_risk.high_risk_sailings} of {day.daily_risk.sailings_analyzed} sailings at elevated+ risk
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expanded: Individual sailing predictions */}
       {isExpanded && (
         <div className="border-t border-border/50 p-4 space-y-3 bg-muted/30">
           {day.predictions.map((prediction, idx) => (
@@ -223,6 +379,21 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
                     Score: {prediction.risk_score}
                   </span>
                 </div>
+                {/* Phase 51: Wind data for individual sailing */}
+                {prediction.wind_speed_mph !== null && (
+                  <div className="text-xs text-muted-foreground mb-1">
+                    <span className="inline-flex items-center gap-1">
+                      <WindIcon className="w-3 h-3" />
+                      {formatWindWithDirection(prediction.wind_speed_mph, degreesToCompass(prediction.wind_direction_deg))}
+                      {prediction.wind_gust_mph !== null &&
+                        prediction.wind_gust_mph > prediction.wind_speed_mph * 1.2 && (
+                        <span className="text-orange-600 ml-1">
+                          gusts {formatWindSpeed(prediction.wind_gust_mph)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
                 {prediction.explanation.length > 0 && (
                   <div className="text-xs text-muted-foreground">
                     {prediction.explanation.join(' • ')}
@@ -235,6 +406,22 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
       )}
     </div>
   );
+}
+
+/**
+ * Convert degrees to 16-point compass direction
+ */
+function degreesToCompass(deg: number | null | undefined): string | null {
+  if (deg === null || deg === undefined || isNaN(deg)) return null;
+  const COMPASS_POINTS = [
+    'N', 'NNE', 'NE', 'ENE',
+    'E', 'ESE', 'SE', 'SSE',
+    'S', 'SSW', 'SW', 'WSW',
+    'W', 'WNW', 'NW', 'NNW',
+  ];
+  const normalized = ((deg % 360) + 360) % 360;
+  const index = Math.round(normalized / 22.5) % 16;
+  return COMPASS_POINTS[index];
 }
 
 // ============================================================

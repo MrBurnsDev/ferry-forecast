@@ -340,6 +340,210 @@ export async function hasRecentOperatorConditions(
 }
 
 // ============================================================
+// PHASE 49: CANCELLATION OPERATOR CONDITIONS
+// ============================================================
+
+/**
+ * Phase 49: Operator Wind Snapshot at Cancellation
+ *
+ * When a sailing transitions to status='canceled' for the first time,
+ * we capture the operator-observed terminal wind as an immutable fact.
+ *
+ * This is SEPARATE from:
+ * - NOAA wind data (used for prediction scoring)
+ * - operator_conditions (general terminal conditions, continuously updated)
+ *
+ * IMMUTABILITY RULES:
+ * 1. NEVER update a row once inserted
+ * 2. NEVER overwrite with a second cancellation snapshot
+ * 3. One sailing_event_id → one row (enforced by unique constraint)
+ *
+ * If operator wind is not available at cancellation time, store NULLs.
+ * Never guess or synthesize values.
+ */
+
+/**
+ * Cancellation condition payload - what we capture at the moment of cancellation
+ */
+export interface CancellationConditionPayload {
+  sailing_event_id: string;        // UUID of the sailing_events row
+  operator_id: string;             // e.g., 'ssa'
+  terminal_slug: string;           // Departure terminal, e.g., 'woods-hole'
+  wind_speed: number | null;       // mph as shown on SSA page
+  wind_direction_text: string | null;  // e.g., 'WSW'
+  wind_direction_degrees: number | null;  // e.g., 248
+  raw_text: string | null;         // Full raw text, e.g., "WSW 3 mph"
+  source_url: string;              // Where the conditions were scraped from
+  captured_at: string;             // ISO timestamp of the observation
+}
+
+/**
+ * Result of cancellation condition insertion
+ */
+export interface CancellationConditionResult {
+  inserted: boolean;
+  sailing_event_id: string;
+  reason?: string;  // Explains why insert was skipped/failed
+}
+
+/**
+ * Phase 49: Insert cancellation operator conditions
+ *
+ * This function is called when a sailing transitions to status='canceled'
+ * for the FIRST time. It inserts exactly one immutable row.
+ *
+ * IMMUTABILITY GUARDS:
+ * - Uses unique constraint on sailing_event_id (DB-enforced)
+ * - Never updates, only inserts
+ * - Logs duplicate attempts for debugging
+ *
+ * @param payload - The cancellation condition data
+ * @returns Result indicating success/failure and reason
+ */
+export async function insertCancellationCondition(
+  payload: CancellationConditionPayload
+): Promise<CancellationConditionResult> {
+  const supabase = createServerClient();
+
+  if (!supabase) {
+    console.error('[CANCEL_COND] No Supabase client available');
+    return {
+      inserted: false,
+      sailing_event_id: payload.sailing_event_id,
+      reason: 'Database not configured',
+    };
+  }
+
+  const row = {
+    sailing_event_id: payload.sailing_event_id,
+    operator_id: payload.operator_id,
+    terminal_slug: payload.terminal_slug,
+    wind_speed: payload.wind_speed,
+    wind_direction_text: payload.wind_direction_text,
+    wind_direction_degrees: payload.wind_direction_degrees,
+    raw_text: payload.raw_text,
+    source_url: payload.source_url,
+    captured_at: payload.captured_at,
+  };
+
+  try {
+    const { error } = await supabase
+      .from('cancellation_operator_conditions')
+      .insert(row);
+
+    if (error) {
+      // Check for unique constraint violation (sailing already has conditions)
+      if (error.code === '23505') {
+        console.log(
+          `[CANCEL_COND] DUPLICATE: Conditions already exist for sailing_event_id=${payload.sailing_event_id}. ` +
+          `Immutability preserved - no update performed.`
+        );
+        return {
+          inserted: false,
+          sailing_event_id: payload.sailing_event_id,
+          reason: 'Conditions already captured (immutable)',
+        };
+      }
+
+      console.error('[CANCEL_COND] Insert error:', error);
+      return {
+        inserted: false,
+        sailing_event_id: payload.sailing_event_id,
+        reason: error.message,
+      };
+    }
+
+    console.log(
+      `[CANCEL_COND] INSERTED: Cancellation conditions for sailing_event_id=${payload.sailing_event_id} ` +
+      `terminal=${payload.terminal_slug} wind=${payload.raw_text || 'NULL'}`
+    );
+
+    return {
+      inserted: true,
+      sailing_event_id: payload.sailing_event_id,
+    };
+  } catch (err) {
+    console.error('[CANCEL_COND] Unexpected error:', err);
+    return {
+      inserted: false,
+      sailing_event_id: payload.sailing_event_id,
+      reason: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Check if cancellation conditions exist for a sailing
+ * Used for debugging and verification
+ */
+export async function hasCancellationConditions(
+  sailingEventId: string
+): Promise<boolean> {
+  const supabase = createServerClient();
+  if (!supabase) return false;
+
+  try {
+    const { count, error } = await supabase
+      .from('cancellation_operator_conditions')
+      .select('id', { count: 'exact', head: true })
+      .eq('sailing_event_id', sailingEventId);
+
+    if (error) {
+      console.error('[CANCEL_COND] Check query error:', error);
+      return false;
+    }
+
+    return (count || 0) > 0;
+  } catch (err) {
+    console.error('[CANCEL_COND] Unexpected check error:', err);
+    return false;
+  }
+}
+
+/**
+ * Get cancellation conditions for a sailing
+ * Used for display and analysis
+ */
+export async function getCancellationConditions(
+  sailingEventId: string
+): Promise<CancellationConditionPayload | null> {
+  const supabase = createServerClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('cancellation_operator_conditions')
+      .select('*')
+      .eq('sailing_event_id', sailingEventId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows found
+        return null;
+      }
+      console.error('[CANCEL_COND] Get query error:', error);
+      return null;
+    }
+
+    return {
+      sailing_event_id: data.sailing_event_id,
+      operator_id: data.operator_id,
+      terminal_slug: data.terminal_slug,
+      wind_speed: data.wind_speed,
+      wind_direction_text: data.wind_direction_text,
+      wind_direction_degrees: data.wind_direction_degrees,
+      raw_text: data.raw_text,
+      source_url: data.source_url,
+      captured_at: data.captured_at,
+    };
+  } catch (err) {
+    console.error('[CANCEL_COND] Unexpected get error:', err);
+    return null;
+  }
+}
+
+// ============================================================
 // DAILY MONITORING
 // ============================================================
 

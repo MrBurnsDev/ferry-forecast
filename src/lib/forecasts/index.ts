@@ -3,6 +3,7 @@
  *
  * Phase 33: 7-Day and 14-Day Travel Forecast UX
  * Phase 35: Forecast API Auth Hardening + Regression Guard
+ * Phase 51: Cancellation Forecast UI + Prediction Layer
  *
  * Reads predictions from ferry_forecast.prediction_snapshots_v2
  * This is READ-ONLY - no prediction computation happens here.
@@ -13,7 +14,7 @@
  * - Service role bypasses RLS for server-side API routes
  * - This file is only imported from API routes (server-side)
  *
- * IMPORTANT: Uses only verified schema columns:
+ * IMPORTANT: Uses verified schema columns including wind data:
  * - service_date (date)
  * - departure_time_local (text)
  * - risk_level (text)
@@ -22,6 +23,10 @@
  * - explanation (text[])
  * - model_version (text)
  * - hours_ahead (integer)
+ * - wind_speed_used (numeric) - Phase 51
+ * - wind_gusts_used (numeric) - Phase 51
+ * - wind_direction_used (integer) - Phase 51
+ * - advisory_level_used (text) - Phase 51
  *
  * FORECAST LOGIC:
  * - 7-day forecast: hours_ahead <= 168
@@ -29,6 +34,11 @@
  */
 
 import { createServiceRoleClient, isServiceRoleConfigured } from '@/lib/supabase/serverServiceClient';
+import {
+  type DailyRiskSummary,
+  calculateDailyRiskFromPredictions,
+  type PredictionInput,
+} from '@/lib/forecast/daily-risk';
 
 /**
  * A single prediction row from prediction_snapshots_v2
@@ -44,6 +54,11 @@ export interface ForecastPrediction {
   model_version: string;
   hours_ahead: number;
   sailing_time: string;
+  // Phase 51: Wind data
+  wind_speed_mph: number | null;
+  wind_gust_mph: number | null;
+  wind_direction_deg: number | null;
+  advisory_level: string | null;
 }
 
 /**
@@ -54,6 +69,8 @@ export interface DayForecast {
   predictions: ForecastPrediction[];
   highest_risk_level: string;
   prediction_count: number;
+  // Phase 51: Daily risk summary
+  daily_risk: DailyRiskSummary;
 }
 
 /**
@@ -65,7 +82,11 @@ export interface CorridorForecast {
   days: DayForecast[];
   total_predictions: number;
   generated_at: string;
+  // Phase 51: Export DailyRiskSummary for UI consumption
 }
+
+// Re-export DailyRiskSummary for API consumers
+export type { DailyRiskSummary } from '@/lib/forecast/daily-risk';
 
 // Hours ahead thresholds (per specification)
 const SEVEN_DAY_HOURS = 168;
@@ -85,6 +106,11 @@ interface PredictionRow {
   model_version: string;
   hours_ahead: number;
   sailing_time: string;
+  // Phase 51: Wind data columns
+  wind_speed_used: number | null;
+  wind_gusts_used: number | null;
+  wind_direction_used: number | null;
+  advisory_level_used: string | null;
 }
 
 /**
@@ -143,7 +169,7 @@ export async function getCorridorForecast(
   // Determine hours_ahead threshold based on forecast type
   const maxHoursAhead = forecastType === '7_day' ? SEVEN_DAY_HOURS : FOURTEEN_DAY_HOURS;
 
-  // Query prediction_snapshots_v2 using ONLY verified columns
+  // Query prediction_snapshots_v2 including Phase 51 wind data columns
   // Cast result to PredictionRow[] since we're using a generic client without schema types
   const { data, error } = await supabase
     .from('prediction_snapshots_v2')
@@ -156,7 +182,11 @@ export async function getCorridorForecast(
       explanation,
       model_version,
       hours_ahead,
-      sailing_time
+      sailing_time,
+      wind_speed_used,
+      wind_gusts_used,
+      wind_direction_used,
+      advisory_level_used
     `)
     .eq('corridor_id', corridorId)
     .lte('hours_ahead', maxHoursAhead)
@@ -210,6 +240,11 @@ export async function getCorridorForecast(
       model_version: row.model_version,
       hours_ahead: row.hours_ahead,
       sailing_time: row.sailing_time,
+      // Phase 51: Add wind data
+      wind_speed_mph: row.wind_speed_used,
+      wind_gust_mph: row.wind_gusts_used,
+      wind_direction_deg: row.wind_direction_used,
+      advisory_level: row.advisory_level_used,
     };
 
     const existing = dayMap.get(row.service_date) || [];
@@ -217,15 +252,36 @@ export async function getCorridorForecast(
     dayMap.set(row.service_date, existing);
   }
 
-  // Convert map to sorted array of DayForecast
+  // Convert map to sorted array of DayForecast with daily risk summaries
   const days: DayForecast[] = [];
   for (const [serviceDate, predictions] of dayMap) {
     const riskLevels = predictions.map((p) => p.risk_level);
+
+    // Phase 51: Convert predictions to PredictionInput format for daily risk calculation
+    const predictionInputs: PredictionInput[] = predictions.map((p) => ({
+      service_date: p.service_date,
+      departure_time_local: p.departure_time_local,
+      risk_level: p.risk_level,
+      risk_score: p.risk_score,
+      confidence: p.confidence,
+      explanation: p.explanation,
+      model_version: p.model_version,
+      hours_ahead: p.hours_ahead,
+      sailing_time: p.sailing_time,
+      wind_speed_mph: p.wind_speed_mph,
+      wind_gust_mph: p.wind_gust_mph,
+      wind_direction_deg: p.wind_direction_deg,
+    }));
+
+    // Calculate daily risk summary
+    const dailyRisk = calculateDailyRiskFromPredictions(predictionInputs);
+
     days.push({
       service_date: serviceDate,
       predictions,
       highest_risk_level: getHighestRiskLevel(riskLevels),
       prediction_count: predictions.length,
+      daily_risk: dailyRisk,
     });
   }
 
