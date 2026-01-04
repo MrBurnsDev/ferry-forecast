@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { RegionProvider } from "@/lib/region";
 
 export const metadata: Metadata = {
   title: "FerryForecast - Know Before You Go",
@@ -14,7 +15,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        {children}
+        <RegionProvider>
+          {children}
+        </RegionProvider>
       </body>
     </html>
   );

@@ -4,6 +4,7 @@
  * Region Page
  *
  * Phase 59: Region/Operator/Route Authority
+ * Phase 62: Region State + Route Guardrails
  *
  * Shows all operators for a given region.
  * Navigation: Home → Region → Operator → Route
@@ -13,11 +14,15 @@
  * 2. Operator (region-scoped, source of schedule truth)
  * 3. Route (operator-defined, explicit direction)
  * 4. Sailings (operator-published, NEVER inferred)
+ *
+ * Phase 62: Sets activeRegionId in global state when user navigates here
  */
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useRegion, isValidRegionId, type RegionId } from '@/lib/region';
+import { HeaderRegionSelector } from '@/components/RegionSelector';
 
 // ============================================================
 // ICONS
@@ -107,6 +112,7 @@ const REGION_DISPLAY_NAMES: Record<string, string> = {
 export default function RegionPage() {
   const params = useParams();
   const regionId = params.regionId as string;
+  const { setActiveRegion, activeRegionId } = useRegion();
 
   const [state, setState] = useState<RegionState>({
     region_id: null,
@@ -114,6 +120,13 @@ export default function RegionPage() {
     loading: true,
     error: null,
   });
+
+  // Phase 62: Set active region when user navigates to this page
+  useEffect(() => {
+    if (isValidRegionId(regionId) && activeRegionId !== regionId) {
+      setActiveRegion(regionId as RegionId);
+    }
+  }, [regionId, activeRegionId, setActiveRegion]);
 
   useEffect(() => {
     async function fetchOperators() {
@@ -194,7 +207,7 @@ export default function RegionPage() {
             </Link>
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="nav-link">Home</Link>
-              <span className="text-sm text-muted-foreground">{regionDisplayName}</span>
+              <HeaderRegionSelector />
             </div>
           </div>
         </div>

@@ -48,10 +48,10 @@ function AlertTriangleIcon({ className }: { className?: string }) {
 }
 
 const regions = [
-  { id: 'cape-cod', name: 'Cape Cod & Islands', description: 'Martha\'s Vineyard & Nantucket' },
+  { id: 'cci', name: 'Cape Cod & Islands', description: 'Martha\'s Vineyard & Nantucket' },
   // Future regions will be added here as support expands
-  // { id: 'puget-sound', name: 'Puget Sound', description: 'Washington State Ferries' },
-  // { id: 'san-francisco-bay', name: 'San Francisco Bay', description: 'Golden Gate & Blue & Gold' },
+  // { id: 'pug', name: 'Puget Sound', description: 'Washington State Ferries' },
+  // { id: 'sfb', name: 'San Francisco Bay', description: 'Golden Gate & Blue & Gold' },
 ];
 
 export default function Home() {
