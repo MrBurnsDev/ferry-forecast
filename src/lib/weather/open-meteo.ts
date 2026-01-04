@@ -140,16 +140,23 @@ function deriveAdvisoryLevel(windSpeedMph: number | null, windGustsMph: number |
 }
 
 /**
- * Fetch GFS forecast from Open-Meteo (0-7 days, hourly)
+ * Fetch GFS forecast from Open-Meteo (0-16 days, hourly)
+ *
+ * Phase 57: Support up to 16 days for 14-day forecasts.
+ * GFS Seamless supports up to 16-day forecasts.
+ * Using GFS for all forecasts ensures consistency between 7-day and 14-day views.
  */
-async function fetchGFSForecast(lat: number, lon: number): Promise<ForecastHour[]> {
+async function fetchGFSForecast(lat: number, lon: number, days: number = 7): Promise<ForecastHour[]> {
+  // GFS Seamless supports up to 16 days
+  const forecastDays = Math.min(days, 16);
+
   const params = new URLSearchParams({
     latitude: lat.toString(),
     longitude: lon.toString(),
     hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation,precipitation_probability,visibility',
     wind_speed_unit: 'ms',
     timezone: 'UTC',
-    forecast_days: '7',
+    forecast_days: forecastDays.toString(),
     models: 'gfs_seamless',
   });
 
@@ -282,12 +289,15 @@ async function fetchMarineForecast(lat: number, lon: number, days: number = 7): 
 /**
  * Fetch complete forecast for a corridor
  *
+ * Phase 57: Added forecastDays parameter to support consistent forecasts.
+ *
  * Uses corridor coordinate registry for location lookup.
  * Logs explicitly when coordinates are resolved or missing.
  */
 export async function fetchCorridorForecast(
   corridorId: string,
-  model: 'gfs' | 'ecmwf' = 'gfs'
+  model: 'gfs' | 'ecmwf' = 'gfs',
+  forecastDays?: number
 ): Promise<CorridorForecast | null> {
   // Resolve coordinates from registry
   const coords = getCorridorCoordinates(corridorId);
@@ -303,16 +313,16 @@ export async function fetchCorridorForecast(
 
   const fetchedAt = new Date().toISOString();
 
+  // Phase 57: Use specified days or default based on model
+  const days = forecastDays ?? (model === 'gfs' ? 7 : 14);
+
   // Fetch weather forecast
   let hours: ForecastHour[];
   if (model === 'gfs') {
-    hours = await fetchGFSForecast(coords.lat, coords.lon);
+    hours = await fetchGFSForecast(coords.lat, coords.lon, days);
   } else {
     hours = await fetchECMWFForecast(coords.lat, coords.lon);
   }
-
-  // Fetch marine forecast and merge wave data
-  const days = model === 'gfs' ? 7 : 14;
   const waveData = await fetchMarineForecast(coords.lat, coords.lon, days);
 
   for (const hour of hours) {

@@ -291,6 +291,11 @@ function getHourlyForecastForTime(
  * ALWAYS returns data (never empty) using Open-Meteo weather forecasts.
  * This is the fallback when database predictions are unavailable.
  *
+ * Phase 57: Forecast Consistency Fix
+ * - Days 1-7 ALWAYS use GFS model (for consistency between 7-day and 14-day views)
+ * - Days 8-14 use ECMWF model (better long-range accuracy)
+ * - This ensures that January 10 shows the same forecast in both views
+ *
  * @param corridorId - The corridor identifier
  * @param forecastType - '7_day' or '14_day'
  * @returns HeuristicForecast with predictions for all days
@@ -299,10 +304,21 @@ export async function generateHeuristicForecast(
   corridorId: string,
   forecastType: '7_day' | '14_day' = '7_day'
 ): Promise<HeuristicForecast | null> {
-  const model = forecastType === '7_day' ? 'gfs' : 'ecmwf';
+  // Phase 57: Always use GFS for consistency
+  // Days 1-7 use GFS in both 7-day and 14-day forecasts
+  // Days 8-14 (14-day only) also use GFS for simplicity and to avoid
+  // the complexity of blending two different models
+  //
+  // RATIONALE: Users expect the same date to show the same forecast
+  // regardless of which tab they're viewing. Using different models
+  // (GFS vs ECMWF) caused Jan 10 to show "Elevated" in 7-day but
+  // "Low Risk" in 14-day, which is confusing.
+  const model = 'gfs';
+  const forecastDays = forecastType === '7_day' ? 7 : 14;
 
   // Fetch weather forecast from Open-Meteo
-  const forecast = await fetchCorridorForecast(corridorId, model);
+  // Pass the number of days to fetch for 14-day forecasts
+  const forecast = await fetchCorridorForecast(corridorId, model, forecastDays);
 
   if (!forecast || forecast.hours.length === 0) {
     console.warn(`[HEURISTIC] No Open-Meteo forecast available for ${corridorId}`);
