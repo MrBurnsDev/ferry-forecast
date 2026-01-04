@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
 import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
-import { fetchCurrentWeather } from '@/lib/weather/noaa';
+// Phase 52 FIX: Removed fetchCurrentWeather import - we no longer fall back to NOAA forecast
+// for current conditions, as that shows PREDICTED weather (not actual observations)
 import { fetchNWSObservationForTerminal } from '@/lib/weather/nws-station-collector';
 import { getCancellationGuardMetadata } from '@/lib/guards/cancellation-persistence';
 import type { CorridorBoardResponse } from '@/types/corridor';
@@ -86,21 +87,17 @@ export async function GET(
             `wind=${obs.wind_speed_mph} mph, dir=${obs.wind_direction_deg}°`
           );
         } else {
-          // Fallback to NOAA forecast if NWS station fails
+          // NWS station fetch failed
+          // Phase 52 FIX: Do NOT fall back to NOAA forecast for current conditions
+          // NOAA forecast shows PREDICTED weather, not CURRENT observations
+          // This was causing misleading displays (e.g., 33 mph predicted vs 6 mph actual)
           console.warn(
             `[CORRIDOR_API] NWS station fetch failed for ${corridor.terminal_a}: ${nwsResult.error}. ` +
-            `Falling back to NOAA forecast.`
+            `NOT falling back to NOAA forecast to avoid showing predicted weather as current conditions.`
           );
-          const weatherSnapshot = await fetchCurrentWeather(corridor.terminal_a);
-          weather = {
-            windSpeed: weatherSnapshot.wind_speed,
-            windGusts: weatherSnapshot.wind_gusts,
-            windDirection: weatherSnapshot.wind_direction,
-            advisoryLevel: weatherSnapshot.advisory_level,
-          };
-          weatherSource = {
-            type: 'noaa_forecast',
-          };
+          // Leave weather as null - the UI will handle this gracefully
+          weather = null;
+          weatherSource = null;
         }
       } catch (weatherError) {
         // Weather fetch failed - continue without risk scores

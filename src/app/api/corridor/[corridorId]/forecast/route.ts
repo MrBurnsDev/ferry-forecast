@@ -136,31 +136,121 @@ export async function GET(
     // Uses service role client (bypasses RLS)
     const forecast = await getCorridorForecast(corridorId, forecastType);
 
-    if (!forecast) {
-      // This means the query failed but gracefully - return empty forecast
-      // Don't expose internal error to client
-      console.warn(`[FORECAST_API] No forecast data returned for ${corridorId}`);
+    // Phase 52: If we got a valid forecast with data, return it
+    if (forecast && forecast.days.length > 0) {
       return NextResponse.json({
         success: true,
-        forecast: {
-          corridor_id: corridorId,
-          forecast_type: forecastType,
-          days: [],
-          total_predictions: 0,
-          generated_at: new Date().toISOString(),
-        },
+        forecast,
       });
     }
 
+    // Phase 52: DB returned empty - ALWAYS fall back to heuristic baseline
+    // This ensures forecasts NEVER render empty
+    console.warn(
+      `[FORECAST_API] DB returned empty for ${corridorId}, falling back to heuristic baseline`
+    );
+
+    const heuristicForecast = await generateHeuristicForecast(corridorId, forecastType);
+
+    if (heuristicForecast) {
+      const forecast: CorridorForecast = {
+        corridor_id: corridorId,
+        forecast_type: forecastType,
+        days: heuristicForecast.days.map((day) => ({
+          service_date: day.service_date,
+          predictions: day.predictions.map((p) => ({
+            service_date: p.service_date,
+            departure_time_local: p.departure_time_local,
+            risk_level: p.risk_level,
+            risk_score: p.risk_score,
+            confidence: p.confidence,
+            explanation: p.explanation,
+            model_version: p.model_version,
+            hours_ahead: p.hours_ahead,
+            sailing_time: p.sailing_time,
+            wind_speed_mph: p.wind_speed_mph,
+            wind_gust_mph: p.wind_gust_mph,
+            wind_direction_deg: p.wind_direction_deg,
+            advisory_level: null,
+          })),
+          highest_risk_level: day.highest_risk_level,
+          prediction_count: day.prediction_count,
+          daily_risk: day.daily_risk,
+        })),
+        total_predictions: heuristicForecast.total_predictions,
+        generated_at: heuristicForecast.generated_at,
+        source: 'heuristic_baseline',
+        confidence_disclaimer: heuristicForecast.confidence_disclaimer,
+      };
+
+      return NextResponse.json({
+        success: true,
+        forecast,
+      });
+    }
+
+    // If even heuristic fails, return empty (should rarely happen)
+    console.error(`[FORECAST_API] Heuristic baseline also failed for ${corridorId}`);
     return NextResponse.json({
       success: true,
-      forecast,
+      forecast: {
+        corridor_id: corridorId,
+        forecast_type: forecastType,
+        days: [],
+        total_predictions: 0,
+        generated_at: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error(`[FORECAST_API] Error fetching forecast for ${corridorId}:`, error);
 
-    // Return empty forecast rather than exposing internal error
-    // Client will show "Forecast data is updating" message
+    // Phase 52: Even on error, try heuristic baseline
+    console.warn(`[FORECAST_API] Attempting heuristic fallback after error for ${corridorId}`);
+
+    try {
+      const heuristicForecast = await generateHeuristicForecast(corridorId, forecastType);
+
+      if (heuristicForecast) {
+        const forecast: CorridorForecast = {
+          corridor_id: corridorId,
+          forecast_type: forecastType,
+          days: heuristicForecast.days.map((day) => ({
+            service_date: day.service_date,
+            predictions: day.predictions.map((p) => ({
+              service_date: p.service_date,
+              departure_time_local: p.departure_time_local,
+              risk_level: p.risk_level,
+              risk_score: p.risk_score,
+              confidence: p.confidence,
+              explanation: p.explanation,
+              model_version: p.model_version,
+              hours_ahead: p.hours_ahead,
+              sailing_time: p.sailing_time,
+              wind_speed_mph: p.wind_speed_mph,
+              wind_gust_mph: p.wind_gust_mph,
+              wind_direction_deg: p.wind_direction_deg,
+              advisory_level: null,
+            })),
+            highest_risk_level: day.highest_risk_level,
+            prediction_count: day.prediction_count,
+            daily_risk: day.daily_risk,
+          })),
+          total_predictions: heuristicForecast.total_predictions,
+          generated_at: heuristicForecast.generated_at,
+          source: 'heuristic_baseline',
+          confidence_disclaimer: heuristicForecast.confidence_disclaimer,
+        };
+
+        return NextResponse.json({
+          success: true,
+          forecast,
+        });
+      }
+    } catch (heuristicError) {
+      console.error(`[FORECAST_API] Heuristic fallback also failed:`, heuristicError);
+    }
+
+    // Return empty forecast as last resort
     return NextResponse.json({
       success: true,
       forecast: {
