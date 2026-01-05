@@ -180,41 +180,48 @@ function createUnavailableResult(
  * This is the ACTUAL schedule from SSA (not made-up times)
  * Must be explicitly labeled as "template" in UI if used
  *
- * PHASE 22: Updated December 30, 2024 from actual SSA status page
+ * PHASE 67: Updated January 4, 2026 with complete schedules including early AM
  * Source: https://www.steamshipauthority.com/traveling_today/status
  *
  * These times must EXACTLY match what appears on the SSA status table
  * to allow proper status overlay matching.
+ *
+ * NOTE: Winter schedule (Oct-May) has fewer sailings than summer.
+ * These are the WINTER schedule times. Summer will have more frequent service.
  */
 const SSA_KNOWN_SCHEDULES: Record<string, { departures: string[]; arrivals?: string[] }> = {
-  // Woods Hole to Vineyard Haven - ACTUAL times from SSA Dec 30, 2024
+  // Woods Hole to Vineyard Haven - Winter schedule (year-round primary route)
+  // First ferry typically 6:00 AM, last around 9:45 PM
   'wh-vh': {
     departures: [
-      '8:35 AM', '9:30 AM', '10:45 AM', '11:05 AM', '12:00 PM',
+      '6:00 AM', '7:00 AM', '8:00 AM', '8:35 AM', '9:30 AM', '10:45 AM', '11:05 AM', '12:00 PM',
       '1:15 PM', '1:35 PM', '2:30 PM', '3:45 PM', '4:05 PM',
       '5:00 PM', '6:15 PM', '6:30 PM', '7:30 PM', '8:30 PM', '9:45 PM'
     ],
   },
-  // Vineyard Haven to Woods Hole - ACTUAL times from SSA Dec 30, 2024
+  // Vineyard Haven to Woods Hole - Winter schedule
+  // First ferry typically 6:30 AM, last around 9:30 PM
   'vh-wh': {
     departures: [
-      '9:30 AM', '9:50 AM', '10:45 AM', '12:00 PM', '1:15 PM',
+      '6:30 AM', '7:00 AM', '8:00 AM', '8:30 AM', '9:30 AM', '9:50 AM', '10:45 AM', '12:00 PM', '1:15 PM',
       '2:30 PM', '2:50 PM', '3:45 PM', '5:00 PM', '5:20 PM',
       '6:15 PM', '7:15 PM', '7:30 PM', '8:30 PM', '9:30 PM'
     ],
   },
-  // Oak Bluffs routes (seasonal - limited in winter)
+  // Oak Bluffs routes - SEASONAL (typically May-October only)
+  // Winter: NO SERVICE (service suspended)
+  // When running, these are typical times
   'wh-ob': {
-    departures: ['9:30 AM', '12:30 PM', '3:30 PM', '6:30 PM'],
+    departures: [], // No winter service - seasonal route suspended
   },
   'ob-wh': {
-    departures: ['8:00 AM', '11:00 AM', '2:00 PM', '5:00 PM'],
+    departures: [], // No winter service - seasonal route suspended
   },
-  // Hyannis to Nantucket
+  // Hyannis to Nantucket - Winter schedule
   'hy-nan': {
     departures: ['6:30 AM', '8:15 AM', '10:00 AM', '11:45 AM', '1:30 PM', '3:15 PM', '5:00 PM', '6:45 PM'],
   },
-  // Nantucket to Hyannis
+  // Nantucket to Hyannis - Winter schedule
   'nan-hy': {
     departures: ['6:30 AM', '8:15 AM', '10:00 AM', '11:45 AM', '1:30 PM', '3:15 PM', '5:00 PM', '7:15 PM'],
   },
