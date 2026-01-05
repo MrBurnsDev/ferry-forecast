@@ -145,25 +145,30 @@ function createUnavailableResult(
  * This is the ACTUAL schedule from Hy-Line (not made-up times)
  * Must be explicitly labeled as "template" in UI if used
  *
- * Winter 2024-2025 schedule
- * Source: https://www.hylinecruises.com/schedules
+ * Winter 2025-2026 schedule (updated January 2026)
+ * Source: https://hylinecruises.com/nantucket-ferry/
+ *
+ * Hy-Line High-Speed Ferry Schedule:
+ * Hyannis→Nantucket: 06:10, 07:30, 09:05, 11:55, 15:05, 19:00
+ * Nantucket→Hyannis: 07:40, 08:55, 10:30, 13:20, 16:35, 20:20
  */
 const HYLINE_KNOWN_SCHEDULES: Record<string, { departures: string[] }> = {
   // Hyannis to Nantucket (high-speed ferry)
   'hy-nan': {
-    departures: ['6:30 AM', '8:00 AM', '9:30 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM', '7:00 PM'],
+    departures: ['6:10 AM', '7:30 AM', '9:05 AM', '11:55 AM', '3:05 PM', '7:00 PM'],
   },
   // Nantucket to Hyannis
   'nan-hy': {
-    departures: ['7:30 AM', '9:00 AM', '10:30 AM', '12:00 PM', '2:00 PM', '4:00 PM', '6:00 PM', '8:00 PM'],
+    departures: ['7:40 AM', '8:55 AM', '10:30 AM', '1:20 PM', '4:35 PM', '8:20 PM'],
   },
-  // Hyannis to Vineyard Haven (inter-island)
+  // Hyannis to Vineyard Haven (inter-island) - SEASONAL, typically May-October
+  // When service resumes, update these times from hylinecruises.com
   'hy-vh': {
-    departures: ['9:15 AM', '1:30 PM', '5:45 PM'],
+    departures: [], // No winter service
   },
-  // Vineyard Haven to Hyannis
+  // Vineyard Haven to Hyannis - SEASONAL
   'vh-hy': {
-    departures: ['10:45 AM', '3:00 PM', '7:15 PM'],
+    departures: [], // No winter service
   },
 };
 
