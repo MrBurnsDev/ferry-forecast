@@ -257,6 +257,31 @@ export interface BoardProvenance {
 
   /** Sailing count after operator filtering */
   filtered_sailing_count?: number;
+
+  // ============================================================
+  // PHASE 73: HARD SEPARATION OF OPERATOR TRUTH VS TEMPLATES
+  // ============================================================
+
+  /**
+   * Today's data authority mode
+   *
+   * PHASE 73 RULE: Today is EITHER 100% operator-driven OR 100% template-driven.
+   * - 'operator_only': Operator sailings exist, templates are EXCLUDED from Today
+   * - 'template_only': No operator sailings, templates are used as fallback
+   *
+   * This field is ONLY set for Today views. Future views don't have this constraint.
+   */
+  today_authority?: 'operator_only' | 'template_only';
+
+  /**
+   * Reason templates were excluded (if today_authority is 'operator_only')
+   *
+   * Explains WHY templates were not shown, for debugging and transparency.
+   * Examples:
+   * - "Operator sailings exist for wh-vh-ssa"
+   * - "Operator schedule (wh-vh-ssa) takes precedence"
+   */
+  template_excluded_reason?: string | null;
 }
 
 /**

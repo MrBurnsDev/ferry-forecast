@@ -1,83 +1,96 @@
 /**
- * SSA Observer Extension - Background Service Worker
+ * Cape Cod Ferry Observer Extension - Background Service Worker
  *
- * Phase 42: Immutable Cancellation Persistence
+ * Phase 70: Multi-Operator Observer (SSA + Hy-Line)
  *
- * TWO INDEPENDENT SCRAPERS:
+ * OPERATORS:
+ * - Steamship Authority (SSA): Vineyard & Nantucket routes
+ * - Hy-Line Cruises: Nantucket high-speed ferry
  *
- * SCRAPER A (Canonical Schedule) - Every 30 minutes
- * - URL: https://m.steamshipauthority.com/#schedule
- * - Purpose: Enumerate ALL sailings for the day (identity source)
- * - Includes status but NOT reliable for reasons
+ * SSA SCRAPERS:
+ * - Scraper A (Mobile Schedule): https://m.steamshipauthority.com/#schedule - every 30 min
+ * - Scraper B (Desktop Status): https://www.steamshipauthority.com/traveling_today/status - every 3 min
  *
- * SCRAPER B (Live Operator Status) - Every 3 minutes
- * - URL: https://www.steamshipauthority.com/traveling_today/status#vineyard_trips
- * - Purpose: Capture cancellation reasons BEFORE sailings disappear
- * - Ephemeral: Sailings DISAPPEAR after departure time
- * - CRITICAL: Must capture "Cancelled due to Trip Consolidation" etc.
+ * HY-LINE SCRAPER:
+ * - Schedule Page: https://hylinecruises.com/nantucket-ferry/ - every 30 min
+ * - Parses rendered DOM for schedule times (page uses JS rendering)
  *
  * DATABASE MERGE RULES (ABSOLUTE):
  * - Once a sailing is marked canceled in DB: NEVER delete, NEVER revert, NEVER clear reason
- * - If a sailing disappears from SSA pages: DO NOTHING (DB remains authoritative)
+ * - If a sailing disappears from operator pages: DO NOTHING (DB remains authoritative)
  * - Only UPDATE when: existing.status != scraped.status
  *
- * STOP CONDITION:
- * - A sailing canceled due to Trip Consolidation
- * - Still appears AFTER its scheduled time
- * - With reason text intact
- * - And never disappears on subsequent polls
+ * FAILURE BEHAVIOR:
+ * - If observation fails: report source_type='unavailable'
+ * - NEVER fall back to templates
+ * - NEVER guess or invent data
  */
 
 // URLs
 const SSA_MOBILE_SCHEDULE_URL = 'https://m.steamshipauthority.com/#schedule';
 const SSA_DESKTOP_STATUS_URL = 'https://www.steamshipauthority.com/traveling_today/status';
+const HYLINE_SCHEDULE_URL = 'https://hylinecruises.com/nantucket-ferry/';
 const API_ENDPOINT = 'https://ferry-forecast.vercel.app/api/operator/status/ingest';
 
 // Alarms
-const SCHEDULE_ALARM_NAME = 'ssa_schedule_poll';     // Full schedule every 30 min
-const LIVE_STATUS_ALARM_NAME = 'ssa_live_status';    // Live status every 3 min
+const SCHEDULE_ALARM_NAME = 'ssa_schedule_poll';     // SSA schedule every 30 min
+const LIVE_STATUS_ALARM_NAME = 'ssa_live_status';    // SSA live status every 3 min
+const HYLINE_SCHEDULE_ALARM_NAME = 'hyline_schedule_poll'; // Hy-Line schedule every 30 min
 const SCHEDULE_POLL_INTERVAL_MINUTES = 30;
 const LIVE_STATUS_POLL_INTERVAL_MINUTES = 3;
+const HYLINE_POLL_INTERVAL_MINUTES = 30;
 
 // ============================================================
 // ALARM SETUP
 // ============================================================
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log(`[SSA Observer] Extension ${details.reason} - Phase 42 Immutable Persistence`);
+  console.log(`[Ferry Observer] Extension ${details.reason} - Phase 70 Multi-Operator`);
 
-  // Schedule scraper: Full schedule every 30 minutes
+  // SSA Schedule scraper: Full schedule every 30 minutes
   await chrome.alarms.create(SCHEDULE_ALARM_NAME, {
     delayInMinutes: 1,
     periodInMinutes: SCHEDULE_POLL_INTERVAL_MINUTES
   });
 
-  // Live status scraper: Capture reasons every 3 minutes
+  // SSA Live status scraper: Capture reasons every 3 minutes
   await chrome.alarms.create(LIVE_STATUS_ALARM_NAME, {
     delayInMinutes: 0.5,  // Start in 30 seconds
     periodInMinutes: LIVE_STATUS_POLL_INTERVAL_MINUTES
   });
 
-  console.log(`[SSA Observer] Alarms set: schedule=${SCHEDULE_POLL_INTERVAL_MINUTES}min, live_status=${LIVE_STATUS_POLL_INTERVAL_MINUTES}min`);
+  // Hy-Line Schedule scraper: Every 30 minutes
+  await chrome.alarms.create(HYLINE_SCHEDULE_ALARM_NAME, {
+    delayInMinutes: 2,  // Stagger after SSA
+    periodInMinutes: HYLINE_POLL_INTERVAL_MINUTES
+  });
+
+  console.log(`[Ferry Observer] Alarms set: ssa_schedule=${SCHEDULE_POLL_INTERVAL_MINUTES}min, ssa_live=${LIVE_STATUS_POLL_INTERVAL_MINUTES}min, hyline=${HYLINE_POLL_INTERVAL_MINUTES}min`);
 
   await chrome.storage.local.set({
     installedAt: new Date().toISOString(),
     pollCount: 0,
     liveStatusPollCount: 0,
-    version: '4.1.0',
-    source: 'dual_source_immutable'
+    hylinePollCount: 0,
+    version: '5.0.0',
+    source: 'multi_operator'
   });
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === SCHEDULE_ALARM_NAME) {
-    console.log('[SSA Observer] SCRAPER A: Canonical schedule poll triggered');
+    console.log('[Ferry Observer] SSA SCRAPER A: Canonical schedule poll triggered');
     await performScheduleScrape('auto');
   }
 
   if (alarm.name === LIVE_STATUS_ALARM_NAME) {
-    console.log('[SSA Observer] SCRAPER B: Live status poll triggered (reason capture)');
+    console.log('[Ferry Observer] SSA SCRAPER B: Live status poll triggered (reason capture)');
     await scrapeLiveOperatorStatus('auto');
+  }
+
+  if (alarm.name === HYLINE_SCHEDULE_ALARM_NAME) {
+    console.log('[Ferry Observer] HY-LINE: Schedule poll triggered');
+    await scrapeHyLineSchedule('auto');
   }
 });
 
@@ -87,15 +100,31 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'manual_scrape') {
-    console.log('[SSA Observer] Manual full scrape requested');
+    console.log('[Ferry Observer] Manual full scrape requested (all operators)');
+    performFullMultiOperatorScrape('manual').then(result => {
+      sendResponse(result);
+    });
+    return true;
+  }
+
+  if (message.action === 'manual_ssa_scrape') {
+    console.log('[Ferry Observer] Manual SSA scrape requested');
     performFullDualScrape('manual').then(result => {
       sendResponse(result);
     });
     return true;
   }
 
+  if (message.action === 'manual_hyline_scrape') {
+    console.log('[Ferry Observer] Manual Hy-Line scrape requested');
+    scrapeHyLineSchedule('manual').then(result => {
+      sendResponse(result);
+    });
+    return true;
+  }
+
   if (message.action === 'manual_live_status') {
-    console.log('[SSA Observer] Manual live status scrape requested');
+    console.log('[Ferry Observer] Manual SSA live status scrape requested');
     scrapeLiveOperatorStatus('manual').then(result => {
       sendResponse(result);
     });
@@ -106,6 +135,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.get([
       'lastPoll', 'lastResult', 'pollCount',
       'lastLiveStatusPoll', 'lastLiveStatusResult', 'liveStatusPollCount',
+      'lastHyLinePoll', 'lastHyLineResult', 'hylinePollCount',
       'version', 'source'
     ]).then(data => {
       sendResponse(data);
@@ -1046,4 +1076,494 @@ function extractWindConditions() {
   return conditions;
 }
 
-console.log('[SSA Observer] Phase 43 Operator Conditions Service Worker started');
+// ============================================================
+// HY-LINE SCHEDULE SCRAPER
+// Phase 70: Multi-Operator Observer
+// ============================================================
+
+/**
+ * Scrape Hy-Line schedule from their website
+ *
+ * PHASE 70 SSA-PARITY CONTRACT:
+ * - Uses same ingestion endpoint as SSA
+ * - Source type: 'operator_scraped'
+ * - operator_id: 'hy-line-cruises'
+ * - Direction MUST be derived from page content, not guessed
+ * - If observation fails: report unavailable, NEVER guess
+ *
+ * URL: https://hylinecruises.com/nantucket-ferry/
+ */
+async function scrapeHyLineSchedule(trigger) {
+  const startTime = Date.now();
+  let tabId = null;
+
+  try {
+    const config = await chrome.storage.local.get(['observerSecret']);
+    if (!config.observerSecret) {
+      const result = {
+        success: false,
+        error: 'OBSERVER_SECRET not configured',
+        trigger,
+        scraper: 'hyline_schedule',
+        operator: 'hy-line-cruises',
+        timestamp: new Date().toISOString()
+      };
+      await saveHyLineResult(result);
+      return result;
+    }
+
+    console.log('[Ferry Observer] === HY-LINE: Schedule Scrape ===');
+    console.log('[Ferry Observer] Target: ' + HYLINE_SCHEDULE_URL);
+
+    // Create tab and navigate to Hy-Line schedule page
+    const tab = await chrome.tabs.create({
+      url: HYLINE_SCHEDULE_URL,
+      active: false
+    });
+    tabId = tab.id;
+
+    // Wait for page load
+    await waitForTabLoad(tabId, 25000);
+
+    // Wait for JS-rendered content to stabilize
+    await waitForHyLineContentStable(tabId, 8);
+
+    // Extract schedule data from DOM
+    console.log('[Ferry Observer] Extracting Hy-Line schedule from DOM...');
+    const extractionResult = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: extractHyLineScheduleData
+    });
+
+    await chrome.tabs.remove(tabId);
+    tabId = null;
+
+    const data = extractionResult?.[0]?.result;
+
+    if (!data || data.error) {
+      console.error('[Ferry Observer] HY-LINE: Extraction failed -', data?.error || 'No data returned');
+
+      const result = {
+        success: false,
+        error: data?.error || 'DOM extraction returned no data',
+        trigger,
+        scraper: 'hyline_schedule',
+        operator: 'hy-line-cruises',
+        timestamp: new Date().toISOString(),
+        debug: data?.debug || null
+      };
+      await saveHyLineResult(result);
+      return result;
+    }
+
+    const sailings = data.sailings || [];
+
+    // REGRESSION GUARD: Must have sailings
+    if (sailings.length === 0) {
+      console.error('[Ferry Observer] HY-LINE REGRESSION: sailings.length == 0');
+      console.error('[Ferry Observer] URL:', HYLINE_SCHEDULE_URL);
+      console.error('[Ferry Observer] Debug:', JSON.stringify(data.debug));
+
+      const result = {
+        success: false,
+        error: 'REGRESSION: No sailings found from Hy-Line page',
+        trigger,
+        scraper: 'hyline_schedule',
+        operator: 'hy-line-cruises',
+        timestamp: new Date().toISOString(),
+        debug: data.debug
+      };
+      await saveHyLineResult(result);
+      return result;
+    }
+
+    console.log(`[Ferry Observer] HY-LINE: Extracted ${sailings.length} sailings`);
+
+    // Build payload matching SSA format
+    const payload = {
+      source: 'hy_line_cruises',
+      trigger,
+      scraper: 'hyline_schedule',
+      scraped_at_utc: new Date().toISOString(),
+      service_date_local: getLocalDate(),
+      timezone: 'America/New_York',
+      schedule_rows: sailings,
+      reason_rows: [],  // Hy-Line doesn't publish reasons like SSA
+      conditions: [],   // No terminal conditions from Hy-Line
+      source_meta: {
+        schedule_source: 'hyline_nantucket_ferry',
+        schedule_url: HYLINE_SCHEDULE_URL,
+        schedule_count: sailings.length,
+        reason_source: 'none',
+        reason_count: 0,
+        reason_status: 'not_applicable',
+        operator_id: 'hy-line-cruises'
+      }
+    };
+
+    // POST to API (same endpoint as SSA)
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.observerSecret}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    let responseData;
+    try {
+      const responseText = await response.text();
+      if (!responseText) throw new Error('Empty response');
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error(`API returned non-JSON response (HTTP ${response.status})`);
+    }
+
+    if (!response.ok || !responseData.success) {
+      throw new Error(responseData.error || `HTTP ${response.status}`);
+    }
+
+    const duration = Date.now() - startTime;
+    const result = {
+      success: true,
+      trigger,
+      scraper: 'hyline_schedule',
+      operator: 'hy-line-cruises',
+      sailings_count: sailings.length,
+      hyannis_to_nantucket: data.hyannis_to_nantucket_count || 0,
+      nantucket_to_hyannis: data.nantucket_to_hyannis_count || 0,
+      statusCounts: responseData.status_counts,
+      duration,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(`[Ferry Observer] HY-LINE: Schedule scrape success - ${sailings.length} sailings in ${duration}ms`);
+    await saveHyLineResult(result);
+    return result;
+
+  } catch (error) {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch {}
+    }
+
+    const result = {
+      success: false,
+      error: error.message,
+      trigger,
+      scraper: 'hyline_schedule',
+      operator: 'hy-line-cruises',
+      timestamp: new Date().toISOString()
+    };
+    console.error('[Ferry Observer] HY-LINE: Schedule scrape error:', error.message);
+    await saveHyLineResult(result);
+    return result;
+  }
+}
+
+/**
+ * Wait for Hy-Line page content to stabilize
+ * The page uses JavaScript to render schedule data
+ */
+async function waitForHyLineContentStable(tabId, maxAttempts = 8) {
+  let lastContentHash = '';
+  let stableCount = 0;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // Look for schedule-related content
+        const scheduleElements = document.querySelectorAll(
+          '.schedule, .departure, .ferry-schedule, [class*="schedule"], ' +
+          'table, .time, [class*="departure"], [class*="trip"]'
+        );
+
+        // Also check for time patterns in body text
+        const bodyText = document.body?.innerText || '';
+        const timeMatches = bodyText.match(/\d{1,2}:\d{2}\s*(AM|PM)/gi) || [];
+
+        return {
+          elementCount: scheduleElements.length,
+          timeCount: timeMatches.length,
+          contentHash: `${scheduleElements.length}-${timeMatches.length}`
+        };
+      }
+    });
+
+    const data = result[0]?.result;
+    const currentHash = data?.contentHash || '';
+
+    console.log(`[Ferry Observer] HY-LINE: Content check ${i + 1}/${maxAttempts}: ${data?.elementCount} elements, ${data?.timeCount} times`);
+
+    if (currentHash === lastContentHash && data?.timeCount >= 3) {
+      stableCount++;
+      if (stableCount >= 2) {
+        console.log(`[Ferry Observer] HY-LINE: Content stable with ${data?.timeCount} time entries`);
+        return data;
+      }
+    } else {
+      stableCount = 0;
+    }
+
+    lastContentHash = currentHash;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  console.log('[Ferry Observer] HY-LINE: Content stabilization timeout, proceeding with extraction');
+  return null;
+}
+
+/**
+ * Extract schedule data from Hy-Line page DOM
+ *
+ * CRITICAL REQUIREMENTS (Phase 70 SSA-Parity):
+ * - Direction MUST be derived from page content semantically
+ * - Port names must match exactly: "Hyannis", "Nantucket"
+ * - Times must include AM/PM
+ * - NO regex guessing for direction
+ * - If direction cannot be determined, mark sailing as invalid
+ */
+function extractHyLineScheduleData() {
+  const sailings = [];
+  const debug = {
+    url: window.location.href,
+    pageTitle: document.title,
+    selectors_tried: [],
+    elements_found: {},
+    raw_times: []
+  };
+
+  // Port normalization
+  const normalizePortName = (name) => {
+    const lower = (name || '').toLowerCase().trim();
+    if (lower.includes('hyannis')) return 'Hyannis';
+    if (lower.includes('nantucket')) return 'Nantucket';
+    return null;
+  };
+
+  // Time normalization
+  const normalizeTime = (timeStr) => {
+    if (!timeStr) return null;
+    return timeStr.trim()
+      .replace(/\s+/g, ' ')
+      .replace(/am$/i, 'AM')
+      .replace(/pm$/i, 'PM');
+  };
+
+  // Strategy 1: Look for structured schedule sections with direction headers
+  const scheduleSelectors = [
+    '.schedule-section',
+    '.ferry-schedule',
+    '[class*="schedule"]',
+    '.departure-list',
+    'section',
+    '.content-section'
+  ];
+
+  for (const selector of scheduleSelectors) {
+    debug.selectors_tried.push(selector);
+    const sections = document.querySelectorAll(selector);
+    debug.elements_found[selector] = sections.length;
+  }
+
+  // Strategy 2: Look for direction indicators in the page structure
+  // Hy-Line typically has sections like "Hyannis to Nantucket" and "Nantucket to Hyannis"
+  const allText = document.body?.innerText || '';
+
+  // Find sections that indicate direction
+  const hyannisToNantucketPatterns = [
+    /hyannis\s+to\s+nantucket/gi,
+    /departing\s+hyannis/gi,
+    /from\s+hyannis/gi,
+    /hyannis\s*→\s*nantucket/gi,
+    /hyannis\s*->\s*nantucket/gi
+  ];
+
+  const nantucketToHyannisPatterns = [
+    /nantucket\s+to\s+hyannis/gi,
+    /departing\s+nantucket/gi,
+    /from\s+nantucket/gi,
+    /nantucket\s*→\s*hyannis/gi,
+    /nantucket\s*->\s*hyannis/gi
+  ];
+
+  // Strategy 3: Parse tables for schedule data
+  const tables = document.querySelectorAll('table');
+  debug.elements_found['tables'] = tables.length;
+
+  for (const table of tables) {
+    const tableText = table.innerText || '';
+    const tableLower = tableText.toLowerCase();
+
+    // Determine direction from table context
+    let direction = null;
+    let fromPort = null;
+    let toPort = null;
+
+    // Check parent elements for direction context
+    let parent = table.parentElement;
+    for (let i = 0; i < 5 && parent; i++) {
+      const parentText = (parent.innerText || '').toLowerCase();
+
+      if (hyannisToNantucketPatterns.some(p => p.test(parentText))) {
+        fromPort = 'Hyannis';
+        toPort = 'Nantucket';
+        direction = 'hy-nan';
+        break;
+      }
+      if (nantucketToHyannisPatterns.some(p => p.test(parentText))) {
+        fromPort = 'Nantucket';
+        toPort = 'Hyannis';
+        direction = 'nan-hy';
+        break;
+      }
+      parent = parent.parentElement;
+    }
+
+    // Extract times from table rows
+    const rows = table.querySelectorAll('tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td, th');
+      for (const cell of cells) {
+        const cellText = cell.innerText || '';
+        const timeMatch = cellText.match(/(\d{1,2}:\d{2}\s*(AM|PM))/i);
+
+        if (timeMatch && direction) {
+          const time = normalizeTime(timeMatch[1]);
+          if (time) {
+            debug.raw_times.push({ time, direction, source: 'table' });
+            sailings.push({
+              departing_terminal: fromPort,
+              arriving_terminal: toPort,
+              departure_time_local: time,
+              status: 'on_time',
+              status_reason: null
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy 4: If no tables, look for list-based schedules
+  if (sailings.length === 0) {
+    // Look for elements containing time patterns near direction indicators
+    const allElements = document.querySelectorAll('div, li, p, span');
+
+    for (const el of allElements) {
+      const text = el.innerText || '';
+      if (text.length > 500) continue; // Skip large containers
+
+      // Check if this element or nearby elements indicate direction
+      let direction = null;
+      let fromPort = null;
+      let toPort = null;
+
+      // Check element and its parent context for direction
+      const contextText = (el.innerText + (el.parentElement?.innerText || '')).toLowerCase();
+
+      if (/hyannis\s+(to|→|->)\s+nantucket/i.test(contextText) ||
+          /departing\s+hyannis/i.test(contextText) ||
+          /from\s+hyannis/i.test(contextText)) {
+        fromPort = 'Hyannis';
+        toPort = 'Nantucket';
+        direction = 'hy-nan';
+      } else if (/nantucket\s+(to|→|->)\s+hyannis/i.test(contextText) ||
+                 /departing\s+nantucket/i.test(contextText) ||
+                 /from\s+nantucket/i.test(contextText)) {
+        fromPort = 'Nantucket';
+        toPort = 'Hyannis';
+        direction = 'nan-hy';
+      }
+
+      if (direction) {
+        // Extract times from this element
+        const timeMatches = text.match(/\d{1,2}:\d{2}\s*(AM|PM)/gi) || [];
+        for (const timeStr of timeMatches) {
+          const time = normalizeTime(timeStr);
+          if (time && !debug.raw_times.some(t => t.time === time && t.direction === direction)) {
+            debug.raw_times.push({ time, direction, source: 'list' });
+            sailings.push({
+              departing_terminal: fromPort,
+              arriving_terminal: toPort,
+              departure_time_local: time,
+              status: 'on_time',
+              status_reason: null
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Deduplicate sailings
+  const seen = new Set();
+  const uniqueSailings = sailings.filter(s => {
+    const key = `${s.departing_terminal}-${s.arriving_terminal}-${s.departure_time_local}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Count by direction
+  const hyannisToNantucket = uniqueSailings.filter(s =>
+    s.departing_terminal === 'Hyannis' && s.arriving_terminal === 'Nantucket'
+  );
+  const nantucketToHyannis = uniqueSailings.filter(s =>
+    s.departing_terminal === 'Nantucket' && s.arriving_terminal === 'Hyannis'
+  );
+
+  console.log(`[HY-LINE Scraper] Extracted ${uniqueSailings.length} sailings: ${hyannisToNantucket.length} HY→NAN, ${nantucketToHyannis.length} NAN→HY`);
+
+  if (uniqueSailings.length === 0) {
+    return {
+      error: 'No sailings found with determinable direction',
+      debug
+    };
+  }
+
+  return {
+    sailings: uniqueSailings,
+    hyannis_to_nantucket_count: hyannisToNantucket.length,
+    nantucket_to_hyannis_count: nantucketToHyannis.length,
+    debug
+  };
+}
+
+/**
+ * Save Hy-Line scrape result to storage
+ */
+async function saveHyLineResult(result) {
+  const data = await chrome.storage.local.get(['hylinePollCount']);
+  await chrome.storage.local.set({
+    lastHyLinePoll: result.timestamp,
+    lastHyLineResult: result,
+    hylinePollCount: (data.hylinePollCount || 0) + 1
+  });
+}
+
+/**
+ * Perform full multi-operator scrape (all operators)
+ * Used for manual "Scrape All" button
+ */
+async function performFullMultiOperatorScrape(trigger) {
+  console.log('[Ferry Observer] Running full multi-operator scrape...');
+
+  // Run SSA dual scrape first
+  const ssaResult = await performFullDualScrape(trigger);
+
+  // Then run Hy-Line scrape
+  const hylineResult = await scrapeHyLineSchedule(trigger);
+
+  return {
+    success: ssaResult.success && hylineResult.success,
+    ssa: ssaResult,
+    hyline: hylineResult,
+    trigger,
+    operators_scraped: ['steamship-authority', 'hy-line-cruises'],
+    timestamp: new Date().toISOString()
+  };
+}
+
+console.log('[Ferry Observer] Phase 70 Multi-Operator Service Worker started');

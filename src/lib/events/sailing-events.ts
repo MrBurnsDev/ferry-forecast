@@ -735,11 +735,37 @@ function normalizeTime(time: string): string {
   return time.toLowerCase().replace(/\s+/g, '');
 }
 
+/**
+ * Generate a unique key for a sailing based on route and departure time.
+ *
+ * PHASE 73: This function is ONLY for operator-sourced sailings.
+ * Template sailings MUST NOT use key-based matching because template
+ * times are not stable enough to guarantee key consistency.
+ *
+ * @param fromPort - Origin port slug or name
+ * @param toPort - Destination port slug or name
+ * @param departureTime - Departure time in any format (12-hour or 24-hour)
+ * @param scheduleSource - OPTIONAL: If provided and is 'template', throws in dev mode
+ */
 export function generateSailingKey(
   fromPort: string,
   toPort: string,
-  departureTime: string
+  departureTime: string,
+  scheduleSource?: string
 ): string {
+  // PHASE 73: Dev assertion - templates should NEVER use key matching
+  if (
+    process.env.NODE_ENV === 'development' &&
+    scheduleSource &&
+    (scheduleSource === 'template' || scheduleSource === 'forecast_template')
+  ) {
+    throw new Error(
+      `[PHASE 73 VIOLATION] generateSailingKey called with template sailing. ` +
+      `Templates must not participate in key-based overlay matching. ` +
+      `from=${fromPort}, to=${toPort}, time=${departureTime}, source=${scheduleSource}`
+    );
+  }
+
   const normalizedTime = normalizeTime(departureTime);
   const fromSlug = normalizePortSlug(fromPort);
   const toSlug = normalizePortSlug(toPort);

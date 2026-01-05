@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "SSA Observer",
-  "version": "4.1.0",
-  "description": "Phase 42: Immutable cancellation persistence - 3-min live status polling for reason capture",
+  "name": "Cape Cod Ferry Observer",
+  "version": "5.0.0",
+  "description": "Phase 70: Multi-operator observer - SSA and Hy-Line schedule/status scraping",
   "permissions": [
     "storage",
     "alarms",
@@ -13,6 +13,8 @@
     "https://m.steamshipauthority.com/*",
     "https://www.steamshipauthority.com/*",
     "https://q.steamshipauthority.com/*",
+    "https://hylinecruises.com/*",
+    "https://www.hylinecruises.com/*",
     "https://ferry-forecast.vercel.app/*"
   ],
   "action": {

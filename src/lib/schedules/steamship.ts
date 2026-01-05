@@ -192,19 +192,22 @@ function createUnavailableResult(
 const SSA_KNOWN_SCHEDULES: Record<string, { departures: string[]; arrivals?: string[] }> = {
   // Woods Hole to Vineyard Haven - Winter schedule (year-round primary route)
   // First ferry typically 6:00 AM, last around 9:45 PM
+  // PHASE 72 FIX: Times corrected to match SSA's actual schedule exactly
+  // Source: https://www.steamshipauthority.com/traveling_today/status (January 2026)
   'wh-vh': {
     departures: [
       '6:00 AM', '7:00 AM', '8:00 AM', '8:35 AM', '9:30 AM', '10:45 AM', '11:05 AM', '12:00 PM',
-      '1:15 PM', '1:35 PM', '2:30 PM', '3:45 PM', '4:05 PM',
+      '1:15 PM', '1:40 PM', '2:30 PM', '3:45 PM', '4:10 PM',
       '5:00 PM', '6:15 PM', '6:30 PM', '7:30 PM', '8:30 PM', '9:45 PM'
     ],
   },
   // Vineyard Haven to Woods Hole - Winter schedule
   // First ferry typically 6:30 AM, last around 9:30 PM
+  // PHASE 72 FIX: Times corrected to match SSA's actual schedule exactly
   'vh-wh': {
     departures: [
       '6:30 AM', '7:00 AM', '8:00 AM', '8:30 AM', '9:30 AM', '9:50 AM', '10:45 AM', '12:00 PM', '1:15 PM',
-      '2:30 PM', '2:50 PM', '3:45 PM', '5:00 PM', '5:20 PM',
+      '2:30 PM', '2:50 PM', '3:45 PM', '5:00 PM', '5:25 PM',
       '6:15 PM', '7:15 PM', '7:30 PM', '8:30 PM', '9:30 PM'
     ],
   },

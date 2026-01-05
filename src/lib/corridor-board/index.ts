@@ -3,6 +3,7 @@
  *
  * Phase 21: Service Corridor Architecture
  * Phase 32: Enhanced with Open-Meteo forecast predictions
+ * Phase 73: HARD SEPARATION OF OPERATOR TRUTH VS TEMPLATES
  *
  * Produces DailyCorridorBoard - all sailings in both directions for a corridor,
  * interleaved and ordered by time, across all operators.
@@ -11,6 +12,26 @@
  * - Layer 0: Schedule (template) - defines which sailings exist (BOTH directions)
  * - Layer 1: Operator Status - sparse overlay, updates matching sailings
  * - Layer 2: Forecast Risk - interpretive, never predicts cancellation
+ *
+ * ============================================================
+ * PHASE 73: TODAY DATA AUTHORITY RULES (IMMUTABLE)
+ * ============================================================
+ *
+ * CORE PRINCIPLE: IF operator_sailings.length > 0: templates MUST be excluded from Today
+ *
+ * When operator data is available (operator_live, operator_scraped):
+ * - Templates are EXCLUDED from Today's board
+ * - Only operator-sourced sailings participate
+ * - Cancellation overlay applies ONLY to operator sailings
+ * - generateSailingKey is ONLY called on operator sailings
+ *
+ * When operator data is unavailable:
+ * - Templates ARE used as fallback
+ * - Cancellation overlay does NOT apply (no key matching on templates)
+ * - Today shows template schedule with "schedule_source: template"
+ *
+ * NEVER mix templates and operator data for Today's board.
+ * ============================================================
  *
  * DATA FLOW RULES (Critical):
  * - Start from template schedule for the corridor (BOTH directions)
@@ -240,6 +261,19 @@ export async function getDailyCorridorBoard(
     corridor.route_ids.map((routeId) => getTodaySchedule(routeId))
   );
 
+  // ============================================================
+  // PHASE 73: TODAY DATA AUTHORITY DECISION
+  // ============================================================
+  // CORE PRINCIPLE: IF operator_sailings.length > 0: templates MUST be excluded
+  //
+  // Step 1: Categorize all sailings by source type
+  // Step 2: Determine today_authority based on operator data presence
+  // Step 3: Apply hard exclusion of templates when operator data exists
+
+  // First pass: collect all sailings and categorize by source
+  const operatorSailings: Array<{ sailing: TerminalBoardSailing; routeId: string; operatorId: string }> = [];
+  const templateSailings: Array<{ sailing: TerminalBoardSailing; routeId: string; operatorId: string }> = [];
+
   // Process all schedule results
   for (let i = 0; i < corridor.route_ids.length; i++) {
     const routeId = corridor.route_ids[i];
@@ -262,17 +296,28 @@ export async function getDailyCorridorBoard(
     // Determine operator for this route
     const operatorId = getOperatorIdFromRouteId(routeId);
 
-    // Convert sailings to board format (with optional forecast context)
-    // Phase 48: Pass merged overlay for force-merge
+    // Convert sailings to board format
+    // PHASE 73: Do NOT pass overlay yet - we'll apply it after authority decision
     const boardSailings = convertSailingsToBoard(
       scheduleResult,
       operatorId,
       routeId,
       weather,
       forecastContext,
-      mergedOverlay
+      undefined // NO overlay at this stage - Phase 73 will apply it selectively
     );
-    allSailings.push(...boardSailings);
+
+    // Categorize each sailing by its schedule_source
+    for (const sailing of boardSailings) {
+      const isOperatorData = sailing.schedule_source === 'operator_live' ||
+                             sailing.schedule_source === 'operator_scraped';
+
+      if (isOperatorData) {
+        operatorSailings.push({ sailing, routeId, operatorId });
+      } else {
+        templateSailings.push({ sailing, routeId, operatorId });
+      }
+    }
 
     // Collect advisories (dedupe later)
     if (scheduleResult.advisories) {
@@ -303,6 +348,99 @@ export async function getDailyCorridorBoard(
         url: scheduleResult.statusSource?.url,
       });
     }
+  }
+
+  // ============================================================
+  // PHASE 73: ENFORCE TODAY DATA AUTHORITY
+  // ============================================================
+  // IMMUTABLE RULE: If we have ANY operator sailings, templates are EXCLUDED
+  const hasOperatorData = operatorSailings.length > 0;
+  const todayAuthority: 'operator_only' | 'template_only' = hasOperatorData ? 'operator_only' : 'template_only';
+  let templateExcludedReason: string | null = null;
+
+  if (hasOperatorData) {
+    // HARD EXCLUSION: Templates are not used for Today when operator data exists
+    templateExcludedReason = `Operator data available (${operatorSailings.length} sailings)`;
+
+    // Phase 73 logging
+    console.log(
+      `[CORRIDOR_BOARD] Phase 73: today_authority=operator_only, ` +
+      `operator_sailings=${operatorSailings.length}, template_sailings_excluded=${templateSailings.length}`
+    );
+
+    // Add ONLY operator sailings to allSailings
+    // Apply overlay ONLY to operator sailings
+    for (const { sailing } of operatorSailings) {
+      const sailingWithOverlay = applyStatusOverlayToSailing(sailing, mergedOverlay);
+      allSailings.push(sailingWithOverlay);
+    }
+
+    // PHASE 73 DEV ASSERTION: Templates must NOT appear in Today when operator data exists
+    if (process.env.NODE_ENV === 'development') {
+      const templateInOutput = allSailings.some(s =>
+        s.schedule_source === 'template' || s.schedule_source === 'forecast_template'
+      );
+      if (templateInOutput) {
+        throw new Error(
+          `[CORRIDOR_BOARD] PHASE 73 VIOLATION: Template sailing found in Today's board ` +
+          `when operator data exists. today_authority=${todayAuthority}, ` +
+          `operator_count=${operatorSailings.length}, corridor=${corridorId}`
+        );
+      }
+    }
+  } else {
+    // Template fallback: No operator data available
+    console.log(
+      `[CORRIDOR_BOARD] Phase 73: today_authority=template_only, ` +
+      `template_sailings=${templateSailings.length}, operator_sailings=0`
+    );
+
+    // Add template sailings WITHOUT overlay (Phase 73: templates don't get DB status)
+    for (const { sailing } of templateSailings) {
+      // DO NOT apply overlay to templates - they don't participate in key matching
+      allSailings.push(sailing);
+    }
+  }
+
+  // ============================================================
+  // PHASE 73: HELPER - Apply status overlay to a single sailing
+  // ============================================================
+  function applyStatusOverlayToSailing(
+    sailing: TerminalBoardSailing,
+    statusOverlay: Map<string, PersistedStatus>
+  ): TerminalBoardSailing {
+    if (!statusOverlay || statusOverlay.size === 0) {
+      return sailing;
+    }
+
+    // Generate key for this sailing
+    const overlayKey = generateSailingKey(
+      sailing.origin_terminal.id,
+      sailing.destination_terminal.id,
+      sailing.scheduled_departure_local
+    );
+
+    const persistedStatus = statusOverlay.get(overlayKey);
+    if (!persistedStatus) {
+      // No match in overlay - return unchanged
+      return sailing;
+    }
+
+    // FORCE-MERGE: Supabase status wins unconditionally
+    // This is especially critical for cancellations
+    if (persistedStatus.status === 'canceled') {
+      console.log(
+        `[CORRIDOR_BOARD] Phase 73 OVERLAY: ${sailing.origin_terminal.id} → ${sailing.destination_terminal.id} @ ${sailing.scheduled_departure_local} = CANCELED`
+      );
+    }
+
+    return {
+      ...sailing,
+      operator_status: persistedStatus.status,
+      operator_status_reason: persistedStatus.status_reason || sailing.operator_status_reason,
+      status_overlay_applied: true,
+      operator_status_source: 'supabase_sailing_events',
+    };
   }
 
   // ============================================================
@@ -394,6 +532,9 @@ export async function getDailyCorridorBoard(
     status_overlay_available: hasAnyStatusOverlay,
     generated_at: now.toISOString(),
     operator_status_sources: operatorStatusSources,
+    // Phase 73: Hard separation of operator truth vs templates
+    today_authority: todayAuthority,
+    template_excluded_reason: templateExcludedReason,
   };
 
   // Get status URL
