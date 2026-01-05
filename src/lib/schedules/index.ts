@@ -60,14 +60,29 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (increased from 3)
 // In-flight requests for coalescing
 const inFlightRequests = new Map<string, Promise<ScheduleFetchResult>>();
 
+// In-flight operator fetches for cross-route coalescing
+// When one route for an operator is fetching, other routes for the same operator should wait
+const inFlightOperatorFetches = new Map<string, Set<string>>();
+
 // Rate limiting: track last fetch time per operator
 const lastFetchTime = new Map<string, number>();
 const MIN_FETCH_INTERVAL_MS = 10 * 1000; // 10 seconds between requests to same operator
 
 /**
  * Check if we should rate-limit a request
+ *
+ * PHASE 71 FIX: Don't rate-limit if there's an in-flight request for this operator.
+ * This allows parallel fetches of multiple routes (e.g., wh-vh-ssa and vh-wh-ssa)
+ * to proceed without blocking each other on cold start.
  */
 function shouldRateLimit(operatorSlug: string): boolean {
+  // If there's an in-flight fetch for this operator, don't rate-limit
+  // This allows parallel fetches for the same operator to proceed
+  const inFlight = inFlightOperatorFetches.get(operatorSlug);
+  if (inFlight && inFlight.size > 0) {
+    return false;
+  }
+
   const lastTime = lastFetchTime.get(operatorSlug);
   if (!lastTime) return false;
   return Date.now() - lastTime < MIN_FETCH_INTERVAL_MS;
@@ -121,18 +136,42 @@ export async function getTodaySchedule(routeId: string): Promise<ScheduleFetchRe
     return createUnavailableResult(routeId, 'Rate limited - please try again shortly');
   }
 
+  // PHASE 71 FIX: Track this route as in-flight for this operator
+  // This allows parallel fetches of different routes for the same operator
+  if (operatorSlug) {
+    let operatorInFlight = inFlightOperatorFetches.get(operatorSlug);
+    if (!operatorInFlight) {
+      operatorInFlight = new Set();
+      inFlightOperatorFetches.set(operatorSlug, operatorInFlight);
+    }
+    operatorInFlight.add(routeId);
+  }
+
   // Create the fetch promise
   const fetchPromise = (async () => {
     let result: ScheduleFetchResult;
 
-    if (isSSAScheduleRoute(routeId)) {
-      recordFetchTime('ssa');
-      result = await fetchSSASchedule(routeId);
-    } else if (isHyLineScheduleRoute(routeId)) {
-      recordFetchTime('hlc');
-      result = await fetchHyLineSchedule(routeId);
-    } else {
-      result = createUnavailableResult(routeId, `Unknown route: ${routeId}`);
+    try {
+      if (isSSAScheduleRoute(routeId)) {
+        recordFetchTime('ssa');
+        result = await fetchSSASchedule(routeId);
+      } else if (isHyLineScheduleRoute(routeId)) {
+        recordFetchTime('hlc');
+        result = await fetchHyLineSchedule(routeId);
+      } else {
+        result = createUnavailableResult(routeId, `Unknown route: ${routeId}`);
+      }
+    } finally {
+      // PHASE 71 FIX: Remove from operator in-flight tracking
+      if (operatorSlug) {
+        const operatorInFlight = inFlightOperatorFetches.get(operatorSlug);
+        if (operatorInFlight) {
+          operatorInFlight.delete(routeId);
+          if (operatorInFlight.size === 0) {
+            inFlightOperatorFetches.delete(operatorSlug);
+          }
+        }
+      }
     }
 
     // Cache result

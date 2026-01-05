@@ -222,9 +222,28 @@ export async function getDailyCorridorBoard(
   let hasAnyLiveSchedule = false;
   let hasAnyStatusOverlay = mergedOverlay.size > 0;
 
-  // Fetch schedules for each route in the corridor (both directions)
-  for (const routeId of corridor.route_ids) {
-    const scheduleResult = await getTodaySchedule(routeId);
+  // ============================================================
+  // PHASE 71 FIX: FETCH ALL ROUTES IN PARALLEL
+  // ============================================================
+  // Previously, routes were fetched sequentially with `await` inside a loop.
+  // This caused rate limiting to block the second route on cold start:
+  // - First route (wh-vh-ssa) would fetch successfully
+  // - Second route (vh-wh-ssa) would be rate-limited (same operator)
+  // - Only one direction's sailings would appear
+  //
+  // Fix: Fetch all routes in parallel using Promise.all().
+  // This ensures both directions are fetched in the same timestamp window,
+  // and the in-flight request coalescing in schedules/index.ts will handle
+  // any actual duplicate requests properly.
+
+  const scheduleResults = await Promise.all(
+    corridor.route_ids.map((routeId) => getTodaySchedule(routeId))
+  );
+
+  // Process all schedule results
+  for (let i = 0; i < corridor.route_ids.length; i++) {
+    const routeId = corridor.route_ids[i];
+    const scheduleResult = scheduleResults[i];
 
     // Track provenance
     if (scheduleResult.provenance.source_type === 'operator_live') {
