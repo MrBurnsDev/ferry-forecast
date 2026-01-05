@@ -58,6 +58,14 @@ interface CorridorState {
   error: string | null;
 }
 
+/**
+ * Map URL operatorId to internal operator_id used in sailings
+ */
+const OPERATOR_ID_MAP: Record<string, string> = {
+  ssa: 'steamship-authority',
+  hyline: 'hy-line-cruises',
+};
+
 // ============================================================
 // ICONS
 // ============================================================
@@ -258,7 +266,7 @@ export default function RoutePage() {
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
           <div className="max-w-4xl mx-auto">
-            {/* Corridor Tabs - The full corridor experience */}
+            {/* Corridor Tabs - Filtered to this operator's sailings only */}
             {state.corridorId && (
               <CorridorTabs
                 corridorId={state.corridorId}
@@ -266,6 +274,7 @@ export default function RoutePage() {
                 weatherContext={state.weatherContext}
                 boardLoading={state.loading}
                 boardError={state.error}
+                operatorFilter={OPERATOR_ID_MAP[operatorId] || operatorId}
               />
             )}
           </div>

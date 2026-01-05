@@ -110,6 +110,8 @@ interface CorridorTabsProps {
   weatherContext: WeatherContext | null;
   boardLoading: boolean;
   boardError: string | null;
+  /** Optional: Filter sailings to show only this operator's sailings */
+  operatorFilter?: string;
 }
 
 // ============================================================
@@ -610,8 +612,17 @@ export function CorridorTabs({
   weatherContext,
   boardLoading,
   boardError,
+  operatorFilter,
 }: CorridorTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('today');
+
+  // Phase 64: Filter board sailings by operator if operatorFilter is provided
+  const filteredBoard = board && operatorFilter
+    ? {
+        ...board,
+        sailings: board.sailings.filter((s) => s.operator_id === operatorFilter),
+      }
+    : board;
 
   const tabs: { id: TabId; label: string; icon: typeof ClockIcon }[] = [
     { id: 'today', label: 'Today', icon: ClockIcon },
@@ -649,7 +660,7 @@ export function CorridorTabs({
       <div className="p-6">
         {activeTab === 'today' && (
           <TodayContent
-            board={board}
+            board={filteredBoard}
             weatherContext={weatherContext}
             loading={boardLoading}
             error={boardError}
