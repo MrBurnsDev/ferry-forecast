@@ -8,11 +8,13 @@
  * Phase 53: Wind source priority - operator conditions over NWS station data
  * Phase 56: ZIP-based local weather observations as fallback
  * Phase 58: HARD SYNC - Redundant wind authority with stale fallback
+ * Phase 65: Server-side operator filtering for operator-specific pages
  *
  * GET /api/corridor/[corridorId]
  *
  * Query parameters:
  * - forecast=true: Use Open-Meteo forecast data for hour-specific risk
+ * - operator=<id>: Filter sailings to only this operator (server-side enforcement)
  *
  * Returns a DailyCorridorBoard with all sailings in both directions,
  * interleaved and ordered by time, with per-sailing risk scores.
@@ -82,6 +84,12 @@ export async function GET(
   // Parse query parameters
   const { searchParams } = new URL(request.url);
   const useForecast = searchParams.get('forecast') === 'true';
+
+  // Phase 65: Server-side operator filtering
+  // When operator param is provided, ONLY return sailings from that operator.
+  // This is CRITICAL for operator-specific route pages (/operator/ssa/route/hy-nan-ssa)
+  // which must NEVER show mixed-operator data.
+  const operatorFilter = searchParams.get('operator');
 
   // Phase 63: Resolve route ID to corridor ID
   // Supports multiple formats: exact corridor ID, route ID with operator suffix, short route ID
@@ -283,6 +291,83 @@ export async function GET(
       );
     }
 
+    // ============================================================
+    // PHASE 65: SERVER-SIDE OPERATOR FILTERING
+    // ============================================================
+    //
+    // When operator param is provided, filter sailings server-side.
+    // This is CRITICAL for operator-specific route pages.
+    //
+    // NON-NEGOTIABLES:
+    // 1. SSA-only pages MUST show ONLY SSA sailings
+    // 2. For Today tab: schedule_source MUST be operator_live or operator_scraped ONLY
+    // 3. template and forecast_template MUST NEVER appear in Today views
+    // 4. Footer provenance MUST NEVER show "Mixed Sources" on operator-specific pages
+    //
+    // DEDUPLICATION: By stable key (operator_id + from + to + time)
+    // to prevent duplicates from synthetic sailing union logic.
+
+    let filteredBoard = board;
+
+    if (operatorFilter) {
+      // Filter sailings to only this operator
+      const originalCount = board.sailings.length;
+
+      // Phase 65: Deduplicate by stable key FIRST, then filter by operator
+      const seenKeys = new Set<string>();
+      const deduplicatedSailings = board.sailings.filter((s) => {
+        const stableKey = `${s.operator_id}|${s.origin_terminal.id}|${s.destination_terminal.id}|${s.scheduled_departure_local}`;
+        if (seenKeys.has(stableKey)) {
+          console.log(
+            `[CORRIDOR_API] Phase 65 DEDUP: Removing duplicate sailing: ${stableKey}`
+          );
+          return false;
+        }
+        seenKeys.add(stableKey);
+        return true;
+      });
+
+      // Now filter by operator
+      const operatorSailings = deduplicatedSailings.filter(
+        (s) => s.operator_id === operatorFilter
+      );
+
+      const filteredCount = operatorSailings.length;
+
+      // Phase 65 NON-REGRESSION GUARD
+      // If operator filter is applied but we have zero sailings, log CRITICAL
+      if (filteredCount === 0 && originalCount > 0) {
+        console.error(
+          `[CORRIDOR_API] CRITICAL Phase 65 GUARD: Operator filter '${operatorFilter}' ` +
+          `returned 0 sailings from ${originalCount} total. ` +
+          `This may indicate a mapping mismatch.`
+        );
+      }
+
+      // Log the filtering for observability
+      console.log(
+        `[CORRIDOR_API] Phase 65 operator filter: ${operatorFilter} ` +
+        `(${originalCount} total → ${deduplicatedSailings.length} deduped → ${filteredCount} filtered)`
+      );
+
+      // Build new board with filtered sailings and updated provenance
+      filteredBoard = {
+        ...board,
+        sailings: operatorSailings,
+        provenance: {
+          ...board.provenance,
+          // Phase 65: Mark as single-operator response
+          operator_filter_applied: operatorFilter,
+          original_sailing_count: originalCount,
+          filtered_sailing_count: filteredCount,
+          // Override any "mixed sources" indication since we're single-operator now
+          schedule_sources: board.provenance.schedule_sources?.filter(
+            (src: string) => src.includes(operatorFilter) || !src.includes('hy-line') && !src.includes('steamship')
+          ),
+        },
+      };
+    }
+
     // Phase 58: Build weather_context - ALWAYS returns an object (never null)
     //
     // DATA CONTRACT (FINAL):
@@ -395,9 +480,10 @@ export async function GET(
 
     // Phase 46: Run cancellation regression guard (non-blocking)
     // This logs CRITICAL if DB has more cancellations than the response
+    // Phase 65: Use filteredBoard for guard check if operator filter is applied
     const guardMetadata = await getCancellationGuardMetadata(
-      board.sailings,
-      board.service_date_local,
+      filteredBoard.sailings,
+      filteredBoard.service_date_local,
       resolvedCorridorId
     );
 
@@ -410,10 +496,11 @@ export async function GET(
     }
 
     // Phase 46: Add no-store header to prevent CDN caching
+    // Phase 65: Return filteredBoard (which is filtered when operator param is provided)
     return NextResponse.json(
       {
         success: true,
-        board,
+        board: filteredBoard,
         weather_context: weatherContext,
       },
       {

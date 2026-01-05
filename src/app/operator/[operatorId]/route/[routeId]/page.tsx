@@ -146,10 +146,17 @@ export default function RoutePage() {
     const corridorId = corridor.id;
     const displayName = corridor.display_name;
 
-    // Fetch corridor data
+    // Phase 65: Build internal operator ID for API filtering
+    const internalOperatorId = OPERATOR_ID_MAP[operatorId] || operatorId;
+
+    // Fetch corridor data with operator filter for single-operator pages
     async function fetchCorridorData() {
       try {
-        const response = await fetch(`/api/corridor/${corridorId}`);
+        // Phase 65: Pass operator param for server-side filtering
+        // This ensures SSA-only pages show ONLY SSA sailings, eliminating
+        // duplicates, mixed sources, and template data pollution.
+        const url = `/api/corridor/${corridorId}?operator=${encodeURIComponent(internalOperatorId)}`;
+        const response = await fetch(url);
         const result = await response.json();
 
         if (!response.ok || !result.success) {
