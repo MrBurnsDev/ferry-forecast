@@ -212,11 +212,56 @@ export function getCorridorTerminals(corridorId: string): { a: Terminal; b: Term
 /**
  * Get corridor by route ID
  *
- * Phase 63: Maps a route ID (e.g., 'wh-vh-ssa') to its parent corridor.
+ * Phase 63: Maps a route ID to its parent corridor.
  * This enables the route page to embed the corridor-style experience.
+ *
+ * Supports multiple route ID formats:
+ * - Short form: 'wh-vh' (from operator routes API)
+ * - Long form: 'wh-vh-ssa' (corridor-specific)
+ * - Corridor ID itself: 'woods-hole-vineyard-haven'
  */
 export function getCorridorByRouteId(routeId: string): ServiceCorridor | null {
-  return CORRIDORS.find((c) => c.active && c.route_ids.includes(routeId)) || null;
+  // First try exact match on route_ids
+  const exactMatch = CORRIDORS.find((c) => c.active && c.route_ids.includes(routeId));
+  if (exactMatch) return exactMatch;
+
+  // Try matching by corridor ID
+  const corridorMatch = CORRIDORS.find((c) => c.active && c.id === routeId);
+  if (corridorMatch) return corridorMatch;
+
+  // Try matching short route ID (without operator suffix)
+  // e.g., 'wh-vh' should match corridor with 'wh-vh-ssa' or 'wh-vh-hlc'
+  const shortMatch = CORRIDORS.find((c) =>
+    c.active && c.route_ids.some((rid) => rid.startsWith(routeId + '-'))
+  );
+  if (shortMatch) return shortMatch;
+
+  // Try matching by terminal pair pattern
+  // e.g., 'wh-vh' maps to terminal_a=woods-hole, terminal_b=vineyard-haven
+  const terminalMap: Record<string, string> = {
+    'wh': 'woods-hole',
+    'vh': 'vineyard-haven',
+    'ob': 'oak-bluffs',
+    'hy': 'hyannis',
+    'nan': 'nantucket',
+  };
+
+  const parts = routeId.split('-');
+  if (parts.length >= 2) {
+    const fromTerminal = terminalMap[parts[0]];
+    const toTerminal = terminalMap[parts[1]];
+
+    if (fromTerminal && toTerminal) {
+      const terminalMatch = CORRIDORS.find((c) =>
+        c.active &&
+        ((c.terminal_a === fromTerminal && c.terminal_b === toTerminal) ||
+         (c.terminal_a === toTerminal && c.terminal_b === fromTerminal))
+      );
+      if (terminalMatch) return terminalMatch;
+    }
+  }
+
+  return null;
 }
 
 /**

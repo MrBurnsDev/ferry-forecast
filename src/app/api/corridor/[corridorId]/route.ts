@@ -61,7 +61,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
-import { isValidCorridor, getCorridorById } from '@/lib/config/corridors';
+import { isValidCorridor, getCorridorById, getCorridorByRouteId } from '@/lib/config/corridors';
 // Phase 52 FIX: Removed fetchCurrentWeather import - we no longer fall back to NOAA forecast
 // Phase 54 FIX: Removed fetchNWSObservationForTerminal import - NWS stations like KHYA are
 // 20+ miles from terminals and showing their data as "current conditions" is misleading
@@ -83,16 +83,25 @@ export async function GET(
   const { searchParams } = new URL(request.url);
   const useForecast = searchParams.get('forecast') === 'true';
 
-  // Validate corridor ID
-  if (!corridorId || !isValidCorridor(corridorId)) {
-    return NextResponse.json(
-      {
-        success: false,
-        board: null,
-        error: `Invalid corridor ID: ${corridorId}`,
-      },
-      { status: 400 }
-    );
+  // Phase 63: Resolve route ID to corridor ID
+  // Supports multiple formats: exact corridor ID, route ID with operator suffix, short route ID
+  let resolvedCorridorId = corridorId;
+
+  // First try exact corridor match, then try flexible route resolution
+  if (!isValidCorridor(corridorId)) {
+    const resolvedCorridor = getCorridorByRouteId(corridorId);
+    if (resolvedCorridor) {
+      resolvedCorridorId = resolvedCorridor.id;
+    } else {
+      return NextResponse.json(
+        {
+          success: false,
+          board: null,
+          error: `Invalid corridor ID: ${corridorId}`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   try {
@@ -108,7 +117,7 @@ export async function GET(
     // 4. operator_text_fallback - Parsed text from SSA (not yet implemented)
     // 5. unavailable     - ONLY if ALL sources fail (should be rare)
     //
-    const corridor = getCorridorById(corridorId);
+    const corridor = getCorridorById(resolvedCorridorId);
     let weather: WeatherContext | null = null;
 
     // Phase 58: Authority type with all 5 tiers
@@ -258,7 +267,8 @@ export async function GET(
 
     // Generate corridor board with weather context
     // Phase 32: Optionally use Open-Meteo forecast data
-    const board = await getDailyCorridorBoard(corridorId, weather, {
+    // Phase 63: Use resolved corridor ID for all operations
+    const board = await getDailyCorridorBoard(resolvedCorridorId, weather, {
       useForecast,
     });
 
@@ -267,7 +277,7 @@ export async function GET(
         {
           success: false,
           board: null,
-          error: `Corridor not found: ${corridorId}`,
+          error: `Corridor not found: ${resolvedCorridorId}`,
         },
         { status: 404 }
       );
@@ -388,7 +398,7 @@ export async function GET(
     const guardMetadata = await getCancellationGuardMetadata(
       board.sailings,
       board.service_date_local,
-      corridorId
+      resolvedCorridorId
     );
 
     // Log guard result for monitoring (without blocking)
