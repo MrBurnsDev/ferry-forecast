@@ -192,6 +192,25 @@ export interface TerminalBoardSailing {
 
   /** Vessel type for display (e.g., "High-Speed", "Traditional") */
   vessel_type?: string;
+
+  // ============================================================
+  // PHASE 74: REMOVED SAILING TRACKING
+  // ============================================================
+
+  /**
+   * Phase 74: Origin marker for removed sailings
+   *
+   * PHASE 74 SSA DISAPPEARING CANCELLATION INGESTION:
+   * - 'operator_removed': Sailing was in the full schedule but NOT in the active list
+   *   (SSA removes canceled sailings instead of marking them as canceled)
+   * - undefined/null: Normal sailing from operator scrape
+   *
+   * UI TREATMENT:
+   * - When sailing_origin is 'operator_removed': show muted + strikethrough
+   * - The sailing should display as canceled but with visual distinction
+   *   indicating it was inferred from disappearance, not explicitly marked
+   */
+  sailing_origin?: 'operator_removed' | null;
 }
 
 // ============================================================

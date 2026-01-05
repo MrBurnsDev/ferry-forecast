@@ -129,6 +129,20 @@ export interface SailingEventInput {
   // Source metadata
   source: string;
   observed_at: string; // ISO timestamp
+
+  /**
+   * Phase 74: Origin marker for removed sailings
+   *
+   * PHASE 74 SSA DISAPPEARING CANCELLATION INGESTION:
+   * - 'operator_removed': Sailing was in the full schedule but NOT in the active list
+   *   (SSA removes canceled sailings instead of marking them as canceled)
+   * - undefined: Normal sailing from operator scrape
+   *
+   * When sailing_origin is 'operator_removed':
+   * - status MUST be 'canceled' (inferred from disappearance)
+   * - status_message should explain the inference
+   */
+  sailing_origin?: 'operator_removed';
 }
 
 export interface WeatherSnapshot {
@@ -555,6 +569,8 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       wind_relation: weather.wind_relation,
       source: event.source,
       observed_at: event.observed_at,
+      // Phase 74: Track removed sailings origin
+      sailing_origin: event.sailing_origin || null,
     };
 
     const { data: insertedData, error: insertError } = await supabase
@@ -706,6 +722,14 @@ export interface PersistedStatus {
   status_reason: string | null;
   observed_at: string;
   source: string;
+  /**
+   * Phase 74: Origin marker for removed sailings
+   *
+   * - 'operator_removed': Sailing was in the full schedule but NOT in the active list
+   *   (SSA removes canceled sailings instead of marking them as canceled)
+   * - null/undefined: Normal sailing from operator scrape
+   */
+  sailing_origin?: 'operator_removed' | null;
 }
 
 /**
@@ -899,6 +923,8 @@ export function countCanceledInOverlay(overlay: Map<string, PersistedStatus>): n
 /**
  * Raw sailing event record from Supabase with full port info
  * Used for creating synthetic sailings when DB has cancellations not in schedule
+ *
+ * Phase 74: Added sailing_origin for tracking removed sailings
  */
 export interface RawSailingEvent {
   from_port: string;
@@ -909,6 +935,14 @@ export interface RawSailingEvent {
   status_message: string | null;
   observed_at: string;
   source: string;
+  /**
+   * Phase 74: Origin marker for removed sailings
+   *
+   * - 'operator_removed': Sailing was in the full schedule but NOT in the active list
+   *   (SSA removes canceled sailings instead of marking them as canceled)
+   * - null/undefined: Normal sailing from operator scrape
+   */
+  sailing_origin?: 'operator_removed' | null;
 }
 
 /**
@@ -950,9 +984,10 @@ export async function loadExtendedStatusOverlay(
 
   try {
     // Query ALL sailing events for this operator and date
+    // Phase 74: Include sailing_origin for removed sailing detection
     const { data, error } = await supabase
       .from('sailing_events')
-      .select('from_port, to_port, departure_time, status, status_reason, status_message, observed_at, source')
+      .select('from_port, to_port, departure_time, status, status_reason, status_message, observed_at, source, sailing_origin')
       .eq('operator_id', operatorId)
       .eq('service_date', serviceDate)
       .order('observed_at', { ascending: false });
@@ -994,6 +1029,7 @@ export async function loadExtendedStatusOverlay(
       }
 
       // Collect raw records (dedupe - keep first per key which is most recent)
+      // Phase 74: Include sailing_origin for removed sailing detection
       if (!seenKeys.has(key)) {
         seenKeys.add(key);
         result.rawRecords.push({
@@ -1005,6 +1041,7 @@ export async function loadExtendedStatusOverlay(
           status_message: row.status_message,
           observed_at: row.observed_at,
           source: row.source,
+          sailing_origin: row.sailing_origin || null,
         });
       }
     }

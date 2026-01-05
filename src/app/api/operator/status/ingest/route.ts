@@ -87,6 +87,7 @@ interface LegacyIngestPayload {
 }
 
 // Phase 41: Dual-source payload format
+// Phase 74: Added sailing_origin for removed sailing detection
 interface ScheduleRow {
   departing_terminal: string;
   arriving_terminal: string;
@@ -94,6 +95,19 @@ interface ScheduleRow {
   arrival_time_local?: string;
   status: 'on_time' | 'canceled' | 'delayed';
   status_reason?: string | null;  // May be null from Source A
+  /**
+   * Phase 74: Origin marker for removed sailings
+   *
+   * PHASE 74 SSA DISAPPEARING CANCELLATION INGESTION:
+   * - 'operator_removed': Sailing was in the full schedule but NOT in the active list
+   *   (SSA removes canceled sailings instead of marking them as canceled)
+   * - undefined: Normal sailing from operator scrape
+   *
+   * When sailing_origin is 'operator_removed':
+   * - status MUST be 'canceled' (inferred from disappearance)
+   * - status_reason should explain the inference
+   */
+  sailing_origin?: 'operator_removed';
 }
 
 interface ReasonRow {
@@ -441,6 +455,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         status_message: s.status_reason || undefined,
         source: `${payload.source}_observer`,
         observed_at: payload.scraped_at_utc,
+        // Phase 74: Pass through sailing_origin for removed sailing detection
+        sailing_origin: s.sailing_origin,
       };
     });
 

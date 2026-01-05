@@ -351,53 +351,140 @@ export async function getDailyCorridorBoard(
   }
 
   // ============================================================
-  // PHASE 73: ENFORCE TODAY DATA AUTHORITY
+  // PHASE 75: SCHEDULE RECONCILIATION FIX
   // ============================================================
-  // IMMUTABLE RULE: If we have ANY operator sailings, templates are EXCLUDED
+  //
+  // CORE CONTRACT (NON-NEGOTIABLE):
+  // - The daily schedule (from templates) is the BASE TRUTH
+  // - Operator data is an OVERLAY ONLY (status updates, cancellations)
+  // - Operator data must NEVER define which sailings exist for the day
+  // - Missing sailings must NEVER silently disappear
+  //
+  // PHASE 75 FIX: Always start from templates, apply operator status as overlay.
+  // The Phase 73 "hard separation" logic was incorrect - it excluded templates
+  // when ANY operator data existed, causing sailings to disappear.
+  //
+  // NEW LOGIC:
+  // 1. Start with ALL template sailings (the base schedule)
+  // 2. Apply operator status overlay to matching sailings
+  // 3. Log CRITICAL warning if operator data covers fewer sailings than expected
+  // 4. Sailings without operator overlay show as "Scheduled" (null status)
+
   const hasOperatorData = operatorSailings.length > 0;
   const todayAuthority: 'operator_only' | 'template_only' = hasOperatorData ? 'operator_only' : 'template_only';
   let templateExcludedReason: string | null = null;
 
+  // ============================================================
+  // PHASE 75 DEV-TIME ASSERTION: DETECT PARTIAL OPERATOR SNAPSHOTS
+  // ============================================================
+  // If operator data has fewer sailings than templates, this is suspicious.
+  // The operator should publish a COMPLETE schedule, not a partial one.
+  // This is a CRITICAL data quality issue that must be investigated.
+
+  if (hasOperatorData && templateSailings.length > 0) {
+    const operatorCount = operatorSailings.length;
+    const templateCount = templateSailings.length;
+
+    if (operatorCount < templateCount) {
+      // CRITICAL: Operator snapshot appears to be partial
+      const missingCount = templateCount - operatorCount;
+      const missingPercent = Math.round((missingCount / templateCount) * 100);
+
+      console.error(
+        `[CRITICAL] Partial operator snapshot detected for corridor=${corridorId}! ` +
+        `operator_sailings=${operatorCount}, template_sailings=${templateCount}, ` +
+        `missing=${missingCount} (${missingPercent}% of schedule). ` +
+        `service_date=${serviceDateLocal}. ` +
+        `Base schedule will be used to ensure no sailings are lost.`
+      );
+
+      // Also log to help diagnose which sailings are missing
+      const operatorTimes = new Set(operatorSailings.map(s => s.sailing.scheduled_departure_local));
+      const missingTimes = templateSailings
+        .filter(s => !operatorTimes.has(s.sailing.scheduled_departure_local))
+        .map(s => `${s.sailing.scheduled_departure_local} ${s.sailing.origin_terminal.id}→${s.sailing.destination_terminal.id}`)
+        .slice(0, 10); // Log first 10 missing
+
+      if (missingTimes.length > 0) {
+        console.error(
+          `[CRITICAL] Missing sailings (first 10): [${missingTimes.join(', ')}]`
+        );
+      }
+    }
+  }
+
+  // ============================================================
+  // PHASE 75: UNIFIED SCHEDULE CONSTRUCTION
+  // ============================================================
+  // Always use templates as the base, overlay operator status on top.
+  // This ensures NO sailings are ever lost due to partial operator data.
+
   if (hasOperatorData) {
-    // HARD EXCLUSION: Templates are not used for Today when operator data exists
-    templateExcludedReason = `Operator data available (${operatorSailings.length} sailings)`;
+    // Build a map of operator sailings by key for fast lookup
+    const operatorSailingMap = new Map<string, TerminalBoardSailing>();
+    for (const { sailing } of operatorSailings) {
+      const key = `${sailing.origin_terminal.id}|${sailing.destination_terminal.id}|${sailing.scheduled_departure_local}`;
+      operatorSailingMap.set(key, sailing);
+    }
 
-    // Phase 73 logging
-    console.log(
-      `[CORRIDOR_BOARD] Phase 73: today_authority=operator_only, ` +
-      `operator_sailings=${operatorSailings.length}, template_sailings_excluded=${templateSailings.length}`
-    );
-
-    // Add ONLY operator sailings to allSailings
-    // Apply overlay ONLY to operator sailings
+    // Start with operator sailings (they have operator_live source)
     for (const { sailing } of operatorSailings) {
       const sailingWithOverlay = applyStatusOverlayToSailing(sailing, mergedOverlay);
       allSailings.push(sailingWithOverlay);
     }
 
-    // PHASE 73 DEV ASSERTION: Templates must NOT appear in Today when operator data exists
-    if (process.env.NODE_ENV === 'development') {
-      const templateInOutput = allSailings.some(s =>
-        s.schedule_source === 'template' || s.schedule_source === 'forecast_template'
-      );
-      if (templateInOutput) {
-        throw new Error(
-          `[CORRIDOR_BOARD] PHASE 73 VIOLATION: Template sailing found in Today's board ` +
-          `when operator data exists. today_authority=${todayAuthority}, ` +
-          `operator_count=${operatorSailings.length}, corridor=${corridorId}`
-        );
+    // PHASE 75 FIX: Add template sailings that are NOT in operator data
+    // These are sailings that exist in the schedule but operator didn't include
+    // They should show as "Scheduled" (no operator status yet)
+    let addedFromTemplate = 0;
+    for (const { sailing } of templateSailings) {
+      const key = `${sailing.origin_terminal.id}|${sailing.destination_terminal.id}|${sailing.scheduled_departure_local}`;
+
+      if (!operatorSailingMap.has(key)) {
+        // This sailing exists in template but NOT in operator data
+        // Add it with template source - it's still a valid scheduled sailing
+        // PHASE 75: Sailings without operator overlay render as "Scheduled"
+        allSailings.push({
+          ...sailing,
+          // Keep template source to indicate no operator confirmation yet
+          schedule_source: 'template',
+          // operator_status remains null (no operator data for this sailing)
+          operator_status: null,
+          status_overlay_applied: false,
+        });
+        addedFromTemplate++;
       }
     }
+
+    if (addedFromTemplate > 0) {
+      console.log(
+        `[CORRIDOR_BOARD] Phase 75: Added ${addedFromTemplate} template sailings ` +
+        `not present in operator data. These will show as "Scheduled".`
+      );
+      // Update template excluded reason to reflect the hybrid approach
+      templateExcludedReason = `Operator data available (${operatorSailings.length} sailings), ` +
+        `${addedFromTemplate} template sailings added for complete coverage`;
+    } else {
+      templateExcludedReason = `Operator data complete (${operatorSailings.length} sailings)`;
+    }
+
+    // Phase 75 logging
+    console.log(
+      `[CORRIDOR_BOARD] Phase 75: today_authority=operator_only, ` +
+      `operator_sailings=${operatorSailings.length}, ` +
+      `template_sailings_added=${addedFromTemplate}, ` +
+      `total=${allSailings.length}`
+    );
+
   } else {
     // Template fallback: No operator data available
     console.log(
-      `[CORRIDOR_BOARD] Phase 73: today_authority=template_only, ` +
+      `[CORRIDOR_BOARD] Phase 75: today_authority=template_only, ` +
       `template_sailings=${templateSailings.length}, operator_sailings=0`
     );
 
-    // Add template sailings WITHOUT overlay (Phase 73: templates don't get DB status)
+    // Add template sailings WITHOUT overlay (no operator data to apply)
     for (const { sailing } of templateSailings) {
-      // DO NOT apply overlay to templates - they don't participate in key matching
       allSailings.push(sailing);
     }
   }
@@ -930,6 +1017,9 @@ function createSyntheticSailing(
 
       // No vessel name for synthetic sailings
       vessel_name: undefined,
+
+      // Phase 74: Pass through sailing_origin for removed sailing tracking
+      sailing_origin: rawRecord.sailing_origin || null,
     };
 
     return sailing;

@@ -153,6 +153,9 @@ function getRiskDisplay(sailing: TerminalBoardSailing): {
 
 /**
  * Get status display for a sailing
+ *
+ * Phase 74: operator_removed sailings show "Likely Canceled" instead of "Canceled"
+ * to indicate the status was inferred from disappearance, not explicitly marked.
  */
 function getStatusDisplay(sailing: TerminalBoardSailing): {
   text: string;
@@ -178,6 +181,14 @@ function getStatusDisplay(sailing: TerminalBoardSailing): {
         show: true,
       };
     case 'canceled':
+      // Phase 74: operator_removed shows "Likely Canceled" with different styling
+      if (sailing.sailing_origin === 'operator_removed') {
+        return {
+          text: 'Likely Canceled',
+          className: 'bg-destructive-muted/30 text-destructive/70 border-destructive/20',
+          show: true,
+        };
+      }
       return {
         text: 'Canceled',
         className: 'bg-destructive-muted/50 text-destructive border-destructive/30',
@@ -514,6 +525,10 @@ function CancellationSummary({ canceledCount }: { canceledCount: number }) {
 
 /**
  * Single sailing row
+ *
+ * Phase 74: sailing_origin === 'operator_removed' treatment
+ * - Muted + strikethrough styling
+ * - Shows as canceled but visually distinct (inferred from disappearance)
  */
 function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const timeStatus = getTimeStatus(sailing);
@@ -522,8 +537,11 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const isDeparted = timeStatus === 'departed';
   const isCanceled = sailing.operator_status === 'canceled';
 
-  // Row opacity for departed/canceled
-  const rowOpacity = isDeparted || isCanceled ? 'opacity-50' : '';
+  // Phase 74: Check if this sailing was inferred from removal (not explicitly marked)
+  const isOperatorRemoved = sailing.sailing_origin === 'operator_removed';
+
+  // Row opacity for departed/canceled (extra muted for operator_removed)
+  const rowOpacity = isDeparted || isCanceled ? (isOperatorRemoved ? 'opacity-40' : 'opacity-50') : '';
 
   // Time styling
   const timeClass = timeStatus === 'departing_soon' && !isCanceled
@@ -540,13 +558,13 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
       <div className="flex items-center gap-4">
         {/* Time */}
         <div className="w-20 flex-shrink-0">
-          <span className={`text-lg ${timeClass}`}>
+          <span className={`text-lg ${timeClass} ${isOperatorRemoved ? 'line-through' : ''}`}>
             {sailing.scheduled_departure_local}
           </span>
         </div>
 
         {/* Direction */}
-        <div className="flex-1 min-w-0 flex items-center gap-2">
+        <div className={`flex-1 min-w-0 flex items-center gap-2 ${isOperatorRemoved ? 'line-through' : ''}`}>
           <span className="text-muted-foreground truncate">
             {sailing.origin_terminal.name}
           </span>

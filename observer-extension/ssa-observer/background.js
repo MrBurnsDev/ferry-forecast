@@ -32,6 +32,26 @@ const SSA_DESKTOP_STATUS_URL = 'https://www.steamshipauthority.com/traveling_tod
 const HYLINE_SCHEDULE_URL = 'https://hylinecruises.com/nantucket-ferry/';
 const API_ENDPOINT = 'https://ferry-forecast.vercel.app/api/operator/status/ingest';
 
+// ============================================================
+// PHASE 74: CANONICAL DAILY SCHEDULE STORAGE
+// ============================================================
+// Stores the full daily schedule from Scraper A (mobile) for diff detection.
+// When Scraper B (desktop status) runs, we compare against this to find
+// sailings that have been REMOVED from the operator's active list.
+//
+// Key format: "{from_slug}|{to_slug}|{normalized_time}"
+// Example: "woods-hole|vineyard-haven|8:35am"
+//
+// This allows us to detect when SSA removes canceled sailings entirely
+// rather than marking them as canceled.
+// ============================================================
+let canonicalDailySchedule = {
+  service_date: null,        // YYYY-MM-DD format
+  sailings: new Map(),       // Map<key, sailing_data>
+  captured_at: null,         // ISO timestamp
+  source: 'mobile_schedule'
+};
+
 // Alarms
 const SCHEDULE_ALARM_NAME = 'ssa_schedule_poll';     // SSA schedule every 30 min
 const LIVE_STATUS_ALARM_NAME = 'ssa_live_status';    // SSA live status every 3 min
@@ -240,6 +260,10 @@ async function performScheduleScrape(trigger) {
 
     console.log(`[SSA Observer] Schedule extracted: ${scheduleRows.length} rows`);
 
+    // Phase 74: Update canonical daily schedule for diff detection
+    const serviceDate = getLocalDate();
+    updateCanonicalSchedule(scheduleRows, serviceDate);
+
     // Build payload - schedule rows only (reason enrichment happens separately)
     const payload = {
       source: 'steamship_authority',
@@ -423,7 +447,19 @@ async function scrapeLiveOperatorStatus(trigger) {
 
     console.log(`[SSA Observer] Live status extracted: ${reasonRows.length} cancellation reasons, ${allSailings.length} total sailings, ${conditions.length} terminal conditions`);
 
+    // Phase 74: Detect removed sailings by comparing active list to canonical schedule
+    const serviceDate = getLocalDate();
+    const removedSailings = detectRemovedSailings(allSailings, serviceDate);
+
+    if (removedSailings.length > 0) {
+      console.log(`[Phase 74] ${removedSailings.length} removed sailings will be included in payload`);
+    }
+
     // Build payload with reason rows AND conditions (Phase 43)
+    // Phase 74: Include removed sailings with sailing_origin marker
+    // Combine active sailings with removed sailings (which have sailing_origin: 'operator_removed')
+    const allScheduleRows = [...allSailings, ...removedSailings];
+
     const payload = {
       source: 'steamship_authority',
       trigger,
@@ -431,8 +467,8 @@ async function scrapeLiveOperatorStatus(trigger) {
       scraped_at_utc: new Date().toISOString(),
       service_date_local: getLocalDate(),
       timezone: 'America/New_York',
-      schedule_rows: allSailings,  // All sailings from desktop
-      reason_rows: reasonRows,      // Only cancelled sailings with reasons
+      schedule_rows: allScheduleRows,  // Phase 74: Active sailings + removed sailings
+      reason_rows: reasonRows,          // Only cancelled sailings with reasons
       // Phase 43: Include terminal wind conditions
       conditions: conditions,
       source_meta: {
@@ -443,7 +479,9 @@ async function scrapeLiveOperatorStatus(trigger) {
         reason_url: SSA_DESKTOP_STATUS_URL + '#vineyard_trips',
         reason_count: reasonRows.length,
         reason_status: 'success',
-        conditions_count: conditions.length
+        conditions_count: conditions.length,
+        // Phase 74: Track removed sailings separately in metadata
+        removed_sailings_count: removedSailings.length
       }
     };
 
@@ -477,13 +515,19 @@ async function scrapeLiveOperatorStatus(trigger) {
       scraper: 'live_status',
       reason_rows_count: reasonRows.length,
       all_sailings_count: allSailings.length,
+      // Phase 74: Track removed sailings separately
+      removed_sailings_count: removedSailings.length,
       reasons_applied: responseData.reasons_applied || 0,
       statusCounts: responseData.status_counts,
       duration,
       timestamp: new Date().toISOString()
     };
 
-    console.log(`[SSA Observer] Live status scrape success: ${reasonRows.length} reasons captured in ${duration}ms`);
+    // Phase 74: Log removed sailings if any were detected
+    if (removedSailings.length > 0) {
+      console.log(`[SSA Observer] Phase 74: ${removedSailings.length} removed sailings detected and sent`);
+    }
+    console.log(`[SSA Observer] Live status scrape success: ${reasonRows.length} reasons, ${removedSailings.length} removed sailings in ${duration}ms`);
     await saveLiveStatusResult(result);
     return result;
 
@@ -603,6 +647,169 @@ function getLocalDate() {
     day: '2-digit'
   });
   return formatter.format(new Date());
+}
+
+// ============================================================
+// PHASE 74: SAILING KEY GENERATION & DIFF DETECTION
+// ============================================================
+
+/**
+ * Generate port slug from port name
+ * Matches the backend generateSailingKey logic
+ */
+function portNameToSlug(portName) {
+  const slugMap = {
+    'woods hole': 'woods-hole',
+    'vineyard haven': 'vineyard-haven',
+    'oak bluffs': 'oak-bluffs',
+    'hyannis': 'hyannis',
+    'nantucket': 'nantucket'
+  };
+  const lower = (portName || '').toLowerCase().trim();
+  return slugMap[lower] || lower.replace(/\s+/g, '-');
+}
+
+/**
+ * Normalize time for key generation
+ * "8:35 AM" -> "8:35am"
+ * Matches the backend normalizeTime logic
+ */
+function normalizeTimeForKey(timeStr) {
+  if (!timeStr) return '';
+  return timeStr
+    .toLowerCase()
+    .replace(/\s+/g, '')  // Remove all whitespace
+    .replace(/^0+/, '');   // Remove leading zeros
+}
+
+/**
+ * Generate canonical sailing key
+ * Format: "{from_slug}|{to_slug}|{normalized_time}"
+ * Example: "woods-hole|vineyard-haven|8:35am"
+ */
+function generateSailingKey(sailing) {
+  const fromSlug = portNameToSlug(sailing.departing_terminal);
+  const toSlug = portNameToSlug(sailing.arriving_terminal);
+  const normalizedTime = normalizeTimeForKey(sailing.departure_time_local);
+  return `${fromSlug}|${toSlug}|${normalizedTime}`;
+}
+
+/**
+ * Phase 74: Update canonical daily schedule from Scraper A (mobile)
+ *
+ * Called after successful mobile schedule scrape.
+ * Stores all sailings for the day so we can detect removals later.
+ */
+function updateCanonicalSchedule(sailings, serviceDate) {
+  // If it's a new day, clear the old schedule
+  if (canonicalDailySchedule.service_date !== serviceDate) {
+    console.log(`[Phase 74] New service date ${serviceDate}, clearing old canonical schedule`);
+    canonicalDailySchedule.sailings.clear();
+    canonicalDailySchedule.service_date = serviceDate;
+  }
+
+  // Add/update sailings in canonical schedule
+  let newCount = 0;
+  let updateCount = 0;
+
+  for (const sailing of sailings) {
+    const key = generateSailingKey(sailing);
+
+    if (!canonicalDailySchedule.sailings.has(key)) {
+      newCount++;
+    } else {
+      updateCount++;
+    }
+
+    canonicalDailySchedule.sailings.set(key, {
+      ...sailing,
+      key,
+      first_seen_at: canonicalDailySchedule.sailings.get(key)?.first_seen_at || new Date().toISOString(),
+      last_seen_at: new Date().toISOString()
+    });
+  }
+
+  canonicalDailySchedule.captured_at = new Date().toISOString();
+
+  console.log(`[Phase 74] Canonical schedule updated: ${canonicalDailySchedule.sailings.size} total sailings (${newCount} new, ${updateCount} updated)`);
+}
+
+/**
+ * Phase 74: Detect removed sailings by comparing active list to canonical schedule
+ *
+ * Returns sailings that were in the canonical schedule but are NOT in the active list.
+ * These are sailings SSA has removed from the page (likely canceled).
+ *
+ * RULE: Only detect removals for sailings that haven't departed yet.
+ * Sailings naturally disappear after their departure time.
+ */
+function detectRemovedSailings(activeSailings, serviceDate) {
+  // If no canonical schedule or different day, we can't detect removals
+  if (canonicalDailySchedule.service_date !== serviceDate) {
+    console.log(`[Phase 74] No canonical schedule for ${serviceDate}, skipping removal detection`);
+    return [];
+  }
+
+  if (canonicalDailySchedule.sailings.size === 0) {
+    console.log('[Phase 74] Canonical schedule is empty, skipping removal detection');
+    return [];
+  }
+
+  // Build set of active sailing keys
+  const activeKeys = new Set(activeSailings.map(s => generateSailingKey(s)));
+
+  // Find sailings in canonical but NOT in active
+  const removed = [];
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+
+  for (const [key, sailing] of canonicalDailySchedule.sailings) {
+    // Skip if sailing is in active list
+    if (activeKeys.has(key)) continue;
+
+    // Parse departure time to check if it's in the past
+    const timeStr = sailing.departure_time_local || '';
+    const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[1]);
+      const minute = parseInt(timeMatch[2]);
+      const isPM = timeMatch[3].toUpperCase() === 'PM';
+
+      // Convert to 24-hour
+      if (isPM && hour !== 12) hour += 12;
+      if (!isPM && hour === 12) hour = 0;
+
+      // Skip sailings that have already departed (natural removal)
+      // Use 15-minute grace period
+      const sailingMinutes = hour * 60 + minute;
+      const currentMinutes = currentHour * 60 + currentMinute;
+
+      if (sailingMinutes + 15 < currentMinutes) {
+        // Sailing departed more than 15 minutes ago, natural removal
+        continue;
+      }
+    }
+
+    // This sailing was in canonical but is now missing from active list
+    // and hasn't departed yet - this is a REMOVAL
+    removed.push({
+      ...sailing,
+      status: 'canceled',
+      status_reason: 'Removed from operator schedule',
+      sailing_origin: 'operator_removed',
+      removed_detected_at: new Date().toISOString()
+    });
+
+    console.log(`[Phase 74] REMOVED SAILING DETECTED: ${sailing.departing_terminal} -> ${sailing.arriving_terminal} @ ${sailing.departure_time_local}`);
+  }
+
+  if (removed.length > 0) {
+    console.log(`[Phase 74] Total removed sailings detected: ${removed.length}`);
+  }
+
+  return removed;
 }
 
 // ============================================================
