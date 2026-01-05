@@ -217,13 +217,14 @@ const SSA_KNOWN_SCHEDULES: Record<string, { departures: string[]; arrivals?: str
   'ob-wh': {
     departures: [], // No winter service - seasonal route suspended
   },
-  // Hyannis to Nantucket - Winter schedule
+  // Hyannis to Nantucket - Winter 2025-2026 schedule
+  // Source: https://www.steamshipauthority.com/traveling_today (January 2026)
   'hy-nan': {
-    departures: ['6:30 AM', '8:15 AM', '10:00 AM', '11:45 AM', '1:30 PM', '3:15 PM', '5:00 PM', '6:45 PM'],
+    departures: ['9:15 AM', '11:15 AM', '2:45 PM', '4:30 PM', '8:00 PM'],
   },
-  // Nantucket to Hyannis - Winter schedule
+  // Nantucket to Hyannis - Winter 2025-2026 schedule
   'nan-hy': {
-    departures: ['6:30 AM', '8:15 AM', '10:00 AM', '11:45 AM', '1:30 PM', '3:15 PM', '5:00 PM', '7:15 PM'],
+    departures: ['6:30 AM', '8:30 AM', '12:00 PM', '5:30 PM', '7:15 PM'],
   },
 };
 
