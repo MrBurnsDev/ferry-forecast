@@ -3,21 +3,17 @@
 /**
  * Operator Page
  *
- * Phase 59: Region/Operator/Route Authority
+ * Phase 66: Corridor-Based Selection
  *
- * Shows all routes for a given operator.
- * Navigation: Home → Region → Operator → Route
+ * Shows all CROSSINGS (bidirectional corridors) for a given operator.
+ * Navigation: Home → Region → Operator → Corridor
  *
- * AUTHORITY HIERARCHY (ENFORCED):
- * 1. Region (top-level grouping)
- * 2. Operator (region-scoped, source of schedule truth) ← THIS PAGE
- * 3. Route (operator-defined, explicit direction)
- * 4. Sailings (operator-published, NEVER inferred)
+ * DESIGN PRINCIPLE:
+ * Users think in terms of crossings, not directions.
+ * "I want to go between Woods Hole and Vineyard Haven"
  *
- * HARD RULES:
- * - Routes are NEVER shared across operators
- * - Direction is explicit - never inferred
- * - Routes exist even if they have zero sailings today
+ * Each corridor card represents BOTH directions. When users tap a corridor,
+ * they see sailings in both directions on the next screen.
  */
 
 import { useEffect, useState } from 'react';
@@ -93,17 +89,17 @@ function ExternalLinkIcon({ className }: { className?: string }) {
 // TYPES
 // ============================================================
 
-interface OperatorRoute {
-  route_id: string;
-  from_terminal: string;
-  to_terminal: string;
-  display_name: string;
+interface OperatorCorridor {
+  corridor_id: string;
+  terminal_a: string;
+  terminal_b: string;
+  display_name: string; // "Woods Hole ↔ Vineyard Haven"
   active: boolean;
 }
 
 interface OperatorState {
   operator_id: string | null;
-  routes: OperatorRoute[];
+  corridors: OperatorCorridor[];
   loading: boolean;
   error: string | null;
 }
@@ -117,15 +113,6 @@ const OPERATOR_DISPLAY_NAMES: Record<string, { name: string; url: string }> = {
   hyline: { name: 'Hy-Line Cruises', url: 'https://hylinecruises.com' },
 };
 
-// Terminal display names
-const TERMINAL_NAMES: Record<string, string> = {
-  'woods-hole': 'Woods Hole',
-  'vineyard-haven': 'Vineyard Haven',
-  'oak-bluffs': 'Oak Bluffs',
-  'hyannis': 'Hyannis',
-  'nantucket': 'Nantucket',
-};
-
 // ============================================================
 // MAIN PAGE COMPONENT
 // ============================================================
@@ -136,13 +123,13 @@ export default function OperatorPage() {
 
   const [state, setState] = useState<OperatorState>({
     operator_id: null,
-    routes: [],
+    corridors: [],
     loading: true,
     error: null,
   });
 
   useEffect(() => {
-    async function fetchRoutes() {
+    async function fetchCorridors() {
       try {
         const response = await fetch(`/api/operators/${operatorId}/routes`);
         const result = await response.json();
@@ -150,7 +137,7 @@ export default function OperatorPage() {
         if (!response.ok || !result.success) {
           setState({
             operator_id: null,
-            routes: [],
+            corridors: [],
             loading: false,
             error: result.error || `Error: ${response.status}`,
           });
@@ -159,21 +146,21 @@ export default function OperatorPage() {
 
         setState({
           operator_id: result.operator_id,
-          routes: result.routes || [],
+          corridors: result.corridors || [],
           loading: false,
           error: null,
         });
       } catch (err) {
         setState({
           operator_id: null,
-          routes: [],
+          corridors: [],
           loading: false,
-          error: err instanceof Error ? err.message : 'Failed to fetch routes',
+          error: err instanceof Error ? err.message : 'Failed to fetch crossings',
         });
       }
     }
 
-    fetchRoutes();
+    fetchCorridors();
   }, [operatorId]);
 
   const operatorInfo = OPERATOR_DISPLAY_NAMES[operatorId] || { name: operatorId, url: '' };
@@ -199,9 +186,6 @@ export default function OperatorPage() {
       </div>
     );
   }
-
-  // Group routes by terminal pair for better UX
-  const routePairs = groupRoutesByPair(state.routes);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -247,7 +231,7 @@ export default function OperatorPage() {
               </h1>
             </div>
             <p className="text-muted-foreground text-lg mb-3">
-              Select a route to view today&apos;s sailings
+              Select a crossing to view today&apos;s sailings in both directions.
             </p>
             {operatorInfo.url && (
               <a
@@ -268,52 +252,43 @@ export default function OperatorPage() {
       <main id="main-content" className="flex-1" role="main">
         <div className="container mx-auto px-4 lg:px-8 py-8 lg:py-12">
           <div className="max-w-2xl mx-auto">
-            {/* Route Selection */}
+            {/* Crossing Selection */}
             <div className="card-maritime p-6 mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-6">
-                Routes
+                Crossings
               </h2>
 
               {state.loading ? (
                 <div className="space-y-4">
                   {[1, 2, 3].map((i) => (
                     <div key={i} className="animate-pulse">
-                      <div className="h-24 bg-secondary/50 rounded-xl" />
+                      <div className="h-20 bg-secondary/50 rounded-xl" />
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {routePairs.map((pair) => (
-                    <div key={pair.key} className="space-y-3">
-                      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                        {TERMINAL_NAMES[pair.terminalA] || pair.terminalA} ↔ {TERMINAL_NAMES[pair.terminalB] || pair.terminalB}
-                      </h3>
-                      <div className="space-y-2">
-                        {pair.routes.map((route) => (
-                          <Link
-                            key={route.route_id}
-                            href={`/operator/${operatorId}/route/${route.route_id}`}
-                            className="group flex items-center justify-between p-4 rounded-xl bg-secondary/30 hover:bg-secondary/50 border border-transparent hover:border-accent/30 transition-all"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors">
-                                <FerryIcon className="w-5 h-5 text-accent" />
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-foreground group-hover:text-accent transition-colors">
-                                  {route.display_name}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">
-                                  {route.active ? 'Active route' : 'Seasonal'}
-                                </p>
-                              </div>
-                            </div>
-                            <ArrowRightIcon className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
-                          </Link>
-                        ))}
+                <div className="space-y-3">
+                  {state.corridors.map((corridor) => (
+                    <Link
+                      key={corridor.corridor_id}
+                      href={`/operator/${operatorId}/corridor/${corridor.corridor_id}`}
+                      className="group flex items-center justify-between p-4 rounded-xl bg-secondary/30 hover:bg-secondary/50 border border-transparent hover:border-accent/30 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors">
+                          <FerryIcon className="w-5 h-5 text-accent" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-foreground group-hover:text-accent transition-colors">
+                            {corridor.display_name}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            {corridor.active ? 'Both directions' : 'Seasonal'}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                      <ArrowRightIcon className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
+                    </Link>
                   ))}
                 </div>
               )}
@@ -322,9 +297,8 @@ export default function OperatorPage() {
             {/* Authority Notice */}
             <div className="bg-secondary/50 border border-border/50 rounded-lg p-4">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                <strong className="text-foreground">Phase 59 Authority:</strong> Routes are explicitly defined
-                by {operatorInfo.name}. Each direction is a separate route - sailings are NEVER inferred
-                from the reverse direction.
+                <strong className="text-foreground">Phase 66:</strong> Each crossing shows sailings
+                in both directions. Schedule data comes directly from {operatorInfo.name}.
               </p>
             </div>
           </div>
@@ -347,38 +321,4 @@ export default function OperatorPage() {
       </footer>
     </div>
   );
-}
-
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-interface RoutePair {
-  key: string;
-  terminalA: string;
-  terminalB: string;
-  routes: OperatorRoute[];
-}
-
-function groupRoutesByPair(routes: OperatorRoute[]): RoutePair[] {
-  const pairMap = new Map<string, RoutePair>();
-
-  for (const route of routes) {
-    // Create a canonical key for the terminal pair (alphabetically sorted)
-    const terminals = [route.from_terminal, route.to_terminal].sort();
-    const key = `${terminals[0]}--${terminals[1]}`;
-
-    if (!pairMap.has(key)) {
-      pairMap.set(key, {
-        key,
-        terminalA: terminals[0],
-        terminalB: terminals[1],
-        routes: [],
-      });
-    }
-
-    pairMap.get(key)!.routes.push(route);
-  }
-
-  return Array.from(pairMap.values());
 }

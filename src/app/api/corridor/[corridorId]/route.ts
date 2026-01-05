@@ -360,10 +360,6 @@ export async function GET(
           operator_filter_applied: operatorFilter,
           original_sailing_count: originalCount,
           filtered_sailing_count: filteredCount,
-          // Override any "mixed sources" indication since we're single-operator now
-          schedule_sources: board.provenance.schedule_sources?.filter(
-            (src: string) => src.includes(operatorFilter) || !src.includes('hy-line') && !src.includes('steamship')
-          ),
         },
       };
     }

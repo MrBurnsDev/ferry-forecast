@@ -219,6 +219,9 @@ export interface BoardAdvisory {
  * - Today boards MUST have schedule_source of 'operator_live' | 'operator_scraped' | 'mixed'
  * - 'mixed' allowed only if ALL components are operator sources
  * - 'unavailable' returned if no operator data
+ *
+ * Phase 65: Operator Filter Tracking
+ * - When operator filter is applied, track original vs filtered counts
  */
 export interface BoardProvenance {
   /**
@@ -241,6 +244,19 @@ export interface BoardProvenance {
     fetched_at: string;
     url?: string;
   }>;
+
+  // ============================================================
+  // PHASE 65: OPERATOR FILTER TRACKING
+  // ============================================================
+
+  /** Operator filter applied (if any) - internal operator ID */
+  operator_filter_applied?: string;
+
+  /** Original sailing count before filtering */
+  original_sailing_count?: number;
+
+  /** Sailing count after operator filtering */
+  filtered_sailing_count?: number;
 }
 
 /**
