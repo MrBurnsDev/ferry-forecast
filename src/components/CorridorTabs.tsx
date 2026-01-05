@@ -454,12 +454,38 @@ function degreesToCompass(deg: number | null | undefined): string | null {
 // FORECAST CONTENT (7-day / 14-day tabs)
 // ============================================================
 
+/**
+ * Phase 68: Seasonal Inactive Banner for Forecast Tabs
+ *
+ * When service_state === 'seasonal_inactive', show a banner at the top of forecast tabs:
+ * "Schedule not currently active. Forecast shown for planning purposes only."
+ */
+function SeasonalInactiveBanner() {
+  return (
+    <div className="bg-warning-muted/50 border border-warning/30 rounded-lg p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <CalendarIcon className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-warning-foreground">
+            Schedule not currently active
+          </p>
+          <p className="text-sm text-warning-foreground/80 mt-1">
+            Forecast shown for planning purposes only. Check the operator website for current schedule availability.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ForecastContent({
   corridorId,
   forecastType,
+  isSeasonalInactive,
 }: {
   corridorId: string;
   forecastType: '7_day' | '14_day';
+  isSeasonalInactive?: boolean;
 }) {
   const [forecast, setForecast] = useState<CorridorForecast | null>(null);
   const [loading, setLoading] = useState(true);
@@ -554,6 +580,9 @@ function ForecastContent({
   // Has forecast data
   return (
     <div className="space-y-3">
+      {/* Phase 68: Show seasonal inactive banner when corridor is not operating */}
+      {isSeasonalInactive && <SeasonalInactiveBanner />}
+
       {forecast.days.map((day) => (
         <DayCard
           key={day.service_date}
@@ -668,11 +697,19 @@ export function CorridorTabs({
         )}
 
         {activeTab === '7_day' && (
-          <ForecastContent corridorId={corridorId} forecastType="7_day" />
+          <ForecastContent
+            corridorId={corridorId}
+            forecastType="7_day"
+            isSeasonalInactive={board?.service_state === 'seasonal_inactive'}
+          />
         )}
 
         {activeTab === '14_day' && (
-          <ForecastContent corridorId={corridorId} forecastType="14_day" />
+          <ForecastContent
+            corridorId={corridorId}
+            forecastType="14_day"
+            isSeasonalInactive={board?.service_state === 'seasonal_inactive'}
+          />
         )}
       </div>
     </div>

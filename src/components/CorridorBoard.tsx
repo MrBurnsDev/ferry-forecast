@@ -624,7 +624,60 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
     );
   }
 
-  const { sailings, advisories, provenance, operator_status_url, terminals } = board;
+  const { sailings, advisories, provenance, operator_status_url, terminals, service_state } = board;
+
+  // ============================================================
+  // PHASE 68: OPERATOR-OBSERVED SEASONALITY
+  // ============================================================
+  // If service_state is 'seasonal_inactive', show seasonal message instead of sailings.
+  // This is derived from sailings.length === 0 (operator publishes zero sailings).
+  // FORBIDDEN: Hard-coded dates, is_seasonal flags, calendar-based activation.
+  if (service_state === 'seasonal_inactive') {
+    return (
+      <div className="card-maritime p-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-4">
+          <ClockIcon className="w-5 h-5 text-accent" />
+          <h2 className="text-xl font-semibold text-foreground">
+            No Sailings Today
+          </h2>
+        </div>
+
+        {/* Bidirectional indicator */}
+        <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{terminals.a.name}</span>
+          <span className="text-accent">↔</span>
+          <span className="font-medium text-foreground">{terminals.b.name}</span>
+        </div>
+
+        {/* Seasonal inactive message */}
+        <div className="bg-secondary/50 border border-border/50 rounded-lg p-6 text-center">
+          <InfoIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <p className="text-lg font-medium text-foreground mb-2">
+            This route is not currently operating due to seasonal schedule.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Check the 7-day or 14-day forecast tabs for future sailing predictions.
+          </p>
+        </div>
+
+        {/* Footer with operator link */}
+        {operator_status_url && (
+          <div className="mt-6 pt-4 border-t border-border/50 flex justify-end">
+            <a
+              href={operator_status_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-accent hover:underline flex items-center gap-1"
+            >
+              Check official schedule
+              <ExternalLinkIcon className="w-3 h-3" />
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Split into upcoming and departed
   // Phase 45: Canceled sailings ALWAYS go in upcoming section (never hidden in departed)

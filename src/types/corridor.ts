@@ -31,6 +31,29 @@ import type {
 } from './terminal-board';
 
 // ============================================================
+// PHASE 68: OPERATOR-OBSERVED SEASONALITY
+// ============================================================
+
+/**
+ * CorridorServiceState - Runtime-derived seasonality state
+ *
+ * Phase 68: Operator-Observed Seasonality Contract
+ *
+ * DERIVATION RULES (STRICT, NO EXCEPTIONS):
+ * - 'active': sailings.length >= 1 (operator publishes at least one sailing)
+ * - 'seasonal_inactive': sailings.length === 0 (operator publishes zero sailings)
+ *
+ * FORBIDDEN:
+ * - Hard-coded seasonal date ranges
+ * - `is_seasonal` boolean flags
+ * - Manual toggles or overrides
+ * - Calendar-based activation logic
+ *
+ * The operator's published schedule is the SOLE source of truth for seasonality.
+ */
+export type CorridorServiceState = 'active' | 'seasonal_inactive';
+
+// ============================================================
 // SERVICE CORRIDOR DEFINITION
 // ============================================================
 
@@ -103,6 +126,22 @@ export interface DailyCorridorBoard {
 
   /** Operators serving this corridor */
   operators: BoardOperator[];
+
+  // ============================================================
+  // PHASE 68: OPERATOR-OBSERVED SEASONALITY
+  // ============================================================
+
+  /**
+   * Runtime-derived service state based on operator schedule data
+   *
+   * DERIVATION (SOLE SOURCE OF TRUTH):
+   * - 'active': sailings.length >= 1
+   * - 'seasonal_inactive': sailings.length === 0
+   *
+   * This field is NEVER cached, stored, or hard-coded.
+   * It is computed fresh on every request from the operator's published schedule.
+   */
+  service_state: CorridorServiceState;
 
   // ============================================================
   // SAILINGS (THE HEART OF THE BOARD)

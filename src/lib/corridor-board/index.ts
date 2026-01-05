@@ -411,12 +411,28 @@ export async function getDailyCorridorBoard(
     );
   }
 
+  // ============================================================
+  // PHASE 68: OPERATOR-OBSERVED SEASONALITY
+  // ============================================================
+  // Derive service_state from sailings count. This is the SOLE SOURCE OF TRUTH.
+  // - active: operator publishes at least one sailing
+  // - seasonal_inactive: operator publishes zero sailings
+  //
+  // FORBIDDEN: Hard-coded dates, is_seasonal flags, calendar-based activation
+  const serviceState = allSailings.length >= 1 ? 'active' : 'seasonal_inactive';
+
+  // Phase 68: Console logging for seasonality state
+  console.log(
+    `[SEASONALITY] corridor=${corridorId}, sailing_count=${allSailings.length}, service_state=${serviceState}`
+  );
+
   return {
     corridor,
     terminals,
     service_date_local: serviceDateLocal,
     generated_at_utc: now.toISOString(),
     operators,
+    service_state: serviceState,
     sailings: allSailings,
     advisories: uniqueAdvisories,
     provenance,
