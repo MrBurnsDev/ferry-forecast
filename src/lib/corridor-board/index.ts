@@ -175,7 +175,8 @@ export async function getDailyCorridorBoard(
   }
 
   // Load extended overlay for all operators in this corridor
-  const extendedOverlays: ExtendedStatusOverlay[] = [];
+  // PHASE 76 FIX: Store overlay WITH operatorId to avoid index misalignment
+  const extendedOverlaysWithOperator: Array<{ operatorId: string; overlay: ExtendedStatusOverlay }> = [];
   for (const operatorId of operatorIds) {
     const extOverlay = await loadExtendedStatusOverlay(operatorId, serviceDateLocal);
     // DEBUG: Log what we got from each operator overlay
@@ -191,8 +192,10 @@ export async function getDailyCorridorBoard(
         `[${extOverlay.rawRecords.map(r => `${r.from_port}->${r.to_port}@${r.departure_time}:${r.status}`).join('; ')}]`
       );
     }
-    if (extOverlay.statusMap.size > 0) {
-      extendedOverlays.push(extOverlay);
+    // PHASE 76 FIX: Always push overlay with its operatorId, even if statusMap is empty
+    // This ensures rawRecords (for synthetic sailings) are never lost
+    if (extOverlay.statusMap.size > 0 || extOverlay.rawRecords.length > 0) {
+      extendedOverlaysWithOperator.push({ operatorId, overlay: extOverlay });
     }
   }
 
@@ -200,10 +203,8 @@ export async function getDailyCorridorBoard(
   const mergedOverlay = new Map<string, PersistedStatus>();
   const allRawRecords: Array<RawSailingEvent & { operatorId: string }> = [];
 
-  for (let i = 0; i < extendedOverlays.length; i++) {
-    const extOverlay = extendedOverlays[i];
-    const operatorId = Array.from(operatorIds)[i];
-
+  // PHASE 76 FIX: Iterate with correct operatorId association (no index misalignment)
+  for (const { operatorId, overlay: extOverlay } of extendedOverlaysWithOperator) {
     for (const [key, status] of extOverlay.statusMap) {
       const existing = mergedOverlay.get(key);
       if (!existing || (status.status === 'canceled' && existing.status !== 'canceled')) {
