@@ -178,6 +178,19 @@ export async function getDailyCorridorBoard(
   const extendedOverlays: ExtendedStatusOverlay[] = [];
   for (const operatorId of operatorIds) {
     const extOverlay = await loadExtendedStatusOverlay(operatorId, serviceDateLocal);
+    // DEBUG: Log what we got from each operator overlay
+    console.log(
+      `[CORRIDOR_BOARD] Loaded overlay for operator ${operatorId}: ` +
+      `statusMap.size=${extOverlay.statusMap.size}, ` +
+      `rawRecords.length=${extOverlay.rawRecords.length}, ` +
+      `canceledCount=${extOverlay.canceledCount}`
+    );
+    if (extOverlay.rawRecords.length > 0) {
+      console.log(
+        `[CORRIDOR_BOARD] Raw records from ${operatorId}: ` +
+        `[${extOverlay.rawRecords.map(r => `${r.from_port}->${r.to_port}@${r.departure_time}:${r.status}`).join('; ')}]`
+      );
+    }
     if (extOverlay.statusMap.size > 0) {
       extendedOverlays.push(extOverlay);
     }
@@ -547,16 +560,30 @@ export async function getDailyCorridorBoard(
     scheduleSailingKeys.add(key);
   }
 
+  // DEBUG: Log all schedule keys for debugging
+  console.log(
+    `[CORRIDOR_BOARD] Phase 48.1 DEBUG: Schedule has ${scheduleSailingKeys.size} sailing keys. ` +
+    `Sample keys: ${Array.from(scheduleSailingKeys).slice(0, 5).join(', ')}`
+  );
+
   // Check which DB canceled sailings are NOT in schedule - create synthetic for those
   const syntheticSailings: TerminalBoardSailing[] = [];
+  const skippedInSchedule: string[] = [];
+  const skippedNotInCorridor: string[] = [];
+  const failedToCreate: string[] = [];
+
   for (const rawRecord of allRawRecords) {
     // Only create synthetic sailings for cancellations
     if (rawRecord.status !== 'canceled') continue;
 
     const key = generateSailingKey(rawRecord.from_port, rawRecord.to_port, rawRecord.departure_time);
+    const recordDesc = `${rawRecord.from_port} → ${rawRecord.to_port} @ ${rawRecord.departure_time} (key: ${key})`;
 
     // Skip if this sailing exists in schedule (overlay already applied)
-    if (scheduleSailingKeys.has(key)) continue;
+    if (scheduleSailingKeys.has(key)) {
+      skippedInSchedule.push(recordDesc);
+      continue;
+    }
 
     // Check if this sailing belongs to this corridor
     const fromSlug = normalizePortSlug(rawRecord.from_port);
@@ -564,6 +591,7 @@ export async function getDailyCorridorBoard(
     const terminalIds = [terminals.a.id, terminals.b.id];
     if (!terminalIds.includes(fromSlug) && !terminalIds.includes(toSlug)) {
       // This sailing doesn't belong to this corridor
+      skippedNotInCorridor.push(`${recordDesc} (slugs: ${fromSlug}, ${toSlug} not in [${terminalIds.join(', ')}])`);
       continue;
     }
 
@@ -581,7 +609,28 @@ export async function getDailyCorridorBoard(
         `[CORRIDOR_BOARD] Phase 48.1 SYNTHETIC: Created synthetic sailing for DB-only cancellation ` +
         `${rawRecord.from_port} → ${rawRecord.to_port} @ ${rawRecord.departure_time}`
       );
+    } else {
+      failedToCreate.push(recordDesc);
     }
+  }
+
+  // DEBUG: Log detailed breakdown of all cancellation processing
+  console.log(
+    `[CORRIDOR_BOARD] Phase 48.1 DEBUG: Processing ${allRawRecords.filter(r => r.status === 'canceled').length} canceled records. ` +
+    `Skipped (in schedule): ${skippedInSchedule.length}, ` +
+    `Skipped (not in corridor): ${skippedNotInCorridor.length}, ` +
+    `Failed to create: ${failedToCreate.length}, ` +
+    `Created synthetic: ${syntheticSailings.length}`
+  );
+
+  if (skippedInSchedule.length > 0) {
+    console.log(`[CORRIDOR_BOARD] Phase 48.1 DEBUG: Cancellations matched to schedule (overlay applied): [${skippedInSchedule.join('; ')}]`);
+  }
+  if (skippedNotInCorridor.length > 0) {
+    console.log(`[CORRIDOR_BOARD] Phase 48.1 DEBUG: Cancellations skipped (not in corridor): [${skippedNotInCorridor.join('; ')}]`);
+  }
+  if (failedToCreate.length > 0) {
+    console.log(`[CORRIDOR_BOARD] Phase 48.1 DEBUG: Cancellations failed to create synthetic: [${failedToCreate.join('; ')}]`);
   }
 
   // Merge synthetic sailings into main list
