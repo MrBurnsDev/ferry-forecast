@@ -9,6 +9,7 @@
  * Phase 41: 2-Source Operator Ingestion (schedule_rows + reason_rows)
  * Phase 43: Operator Conditions - Store terminal wind exactly as shown
  * Phase 49: Cancellation Operator Conditions - Capture wind at first cancellation
+ * Phase 76.5: Ingest Receipts and Observer Health
  *
  * POST /api/operator/status/ingest
  *
@@ -25,6 +26,12 @@
  * - Accepts conditions[] array with terminal wind data from SSA status page
  * - Persists to operator_conditions table for user-facing display
  * - Kept separate from NOAA marine data used for prediction
+ *
+ * Phase 76.5 Addition:
+ * - REQUIRES request_id from observer (UUID)
+ * - Writes to ingest_runs table BEFORE and AFTER processing
+ * - Updates observer_heartbeats table on every call
+ * - Provides persistent proof of data flow
  *
  * KEY PRINCIPLE: Operator reality overrides prediction.
  * Forecast explains risk. Operator status defines truth.
@@ -57,6 +64,7 @@ import {
   type CancellationConditionPayload,
 } from '@/lib/events/operator-conditions';
 import { enrichCancellation } from '@/lib/weather/cancellation-enrichment';
+import { supabase } from '@/lib/supabase/client';
 
 // Rate limiting: track last ingest time per source
 const lastIngestTime: Record<string, number> = {};
@@ -153,9 +161,152 @@ interface DualSourcePayload {
   source_meta?: SourceMeta;
   // Phase 43: Terminal conditions from SSA status page
   conditions?: IngestCondition[];
+  // Phase 76.5: Unique request ID from observer (UUID)
+  request_id?: string;
 }
 
 type IngestPayload = LegacyIngestPayload | DualSourcePayload;
+
+// ============================================================
+// PHASE 76.5: INGEST RECEIPT TYPES
+// ============================================================
+
+interface IngestRunInsert {
+  request_id: string;
+  operator_id: string;
+  service_date: string;
+  observed_at: string;
+  payload_sailings_count: number;
+  payload_cancellations_count: number;
+  trigger_type: 'auto' | 'manual' | 'unknown';
+  source_url: string | null;
+}
+
+interface IngestRunUpdate {
+  db_rows_inserted: number;
+  db_rows_updated: number;
+  db_rows_unchanged: number;
+  db_rows_failed: number;
+  status: 'ok' | 'partial' | 'failed';
+  error: string | null;
+}
+
+interface HeartbeatUpsert {
+  operator_id: string;
+  last_seen_at: string;
+  last_request_id: string;
+  last_success: boolean;
+  last_error: string | null;
+  last_service_date: string;
+  last_sailings_count: number;
+  last_cancellations_count: number;
+}
+
+// ============================================================
+// PHASE 76.5: INGEST RECEIPT FUNCTIONS
+// ============================================================
+
+/**
+ * Insert initial ingest run record (before processing)
+ * Returns the request_id on success, null on failure
+ */
+async function insertIngestRun(data: IngestRunInsert): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('ingest_runs')
+      .insert({
+        request_id: data.request_id,
+        operator_id: data.operator_id,
+        service_date: data.service_date,
+        observed_at: data.observed_at,
+        payload_sailings_count: data.payload_sailings_count,
+        payload_cancellations_count: data.payload_cancellations_count,
+        trigger_type: data.trigger_type,
+        source_url: data.source_url,
+        // Initial values before processing
+        db_rows_inserted: 0,
+        db_rows_updated: 0,
+        db_rows_unchanged: 0,
+        db_rows_failed: 0,
+        status: 'ok', // Will be updated after processing
+      });
+
+    if (error) {
+      // Check for unique constraint violation (duplicate request_id)
+      if (error.code === '23505') {
+        console.warn(`[INGEST] Duplicate request_id: ${data.request_id}`);
+        return false;
+      }
+      console.error('[INGEST] Failed to insert ingest_run:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[INGEST] insertIngestRun exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Update ingest run record with final results (after processing)
+ */
+async function updateIngestRun(requestId: string, data: IngestRunUpdate): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('ingest_runs')
+      .update({
+        db_rows_inserted: data.db_rows_inserted,
+        db_rows_updated: data.db_rows_updated,
+        db_rows_unchanged: data.db_rows_unchanged,
+        db_rows_failed: data.db_rows_failed,
+        status: data.status,
+        error: data.error,
+      })
+      .eq('request_id', requestId);
+
+    if (error) {
+      console.error('[INGEST] Failed to update ingest_run:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[INGEST] updateIngestRun exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Upsert observer heartbeat record
+ */
+async function upsertObserverHeartbeat(data: HeartbeatUpsert): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('observer_heartbeats')
+      .upsert({
+        operator_id: data.operator_id,
+        last_seen_at: data.last_seen_at,
+        last_request_id: data.last_request_id,
+        last_success: data.last_success,
+        last_error: data.last_error,
+        last_service_date: data.last_service_date,
+        last_sailings_count: data.last_sailings_count,
+        last_cancellations_count: data.last_cancellations_count,
+        consecutive_failures: data.last_success ? 0 : 1, // Reset on success, increment on failure handled by trigger
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'operator_id',
+      });
+
+    if (error) {
+      console.error('[INGEST] Failed to upsert observer_heartbeat:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[INGEST] upsertObserverHeartbeat exception:', err);
+    return false;
+  }
+}
 
 // ============================================================
 // HELPERS
@@ -316,6 +467,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       lastIngestTime[payload.source] = now;
+    }
+
+    // ============================================================
+    // PHASE 76.5: Extract or generate request_id
+    // ============================================================
+    const requestId = isDualSourcePayload(payload) && payload.request_id
+      ? payload.request_id
+      : crypto.randomUUID(); // Generate UUID if not provided (backwards compatibility)
+
+    const operatorIdForReceipt = mapOperatorId(payload.source);
+    const scrapedAtUtc = payload.scraped_at_utc;
+    const serviceDateLocal = payload.service_date_local;
+
+    // Calculate payload counts for receipt
+    let payloadSailingsCount = 0;
+    let payloadCancellationsCount = 0;
+    if (isDualSourcePayload(payload)) {
+      payloadSailingsCount = payload.schedule_rows.length;
+      payloadCancellationsCount = payload.schedule_rows.filter(r => r.status === 'canceled').length;
+    } else if ('sailings' in payload && Array.isArray(payload.sailings)) {
+      payloadSailingsCount = payload.sailings.length;
+      payloadCancellationsCount = payload.sailings.filter(s => s.status === 'canceled').length;
+    }
+
+    // Get source URL for receipt
+    const sourceUrlForReceipt = isDualSourcePayload(payload)
+      ? payload.source_meta?.schedule_url || null
+      : null;
+
+    // PHASE 76.5: Insert initial ingest run record BEFORE processing
+    console.log(`[INGEST] Phase 76.5: Inserting ingest_run receipt for request_id=${requestId}`);
+    const receiptInserted = await insertIngestRun({
+      request_id: requestId,
+      operator_id: operatorIdForReceipt,
+      service_date: serviceDateLocal,
+      observed_at: scrapedAtUtc,
+      payload_sailings_count: payloadSailingsCount,
+      payload_cancellations_count: payloadCancellationsCount,
+      trigger_type: payload.trigger || 'unknown',
+      source_url: sourceUrlForReceipt,
+    });
+
+    if (!receiptInserted) {
+      console.warn(`[INGEST] Phase 76.5: Failed to insert ingest_run (may be duplicate request_id: ${requestId})`);
+      // Continue processing even if receipt insert fails - don't block ingest
     }
 
     // Import status-cache dynamically
@@ -640,6 +836,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       delayed: sailingsToProcess.filter((s) => s.status === 'delayed').length,
     };
 
+    // ============================================================
+    // PHASE 76.5: Update ingest run with final results
+    // ============================================================
+    const finalStatus: 'ok' | 'partial' | 'failed' =
+      failed === 0 ? 'ok' :
+      (inserted + updated + unchanged > 0 ? 'partial' : 'failed');
+
+    console.log(`[INGEST] Phase 76.5: Updating ingest_run with final status=${finalStatus}`);
+    await updateIngestRun(requestId, {
+      db_rows_inserted: inserted,
+      db_rows_updated: updated,
+      db_rows_unchanged: unchanged,
+      db_rows_failed: failed,
+      status: finalStatus,
+      error: failed > 0 ? `${failed} rows failed` : null,
+    });
+
+    // PHASE 76.5: Update observer heartbeat
+    await upsertObserverHeartbeat({
+      operator_id: operatorIdForReceipt,
+      last_seen_at: new Date().toISOString(),
+      last_request_id: requestId,
+      last_success: finalStatus !== 'failed',
+      last_error: finalStatus === 'failed' ? `${failed} rows failed` : null,
+      last_service_date: serviceDateLocal,
+      last_sailings_count: payloadSailingsCount,
+      last_cancellations_count: payloadCancellationsCount,
+    });
+
     return jsonResponse({
       success: true,
       ingested: sailingsToProcess.length,
@@ -664,6 +889,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Phase 50: Include NOAA weather snapshot stats
       noaa_snapshots_inserted: noaaSnapshotsInserted,
       noaa_snapshots_failed: noaaSnapshotsFailed,
+      // Phase 76.5: Ingest receipt stats
+      request_id: requestId,
+      ingest_run_status: finalStatus,
+      db_stats: {
+        inserted,
+        updated,
+        unchanged,
+        failed,
+      },
     });
   } catch (error) {
     console.error('[INGEST] Unexpected error:', error);
@@ -685,6 +919,6 @@ export async function GET(): Promise<NextResponse> {
     method: 'POST',
     auth: 'Bearer OBSERVER_SECRET',
     status: 'ready',
-    version: 'Phase 50: Cancellation Weather Enrichment (NOAA Snapshots)',
+    version: 'Phase 76.5: Ingest Receipts and Observer Health',
   });
 }

@@ -265,7 +265,9 @@ async function performScheduleScrape(trigger) {
     updateCanonicalSchedule(scheduleRows, serviceDate);
 
     // Build payload - schedule rows only (reason enrichment happens separately)
+    // Phase 76.5: Add request_id for ingest receipt tracking
     const payload = {
+      request_id: crypto.randomUUID(),
       source: 'steamship_authority',
       trigger,
       scraper: 'schedule',
@@ -460,7 +462,9 @@ async function scrapeLiveOperatorStatus(trigger) {
     // Combine active sailings with removed sailings (which have sailing_origin: 'operator_removed')
     const allScheduleRows = [...allSailings, ...removedSailings];
 
+    // Phase 76.5: Add request_id for ingest receipt tracking
     const payload = {
+      request_id: crypto.randomUUID(),
       source: 'steamship_authority',
       trigger,
       scraper: 'live_status',
@@ -1387,7 +1391,9 @@ async function scrapeHyLineSchedule(trigger) {
     console.log(`[Ferry Observer] HY-LINE: Extracted ${sailings.length} sailings`);
 
     // Build payload matching SSA format
+    // Phase 76.5: Add request_id for ingest receipt tracking
     const payload = {
+      request_id: crypto.randomUUID(),
       source: 'hy_line_cruises',
       trigger,
       scraper: 'hyline_schedule',
