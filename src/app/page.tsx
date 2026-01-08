@@ -88,8 +88,11 @@ export default function Home() {
               Is the Ferry Running?
             </h1>
 
-            <p className="text-lg lg:text-xl text-muted-foreground mb-4 leading-relaxed">
-              Check today&apos;s sailings, operator updates, and weather-related travel impacts - powered by historical ferry data.
+            <p className="text-lg lg:text-xl text-muted-foreground mb-2 leading-relaxed">
+              Check today&apos;s sailings, operator updates, and weather-related travel impacts.
+            </p>
+            <p className="text-base text-muted-foreground/80 mb-4">
+              Powered by historical ferry data.
             </p>
           </div>
         </div>
