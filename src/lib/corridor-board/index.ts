@@ -323,9 +323,7 @@ export async function getDailyCorridorBoard(
           dbSailing,
           displayOperatorId,
           serviceDateLocal,
-          corridor.default_timezone,
-          weather,
-          forecastContext
+          corridor.default_timezone
         );
 
         if (boardSailing) {
@@ -1307,23 +1305,20 @@ function generateSailingId(
  * Convert an operator schedule sailing (from DB) to TerminalBoardSailing format.
  *
  * This is used when operator schedule exists in the database.
- * The resulting sailing has schedule_source='operator_published' and is
+ * The resulting sailing has schedule_source='operator_snapshot' and is
  * authoritative (templates should NOT be used).
  *
  * @param dbSailing - Sailing from loadOperatorSchedule()
  * @param operatorId - Display operator ID (e.g., 'steamship-authority')
  * @param serviceDate - Service date in YYYY-MM-DD format
- * @param timezone - IANA timezone (e.g., 'America/New_York')
- * @param weather - Optional weather context for risk computation
- * @param forecastContext - Optional forecast context for future sailings
+ * @param timezone - IANA timezone (e.g., 'America/New_York') - reserved for future use
  */
 function createBoardSailingFromDB(
   dbSailing: OperatorScheduleSailing,
   operatorId: string,
   serviceDate: string,
-  timezone: string,
-  weather?: WeatherContext | null,
-  forecastContext?: ForecastContext | null
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  timezone: string
 ): TerminalBoardSailing | null {
   try {
     const fromSlug = normalizePortSlug(dbSailing.from_port);
@@ -1344,8 +1339,7 @@ function createBoardSailingFromDB(
 
     // Create a date in the local timezone
     // Note: This is an approximation - proper timezone handling happens in time.ts
-    const hour = parseInt(timeMatch[1], 10);
-    const minute = parseInt(timeMatch[2], 10);
+    // hour/minute parsed but used via timeMatch for string formatting below
 
     // Build ISO string for local time, then let JS parse it
     // Format: YYYY-MM-DDTHH:MM:SS (no timezone = local)
