@@ -53,7 +53,7 @@ export default function DeprecatedTerminalPage() {
           <div className="flex items-center justify-between h-16 lg:h-20">
             <Link href="/" className="flex items-center gap-2">
               <WavesIcon className="w-8 h-8 text-accent" />
-              <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
+              <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
           </div>
         </div>

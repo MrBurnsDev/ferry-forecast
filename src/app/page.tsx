@@ -89,7 +89,7 @@ export default function Home() {
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-4 leading-relaxed">
-              Check today&apos;s sailings, delays, cancellations, and operator updates for your route.
+              Check today&apos;s sailings, operator updates, and weather-related travel impacts - powered by historical ferry data.
             </p>
           </div>
         </div>

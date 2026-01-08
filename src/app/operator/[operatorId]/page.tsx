@@ -203,7 +203,7 @@ export default function OperatorPage() {
           <div className="flex items-center justify-between h-16 lg:h-20">
             <Link href="/" className="flex items-center gap-2">
               <WavesIcon className="w-8 h-8 text-accent" />
-              <span className="text-xl font-bold text-foreground">Ferry Forecast</span>
+              <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="nav-link">Home</Link>
@@ -310,7 +310,7 @@ export default function OperatorPage() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <WavesIcon className="w-6 h-6 text-accent" aria-hidden="true" />
-              <span className="font-semibold text-foreground">Ferry Forecast</span>
+              <span className="font-semibold text-foreground">Is the Ferry Running?</span>
             </div>
             <p className="text-sm text-muted-foreground text-center">
               Not affiliated with any ferry operator. Schedule data from operator websites.
