@@ -85,14 +85,14 @@ export default function Home() {
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-              Is the Ferry Running?
+              Will the ferry run today?
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-2 leading-relaxed">
-              Check today&apos;s sailings, operator updates, and weather-related travel impacts.
+              View probability-based ferry run predictions built from weather conditions and historical sailing outcomes.
             </p>
-            <p className="text-base text-muted-foreground/80 mb-4">
-              Powered by historical ferry data.
+            <p className="text-base text-muted-foreground/80 italic mb-4">
+              Not official schedules. Not guarantees. Just better expectations.
             </p>
           </div>
         </div>
