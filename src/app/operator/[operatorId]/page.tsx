@@ -297,8 +297,7 @@ export default function OperatorPage() {
             {/* Authority Notice */}
             <div className="bg-secondary/50 border border-border/50 rounded-lg p-4">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                <strong className="text-foreground">Phase 66:</strong> Each crossing shows sailings
-                in both directions. Schedule data comes directly from {operatorInfo.name}.
+                Each crossing shows sailings in both directions. Schedule data comes directly from {operatorInfo.name}.
               </p>
             </div>
           </div>
