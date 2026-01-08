@@ -85,11 +85,11 @@ export default function Home() {
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-              Is Your Ferry Running?
+              Is the Ferry Running?
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-4 leading-relaxed">
-              Select your region to see today&apos;s sailings and operator status.
+              Check today&apos;s sailings, delays, cancellations, and operator updates for your route.
             </p>
           </div>
         </div>
