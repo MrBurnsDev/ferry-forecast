@@ -4,9 +4,10 @@
  * Fetches today's sailing schedule for any supported route.
  * Aggregates SSA and Hy-Line schedules with honest provenance.
  *
- * PHASE 15 RULES:
+ * PHASE 15/80.3 RULES:
  * - Every schedule response includes source_type and fetched_at
- * - source_type: "operator_live" = parsed from operator website
+ * - source_type: "operator_status" = parsed from operator website (Phase 80.3 canonical)
+ * - source_type: "operator_snapshot" = full schedule from DB (Phase 80.3 canonical)
  * - source_type: "unavailable" = could not fetch, no sailings shown
  * - We NEVER silently substitute made-up static schedules
  *

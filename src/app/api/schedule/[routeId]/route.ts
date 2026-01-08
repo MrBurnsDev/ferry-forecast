@@ -35,9 +35,9 @@ function mapOperatorStatusToSailing(status: OfficialStatus | null): SailingStatu
  *
  * Returns today's sailing schedule for a route (both directions).
  *
- * PHASE 15 PROVENANCE RULES:
+ * PHASE 15/80.3 PROVENANCE RULES:
  * - Every response includes provenance metadata
- * - source_type: "operator_live" | "template" | "unavailable"
+ * - source_type: "operator_status" | "operator_snapshot" | "template" | "unavailable" (Phase 80.3 canonical)
  * - source_name: Operator name
  * - fetched_at: ISO timestamp
  * - source_url: Link to operator schedule

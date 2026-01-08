@@ -143,6 +143,20 @@ export interface SailingEventInput {
    * - status_message should explain the inference
    */
   sailing_origin?: 'operator_removed';
+
+  /**
+   * Phase 78.1: Canonical schedule source
+   *
+   * THREE VALUES ONLY:
+   * - 'operator_snapshot': Full-day schedule from operator (base schedule)
+   * - 'operator_status': Status-only update (overlay, not base)
+   * - 'template': Static fallback (only when no operator data)
+   *
+   * When schedule_source is 'operator_snapshot':
+   * - This sailing exists in the operator's canonical daily schedule
+   * - Templates MUST NOT be used for Today's schedule
+   */
+  schedule_source?: 'operator_snapshot' | 'operator_status' | 'template';
 }
 
 export interface WeatherSnapshot {
@@ -420,6 +434,9 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
           // Enrich with new reason (but keep status as canceled)
           console.log(`[RECONCILE] Enriching canceled sailing with reason: ${newReason}`);
 
+          // Phase 80.1: Also backfill schedule_source if missing
+          const enrichScheduleSource = event.schedule_source || 'operator_snapshot';
+
           const { error: enrichError } = await supabase
             .from('sailing_events')
             .update({
@@ -427,6 +444,8 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
               status_message: newReason,
               observed_at: event.observed_at,
               source: event.source,
+              // Phase 80.1: Backfill schedule_source
+              schedule_source: enrichScheduleSource,
             })
             .eq('id', existing.id);
 
@@ -453,12 +472,17 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
         if (!existingReason.trim() && newReason.trim()) {
           console.log(`[RECONCILE] Enriching ${event.status} sailing with reason: ${newReason}`);
 
+          // Phase 80.1: Also backfill schedule_source if missing
+          const enrichScheduleSource = event.schedule_source || 'operator_snapshot';
+
           const { error: enrichError } = await supabase
             .from('sailing_events')
             .update({
               status_reason: newReason,
               status_message: newReason,
               observed_at: event.observed_at,
+              // Phase 80.1: Backfill schedule_source
+              schedule_source: enrichScheduleSource,
             })
             .eq('id', existing.id);
 
@@ -506,6 +530,9 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       const newReason = event.status_message || '';
       const finalReason = newReason.trim() ? newReason : existingReason;
 
+      // Phase 80.1: Also update schedule_source if provided (backfill NULL values)
+      const updateScheduleSource = event.schedule_source || 'operator_snapshot';
+
       const { error: updateError } = await supabase
         .from('sailing_events')
         .update({
@@ -522,6 +549,8 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
           wind_direction_deg: weather.wind_direction_deg,
           wind_gusts_mph: weather.wind_gusts_mph,
           wind_relation: weather.wind_relation,
+          // Phase 80.1: Ensure schedule_source is set (backfill NULL)
+          schedule_source: updateScheduleSource,
         })
         .eq('id', existing.id);
 
@@ -557,6 +586,21 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
     // Step 3: No existing row - INSERT
     const weather = await getWeatherSnapshot(event.from_port, event.to_port);
 
+    // ============================================================
+    // PHASE 80.1: HARD GUARD - schedule_source MUST NOT be NULL
+    // ============================================================
+    // If schedule_source is missing, default to 'operator_snapshot' for operator data.
+    // This ensures Phase 77/78 authority detection always works.
+    let finalScheduleSource = event.schedule_source;
+    if (!finalScheduleSource) {
+      console.error(
+        `[RECONCILE] PHASE 80.1 GUARD: schedule_source is NULL for ` +
+        `${event.from_port} → ${event.to_port} @ ${event.departure_time}. ` +
+        `Defaulting to 'operator_snapshot'. Fix the upstream caller!`
+      );
+      finalScheduleSource = 'operator_snapshot';
+    }
+
     const record = {
       ...naturalKey,
       status: event.status,
@@ -571,6 +615,8 @@ export async function reconcileSailingEvent(event: SailingEventInput): Promise<R
       observed_at: event.observed_at,
       // Phase 74: Track removed sailings origin
       sailing_origin: event.sailing_origin || null,
+      // Phase 78 + 80.1: Track schedule source (NEVER NULL for operator data)
+      schedule_source: finalScheduleSource,
     };
 
     const { data: insertedData, error: insertError } = await supabase
@@ -708,6 +754,30 @@ export function mapOperatorId(source: string): string {
 
   const lower = source.toLowerCase();
   return sourceMap[lower] || lower;
+}
+
+/**
+ * PHASE 80.2: Get all operator ID aliases for DB queries
+ *
+ * DB may contain rows with different operator_id formats due to historical
+ * ingestion variations. This function returns all known aliases for a given
+ * operator to ensure we find all rows.
+ *
+ * @param operatorId - Primary operator ID
+ * @returns Array of all known aliases including the input
+ */
+export function getOperatorIdAliases(operatorId: string): string[] {
+  const aliasMap: Record<string, string[]> = {
+    'ssa': ['ssa', 'steamship-authority', 'steamship_authority'],
+    'steamship-authority': ['ssa', 'steamship-authority', 'steamship_authority'],
+    'steamship_authority': ['ssa', 'steamship-authority', 'steamship_authority'],
+    'hy-line-cruises': ['hy-line-cruises', 'hy-line', 'hyline'],
+    'hy-line': ['hy-line-cruises', 'hy-line', 'hyline'],
+    'hyline': ['hy-line-cruises', 'hy-line', 'hyline'],
+  };
+
+  const lower = operatorId.toLowerCase();
+  return aliasMap[lower] || [operatorId];
 }
 
 // ============================================================
@@ -982,6 +1052,15 @@ export async function loadExtendedStatusOverlay(
     return result;
   }
 
+  // Phase 80: Log service date being queried for debugging date drift issues
+  const utcDate = new Date().toISOString().slice(0, 10);
+  if (utcDate !== serviceDate) {
+    console.log(
+      `[PHASE80] Overlay query: UTC=${utcDate} serviceDate=${serviceDate} operator=${operatorId}. ` +
+      `Using provided serviceDate (correct).`
+    );
+  }
+
   try {
     // Query ALL sailing events for this operator and date
     // Phase 74: Include sailing_origin for removed sailing detection
@@ -1058,6 +1137,304 @@ export async function loadExtendedStatusOverlay(
     return result;
   } catch (err) {
     console.error('[OVERLAY_EXT] Exception loading extended overlay:', err);
+    return result;
+  }
+}
+
+// ============================================================
+// PHASE 77: OPERATOR SCHEDULE AUTHORITY CHECK
+// ============================================================
+
+/**
+ * Result of hasOperatorSchedule check
+ */
+export interface OperatorScheduleCheck {
+  /** True if observer-ingested sailings exist for this corridor/date */
+  hasSchedule: boolean;
+  /** Count of sailings found */
+  sailingCount: number;
+  /** Distinct departure times found (for audit) */
+  distinctTimes: string[];
+  /** Source of the data (for debug) */
+  source: 'supabase_sailing_events';
+}
+
+/**
+ * PHASE 77: Check if operator has ingested sailing data for a corridor/date
+ *
+ * This is the AUTHORITY CHECK that determines whether Today's schedule should
+ * use operator data (hasSchedule === true) or fall back to templates.
+ *
+ * CRITICAL RULE: If this returns true, templates MUST NOT be used.
+ *
+ * @param operatorId - Operator ID (e.g., 'ssa', 'hy-line-cruises')
+ * @param corridorId - Corridor ID (e.g., 'woods-hole-vineyard-haven')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ * @returns OperatorScheduleCheck with hasSchedule boolean and audit info
+ */
+export async function hasOperatorSchedule(
+  operatorId: string,
+  corridorId: string,
+  serviceDate: string
+): Promise<OperatorScheduleCheck> {
+  const result: OperatorScheduleCheck = {
+    hasSchedule: false,
+    sailingCount: 0,
+    distinctTimes: [],
+    source: 'supabase_sailing_events',
+  };
+
+  const supabase = createServerClient();
+  if (!supabase) {
+    console.warn('[PHASE77] No Supabase client - hasOperatorSchedule returns false');
+    return result;
+  }
+
+  try {
+    // Get the corridor terminals to filter sailings
+    const corridorTerminals = getCorridorTerminalSlugs(corridorId);
+    if (!corridorTerminals) {
+      console.warn(`[PHASE77] Unknown corridor: ${corridorId}`);
+      return result;
+    }
+
+    // Query sailing_events for this operator and date
+    // We need to filter by ports that belong to this corridor
+    const { data, error } = await supabase
+      .from('sailing_events')
+      .select('from_port, to_port, departure_time')
+      .eq('operator_id', operatorId)
+      .eq('service_date', serviceDate);
+
+    if (error) {
+      console.error('[PHASE77] Database query failed:', error);
+      return result;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(
+        `[PHASE77] No sailing events for operator=${operatorId} corridor=${corridorId} date=${serviceDate}`
+      );
+      return result;
+    }
+
+    // Filter to only sailings that belong to this corridor
+    const corridorSailings = data.filter((row) => {
+      const fromSlug = normalizePortSlug(row.from_port);
+      const toSlug = normalizePortSlug(row.to_port);
+      return (
+        corridorTerminals.includes(fromSlug) && corridorTerminals.includes(toSlug)
+      );
+    });
+
+    if (corridorSailings.length === 0) {
+      console.log(
+        `[PHASE77] No sailings for corridor=${corridorId} in operator=${operatorId} data (${data.length} total rows)`
+      );
+      return result;
+    }
+
+    // Collect distinct departure times for audit
+    const distinctTimes = new Set<string>();
+    for (const sailing of corridorSailings) {
+      distinctTimes.add(sailing.departure_time);
+    }
+
+    result.hasSchedule = true;
+    result.sailingCount = corridorSailings.length;
+    result.distinctTimes = Array.from(distinctTimes).sort();
+
+    console.log(
+      `[PHASE77] Operator schedule EXISTS: operator=${operatorId} corridor=${corridorId} ` +
+      `date=${serviceDate} sailings=${result.sailingCount} times=${result.distinctTimes.length}`
+    );
+
+    return result;
+  } catch (err) {
+    console.error('[PHASE77] Exception in hasOperatorSchedule:', err);
+    return result;
+  }
+}
+
+/**
+ * Get terminal slugs for a corridor (for filtering)
+ */
+function getCorridorTerminalSlugs(corridorId: string): string[] | null {
+  // Map corridor IDs to their terminal pairs
+  const corridorTerminals: Record<string, string[]> = {
+    'woods-hole-vineyard-haven': ['woods-hole', 'vineyard-haven'],
+    'woods-hole-oak-bluffs': ['woods-hole', 'oak-bluffs'],
+    'hyannis-nantucket': ['hyannis', 'nantucket'],
+  };
+
+  return corridorTerminals[corridorId] || null;
+}
+
+// ============================================================
+// PHASE 78: LOAD OPERATOR SCHEDULE FROM DATABASE
+// ============================================================
+
+/**
+ * Sailing row from database for base schedule construction
+ *
+ * Phase 78.1: schedule_source uses canonical enum
+ */
+export interface OperatorScheduleSailing {
+  from_port: string;
+  to_port: string;
+  departure_time: string;  // 24-hour format from DB (e.g., "05:45:00")
+  status: 'on_time' | 'delayed' | 'canceled';
+  status_reason: string | null;
+  status_message: string | null;
+  observed_at: string;
+  source: string;
+  sailing_origin: 'operator_removed' | null;
+  schedule_source: 'operator_snapshot' | 'operator_status' | 'template' | null;
+}
+
+/**
+ * Result of loading operator schedule
+ */
+export interface OperatorScheduleResult {
+  /** True if operator-sourced sailings exist for this date */
+  hasSchedule: boolean;
+  /** All sailings from the operator for this date */
+  sailings: OperatorScheduleSailing[];
+  /** Count of sailings */
+  sailingCount: number;
+  /** Count of distinct departure times */
+  distinctTimes: number;
+}
+
+/**
+ * PHASE 78 + 80.2: Load operator's base schedule from sailing_events
+ *
+ * This function loads ALL sailings for an operator/date combination.
+ * When sailings exist, they form the BASE SCHEDULE (not an overlay).
+ * Templates should NOT be used when this returns sailings.
+ *
+ * PHASE 80.2: Uses operator ID aliases to handle historical variations
+ * (e.g., 'ssa' vs 'steamship-authority' vs 'steamship_authority')
+ *
+ * @param operatorId - Operator ID (e.g., 'ssa')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ * @param corridorId - Optional corridor ID to filter results
+ * @returns OperatorScheduleResult with hasSchedule flag and sailings array
+ */
+export async function loadOperatorSchedule(
+  operatorId: string,
+  serviceDate: string,
+  corridorId?: string
+): Promise<OperatorScheduleResult> {
+  const result: OperatorScheduleResult = {
+    hasSchedule: false,
+    sailings: [],
+    sailingCount: 0,
+    distinctTimes: 0,
+  };
+
+  const supabase = createServerClient();
+  if (!supabase) {
+    console.warn('[PHASE80.2] No Supabase client - loadOperatorSchedule returns empty');
+    return result;
+  }
+
+  // PHASE 80.2: Get all operator ID aliases for robust querying
+  const operatorAliases = getOperatorIdAliases(operatorId);
+  console.log(`[PHASE80.2] loadOperatorSchedule: operator=${operatorId} aliases=[${operatorAliases.join(',')}] date=${serviceDate} corridor=${corridorId || 'all'}`);
+
+  try {
+    // Query ALL sailing events for this operator (using aliases) and date
+    // PHASE 80.2: Use .in() to match any operator ID alias
+    const { data, error } = await supabase
+      .from('sailing_events')
+      .select('from_port, to_port, departure_time, status, status_reason, status_message, observed_at, source, sailing_origin, schedule_source, operator_id')
+      .in('operator_id', operatorAliases)
+      .eq('service_date', serviceDate)
+      .order('departure_time', { ascending: true });
+
+    if (error) {
+      console.error('[PHASE80.2] Database query failed:', error);
+      return result;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(`[PHASE80.2] No sailing events for operator=${operatorId} aliases=[${operatorAliases.join(',')}] date=${serviceDate}`);
+      return result;
+    }
+
+    // PHASE 80.2: Log which operator_id values were found in DB
+    const foundOperatorIds = [...new Set(data.map(r => r.operator_id))];
+    console.log(`[PHASE80.2] Found ${data.length} rows with operator_ids: [${foundOperatorIds.join(',')}]`);
+
+    // Filter by corridor if specified
+    let filteredData = data;
+    if (corridorId) {
+      const corridorTerminals = getCorridorTerminalSlugs(corridorId);
+      if (corridorTerminals) {
+        filteredData = data.filter((row) => {
+          const fromSlug = normalizePortSlug(row.from_port);
+          const toSlug = normalizePortSlug(row.to_port);
+          return corridorTerminals.includes(fromSlug) && corridorTerminals.includes(toSlug);
+        });
+      }
+    }
+
+    if (filteredData.length === 0) {
+      console.log(`[PHASE80.2] No sailings for corridor=${corridorId} in operator=${operatorId} data (${data.length} rows didn't match corridor)`);
+      return result;
+    }
+
+    // Phase 78.1: Deduplicate by key with canonical priority
+    // Priority: operator_snapshot > operator_status > canceled status
+    const sailingMap = new Map<string, OperatorScheduleSailing>();
+    for (const row of filteredData) {
+      const key = generateSailingKey(row.from_port, row.to_port, row.departure_time);
+      const existing = sailingMap.get(key);
+
+      // Keep the row with schedule_source='operator_snapshot' if it exists,
+      // otherwise prefer canceled status, otherwise keep first seen
+      const shouldReplace = !existing ||
+          (row.schedule_source === 'operator_snapshot' && existing.schedule_source !== 'operator_snapshot') ||
+          (row.status === 'canceled' && existing.status !== 'canceled');
+
+      if (shouldReplace) {
+        sailingMap.set(key, {
+          from_port: row.from_port,
+          to_port: row.to_port,
+          departure_time: row.departure_time,
+          status: row.status as 'on_time' | 'delayed' | 'canceled',
+          status_reason: row.status_reason,
+          status_message: row.status_message,
+          observed_at: row.observed_at,
+          source: row.source,
+          sailing_origin: row.sailing_origin || null,
+          schedule_source: row.schedule_source || null,
+        });
+      }
+    }
+
+    // Convert to array and sort by departure time
+    const sailings = Array.from(sailingMap.values()).sort((a, b) =>
+      a.departure_time.localeCompare(b.departure_time)
+    );
+
+    // Count distinct departure times
+    const distinctTimes = new Set(sailings.map(s => s.departure_time)).size;
+
+    result.hasSchedule = sailings.length > 0;
+    result.sailings = sailings;
+    result.sailingCount = sailings.length;
+    result.distinctTimes = distinctTimes;
+
+    console.log(
+      `[PHASE78] Loaded operator schedule: operator=${operatorId} corridor=${corridorId || 'all'} ` +
+      `date=${serviceDate} sailings=${result.sailingCount} distinct_times=${result.distinctTimes}`
+    );
+
+    return result;
+  } catch (err) {
+    console.error('[PHASE78] Exception in loadOperatorSchedule:', err);
     return result;
   }
 }

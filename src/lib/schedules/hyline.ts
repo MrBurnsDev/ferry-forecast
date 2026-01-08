@@ -8,8 +8,8 @@
  * - Handle DST correctly via Intl APIs
  * - Return proper UTC timestamps for accurate Departed/Upcoming status
  *
- * PROVENANCE RULES:
- * - source_type: "operator_live" only if extraction is complete and trustworthy
+ * PROVENANCE RULES (Phase 80.3):
+ * - source_type: "operator_status" if extraction is complete and trustworthy
  * - source_type: "template" if using known schedule data
  * - source_type: "unavailable" if fetch fails
  * - NEVER silent static fallback
@@ -219,7 +219,7 @@ function parseHyLineScheduleFromHtml(
   }
 
   // If we extracted times from HTML, create sailings
-  // Phase 60: Sailings parsed from operator website are 'operator_live'
+  // Phase 60/80.3: Sailings parsed from operator website are 'operator_status'
   if (extractedTimes.length >= 3) {
     const sortedTimes = sortTimeStrings(extractedTimes);
 
@@ -236,7 +236,7 @@ function parseHyLineScheduleFromHtml(
         operatorSlug: route.operatorSlug,
         status: 'scheduled' as SailingStatus,
         statusFromOperator: false,
-        scheduleSource: 'operator_live', // Phase 60: Parsed from operator website
+        scheduleSource: 'operator_status', // Phase 80.3: Canonical value (parsed from operator)
       });
     }
 
@@ -315,7 +315,7 @@ function createSailingsFromKnownSchedule(
 /**
  * Fetch Hy-Line schedule for a route
  *
- * Returns source_type: "operator_live" if successfully parsed from website
+ * Returns source_type: "operator_status" if successfully parsed from website (Phase 80.3)
  * Returns source_type: "template" if using known schedule data
  * Returns source_type: "unavailable" if both fail
  */
@@ -364,7 +364,7 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
 
     if (parseResult.sailings.length > 0) {
       const provenance: ScheduleProvenance = {
-        source_type: 'operator_live',
+        source_type: 'operator_status', // Phase 80.3: Canonical value
         source_name: route.operatorName,
         fetched_at: new Date().toISOString(),
         source_url: HYLINE_SCHEDULE_URL,

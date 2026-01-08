@@ -9,8 +9,8 @@
  * - Handle DST correctly via Intl APIs
  * - Return proper UTC timestamps for accurate Departed/Upcoming status
  *
- * PROVENANCE RULES:
- * - source_type: "operator_live" only if extraction is complete and trustworthy
+ * PROVENANCE RULES (Phase 80.3):
+ * - source_type: "operator_status" if extraction is complete and trustworthy
  * - source_type: "unavailable" if fetch fails or parse is incomplete
  * - NEVER silent static fallback
  */
@@ -352,7 +352,7 @@ async function getSSAStatus(): Promise<SSAStatusResult> {
  * - Remain visible with status: "scheduled"
  * - statusFromOperator: false (no live status reported)
  *
- * Returns source_type: "operator_live" if status overlay was applied
+ * Returns source_type: "operator_status" if status overlay was applied (Phase 80.3)
  * Returns source_type: "template" if no status available
  * Returns source_type: "unavailable" if schedule fails entirely
  */
@@ -398,7 +398,7 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
       console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: using observer cache (${manualCache.sailings.length} sailings, source: ${manualCache.source})`);
     }
 
-    // Phase 60: Upgrade ALL sailings to operator_live when observer cache is available
+    // Phase 60/80.3: Upgrade ALL sailings to operator_status when observer cache is available
     // Observer cache means operator data is the source of truth
     const sailingsWithManualStatus = templateSailings.map((sailing) => {
       const cachedStatus = getStatusForSailing(
@@ -413,15 +413,16 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
           status: cachedStatus.status,
           statusMessage: cachedStatus.statusMessage,
           statusFromOperator: true, // Observer data counts as operator status
-          scheduleSource: 'operator_live' as ScheduleSourceType, // Phase 60: Upgraded to operator source
+          // PHASE 80.3: Canonical value - observer cache is operator_status (status overlay)
+          scheduleSource: 'operator_status' as ScheduleSourceType,
         };
       }
 
-      // Phase 60: Even unmatched sailings get operator_live when observer cache is present
+      // PHASE 80.3: Even unmatched sailings get operator_status when observer cache is present
       // because the schedule list itself comes from operator observation
       return {
         ...sailing,
-        scheduleSource: 'operator_live' as ScheduleSourceType,
+        scheduleSource: 'operator_status' as ScheduleSourceType,
       };
     });
 
@@ -434,7 +435,8 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
       success: true,
       sailings: sailingsWithManualStatus,
       provenance: {
-        source_type: 'operator_live', // Observer cache is treated as live
+        // PHASE 80.3: Canonical value - observer cache provides status overlay
+        source_type: 'operator_status',
         source_name: route.operatorName,
         fetched_at: manualCache.updatedAt,
         source_url: SSA_STATUS_URL,
@@ -488,7 +490,7 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
 
   // APPLY STATUS OVERLAY to matching sailings
   // Unmatched sailings remain as-is (visible, statusFromOperator: false)
-  // Phase 60: Upgrade all sailings to operator_live when automated scraping succeeds
+  // Phase 60/80.3: Upgrade all sailings to operator_status when automated scraping succeeds
   let matchedCount = 0;
   const sailingsWithStatus = templateSailings.map((sailing) => {
     const matchingStatus = matchSailingToStatus(
@@ -507,15 +509,15 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
         status: matchingStatus.status,
         statusMessage: matchingStatus.statusMessage,
         statusFromOperator: true, // Status came from operator status page
-        scheduleSource: 'operator_live' as ScheduleSourceType, // Phase 60: Upgraded to operator source
+        scheduleSource: 'operator_status' as ScheduleSourceType, // Phase 80.3: Canonical value
       };
     }
 
-    // No matching status - sailing remains scheduled, but still upgraded to operator_live
+    // No matching status - sailing remains scheduled, but still upgraded to operator_status
     // because automated scraping verified this schedule exists with operator
     return {
       ...sailing,
-      scheduleSource: 'operator_live' as ScheduleSourceType,
+      scheduleSource: 'operator_status' as ScheduleSourceType,
     };
   });
 
@@ -534,9 +536,9 @@ export async function fetchSSASchedule(routeId: string): Promise<ScheduleFetchRe
     console.log(`[SCHEDULE_DEBUG] SSA ${routeId}: ${templateSailings.length} scheduled, ${matchedCount} matched to status (${canceledCount} canceled, ${onTimeCount} on_time), ${unmatchedCount} unmatched`);
   }
 
-  // Build provenance - "operator_live" means we successfully overlaid status
+  // Build provenance - "operator_status" means we successfully overlaid status (Phase 80.3 canonical)
   const provenance: ScheduleProvenance = {
-    source_type: 'operator_live',
+    source_type: 'operator_status',
     source_name: route.operatorName,
     fetched_at: statusResult.fetchedAt,
     source_url: SSA_STATUS_URL,

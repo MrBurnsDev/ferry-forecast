@@ -117,8 +117,9 @@ function getSourceTypeDisplay(
   scheduleLabel: string;
 } {
   switch (sourceType) {
-    case 'operator_live':
-      // Phase 18: operator_live now means directly from status page
+    case 'operator_status':
+    case 'operator_snapshot':
+      // Phase 80.3: Canonical operator values
       return {
         label: 'Live from operator',
         className: 'bg-success-muted/50 text-success',

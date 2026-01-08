@@ -4,9 +4,10 @@
  * Types for sailing-level schedule data fetched from operator websites.
  * This is DISPLAY ONLY - no predictions or inferences about individual sailings.
  *
- * PROVENANCE RULES (Phase 15):
+ * PROVENANCE RULES (Phase 15/80.3):
  * - Every schedule must declare its source_type
- * - source_type: "operator_live" = parsed from operator website/API
+ * - source_type: "operator_status" = parsed from operator website/API (Phase 80.3 canonical)
+ * - source_type: "operator_snapshot" = full-day schedule from DB (Phase 80.3 canonical)
  * - source_type: "template" = user-configured template (must be labeled in UI)
  * - source_type: "unavailable" = could not fetch, no sailings shown
  * - We NEVER silently substitute made-up schedules
@@ -20,24 +21,66 @@
 /**
  * Source type for schedule data
  *
- * PHASE 60 SCHEDULE AUTHORITY:
- * - "Today" views may ONLY show operator_live or operator_scraped sources
- * - "template" and "forecast_template" may NEVER appear in Today views
- * - Each sailing must declare its schedule_source
+ * PHASE 78.1 CANONICAL SCHEDULE SOURCE:
+ *
+ * PRIMARY VALUES (Phase 78.1):
+ * - 'operator_snapshot': Full-day schedule snapshot from operator (base schedule from DB)
+ *   Used when observer sends mode='daily_schedule_snapshot'
+ *   Today views MUST use this when available
+ *
+ * - 'operator_status': Status-only update from operator (overlay, not base schedule)
+ *   Used for live status updates that don't include the full schedule
+ *
+ * - 'template': Static fallback schedule
+ *   Only used when NO operator data exists for today
+ *   NEVER mixed with operator data
+ *
+ * TRANSITIONAL VALUES (for backwards compatibility during migration):
+ * - 'operator_live': Same as 'operator_status' (legacy name)
+ * - 'operator_scraped': Same as 'operator_snapshot' (legacy name)
+ * - 'forecast_template': Same as 'template' (for future dates)
+ * - 'unavailable': Schedule could not be fetched
  */
 export type ScheduleSourceType =
-  | 'operator_live'       // Real-time from operator website/API (observer cache, scraping)
-  | 'operator_scraped'    // From Supabase sailing_events (operator ingested via scraper)
-  | 'template'            // Static template (NOT allowed in Today views)
-  | 'forecast_template'   // Template for future dates only (NOT allowed in Today views)
-  | 'unavailable';        // Could not fetch, no schedule available
+  | 'operator_snapshot'   // Full daily schedule from operator (Phase 78: BASE LAYER)
+  | 'operator_status'     // Status-only updates from operator (overlay)
+  | 'template'            // Static template fallback (ONLY when no operator data)
+  // Transitional values - map to canonical values in logic
+  | 'operator_live'       // Legacy: same as operator_status
+  | 'operator_scraped'    // Legacy: same as operator_snapshot
+  | 'forecast_template'   // Legacy: same as template
+  | 'unavailable';        // Could not fetch
 
 /**
- * Check if a schedule source is allowed for Today views
- * Phase 60: Only operator sources are allowed for current date
+ * Check if a schedule source is from operator (allowed for Today views)
+ * Phase 78.1: operator_snapshot, operator_status, and legacy operator values are operator sources
  */
 export function isOperatorSource(source: ScheduleSourceType): boolean {
-  return source === 'operator_live' || source === 'operator_scraped';
+  return source === 'operator_snapshot' ||
+         source === 'operator_status' ||
+         source === 'operator_live' ||
+         source === 'operator_scraped';
+}
+
+/**
+ * Normalize schedule source to canonical Phase 78.1 value
+ */
+export function normalizeScheduleSource(source: ScheduleSourceType): 'operator_snapshot' | 'operator_status' | 'template' | 'unavailable' {
+  switch (source) {
+    case 'operator_snapshot':
+    case 'operator_scraped':
+      return 'operator_snapshot';
+    case 'operator_status':
+    case 'operator_live':
+      return 'operator_status';
+    case 'template':
+    case 'forecast_template':
+      return 'template';
+    case 'unavailable':
+      return 'unavailable';
+    default:
+      return 'unavailable';
+  }
 }
 
 /**

@@ -33,6 +33,18 @@ const HYLINE_SCHEDULE_URL = 'https://hylinecruises.com/nantucket-ferry/';
 const API_ENDPOINT = 'https://ferry-forecast.vercel.app/api/operator/status/ingest';
 
 // ============================================================
+// PHASE 79: QUIET HOURS CONFIGURATION
+// ============================================================
+// Skip scraping during overnight hours to reduce rate limiting risk.
+// SSA ferries don't run during these hours anyway.
+//
+// Quiet hours: 10 PM - 4 AM EST (America/New_York)
+// During quiet hours: auto scrapes are SKIPPED, manual scrapes still work
+// ============================================================
+const QUIET_HOURS_START = 22; // 10 PM EST
+const QUIET_HOURS_END = 4;    // 4 AM EST
+
+// ============================================================
 // PHASE 74: CANONICAL DAILY SCHEDULE STORAGE
 // ============================================================
 // Stores the full daily schedule from Scraper A (mobile) for diff detection.
@@ -54,10 +66,10 @@ let canonicalDailySchedule = {
 
 // Alarms
 const SCHEDULE_ALARM_NAME = 'ssa_schedule_poll';     // SSA schedule every 30 min
-const LIVE_STATUS_ALARM_NAME = 'ssa_live_status';    // SSA live status every 3 min
+const LIVE_STATUS_ALARM_NAME = 'ssa_live_status';    // SSA live status every 10 min
 const HYLINE_SCHEDULE_ALARM_NAME = 'hyline_schedule_poll'; // Hy-Line schedule every 30 min
 const SCHEDULE_POLL_INTERVAL_MINUTES = 30;
-const LIVE_STATUS_POLL_INTERVAL_MINUTES = 3;
+const LIVE_STATUS_POLL_INTERVAL_MINUTES = 10;  // Phase 79: Reduced from 3 to 10 min to avoid rate limiting
 const HYLINE_POLL_INTERVAL_MINUTES = 30;
 
 // ============================================================
@@ -98,6 +110,15 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  // Phase 79: Check quiet hours for SSA scrapers (10 PM - 4 AM EST)
+  // Skip auto scrapes during quiet hours to reduce rate limiting risk
+  if (alarm.name === SCHEDULE_ALARM_NAME || alarm.name === LIVE_STATUS_ALARM_NAME) {
+    if (isQuietHours()) {
+      console.log(`[Ferry Observer] QUIET HOURS: Skipping ${alarm.name} (10 PM - 4 AM EST)`);
+      return;
+    }
+  }
+
   if (alarm.name === SCHEDULE_ALARM_NAME) {
     console.log('[Ferry Observer] SSA SCRAPER A: Canonical schedule poll triggered');
     await performScheduleScrape('auto');
@@ -266,11 +287,14 @@ async function performScheduleScrape(trigger) {
 
     // Build payload - schedule rows only (reason enrichment happens separately)
     // Phase 76.5: Add request_id for ingest receipt tracking
+    // Phase 78: Add mode='daily_schedule_snapshot' for full schedule ingestion
     const payload = {
       request_id: crypto.randomUUID(),
       source: 'steamship_authority',
       trigger,
       scraper: 'schedule',
+      mode: 'daily_schedule_snapshot',  // Phase 78: Marks this as full daily schedule
+      operator_id: 'steamship-authority',
       scraped_at_utc: new Date().toISOString(),
       service_date_local: getLocalDate(),
       timezone: 'America/New_York',
@@ -463,11 +487,14 @@ async function scrapeLiveOperatorStatus(trigger) {
     const allScheduleRows = [...allSailings, ...removedSailings];
 
     // Phase 76.5: Add request_id for ingest receipt tracking
+    // Phase 78: Add mode='daily_schedule_snapshot' for full schedule ingestion
     const payload = {
       request_id: crypto.randomUUID(),
       source: 'steamship_authority',
       trigger,
       scraper: 'live_status',
+      mode: 'daily_schedule_snapshot',  // Phase 78: This also captures full schedule
+      operator_id: 'steamship-authority',
       scraped_at_utc: new Date().toISOString(),
       service_date_local: getLocalDate(),
       timezone: 'America/New_York',
@@ -651,6 +678,33 @@ function getLocalDate() {
     day: '2-digit'
   });
   return formatter.format(new Date());
+}
+
+/**
+ * Phase 79: Check if current time is within quiet hours (10 PM - 4 AM EST)
+ * During quiet hours, auto scrapes are skipped to reduce rate limiting risk.
+ * Manual scrapes still work regardless of quiet hours.
+ *
+ * @returns {boolean} true if within quiet hours
+ */
+function isQuietHours() {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    hour12: false
+  });
+  const hourStr = formatter.format(new Date());
+  const hour = parseInt(hourStr, 10);
+
+  // Quiet hours: 10 PM (22) to 4 AM
+  // Hour 22, 23, 0, 1, 2, 3 are quiet
+  if (QUIET_HOURS_START > QUIET_HOURS_END) {
+    // Wraps around midnight (e.g., 22-4)
+    return hour >= QUIET_HOURS_START || hour < QUIET_HOURS_END;
+  } else {
+    // Same day range
+    return hour >= QUIET_HOURS_START && hour < QUIET_HOURS_END;
+  }
 }
 
 // ============================================================

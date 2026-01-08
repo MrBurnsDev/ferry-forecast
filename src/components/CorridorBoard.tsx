@@ -799,8 +799,8 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
               Updated {formatFetchedAt(provenance.operator_status_sources[0].fetched_at)}
             </span>
           )}
-          {/* Phase 60: Schedule source badge */}
-          {provenance.schedule_source === 'operator_live' || provenance.schedule_source === 'operator_scraped' ? (
+          {/* Phase 60/80.3: Schedule source badge (canonical values) */}
+          {provenance.schedule_source === 'operator_snapshot' || provenance.schedule_source === 'operator_status' ? (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-muted/50 text-success border border-success/30">
               From Operator
             </span>

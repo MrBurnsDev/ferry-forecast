@@ -64,7 +64,7 @@ import {
   type CancellationConditionPayload,
 } from '@/lib/events/operator-conditions';
 import { enrichCancellation } from '@/lib/weather/cancellation-enrichment';
-import { supabase } from '@/lib/supabase/client';
+import { createServerClient } from '@/lib/supabase/client';
 
 // Rate limiting: track last ingest time per source
 const lastIngestTime: Record<string, number> = {};
@@ -96,6 +96,7 @@ interface LegacyIngestPayload {
 
 // Phase 41: Dual-source payload format
 // Phase 74: Added sailing_origin for removed sailing detection
+// Phase 78: Added schedule_source for operator base schedule marking
 interface ScheduleRow {
   departing_terminal: string;
   arriving_terminal: string;
@@ -116,6 +117,13 @@ interface ScheduleRow {
    * - status_reason should explain the inference
    */
   sailing_origin?: 'operator_removed';
+  /**
+   * Phase 78.1: Canonical schedule source
+   *
+   * - 'operator_snapshot': Full-day schedule from operator (base schedule)
+   * - 'operator_status': Status-only update (overlay)
+   */
+  schedule_source?: 'operator_snapshot' | 'operator_status';
 }
 
 interface ReasonRow {
@@ -163,6 +171,10 @@ interface DualSourcePayload {
   conditions?: IngestCondition[];
   // Phase 76.5: Unique request ID from observer (UUID)
   request_id?: string;
+  // Phase 78: Mode to indicate full daily schedule snapshot
+  mode?: 'daily_schedule_snapshot';
+  // Phase 78: Explicit operator_id from payload
+  operator_id?: string;
 }
 
 type IngestPayload = LegacyIngestPayload | DualSourcePayload;
@@ -209,8 +221,16 @@ interface HeartbeatUpsert {
 /**
  * Insert initial ingest run record (before processing)
  * Returns the request_id on success, null on failure
+ *
+ * Phase 79: Uses createServerClient() (service role key) for database writes
  */
 async function insertIngestRun(data: IngestRunInsert): Promise<boolean> {
+  const supabase = createServerClient();
+  if (!supabase) {
+    console.error('[INGEST] insertIngestRun: No database connection - SUPABASE_SERVICE_ROLE_KEY not configured');
+    return false;
+  }
+
   try {
     const { error } = await supabase
       .from('ingest_runs')
@@ -249,8 +269,16 @@ async function insertIngestRun(data: IngestRunInsert): Promise<boolean> {
 
 /**
  * Update ingest run record with final results (after processing)
+ *
+ * Phase 79: Uses createServerClient() (service role key) for database writes
  */
 async function updateIngestRun(requestId: string, data: IngestRunUpdate): Promise<boolean> {
+  const supabase = createServerClient();
+  if (!supabase) {
+    console.error('[INGEST] updateIngestRun: No database connection - SUPABASE_SERVICE_ROLE_KEY not configured');
+    return false;
+  }
+
   try {
     const { error } = await supabase
       .from('ingest_runs')
@@ -277,8 +305,16 @@ async function updateIngestRun(requestId: string, data: IngestRunUpdate): Promis
 
 /**
  * Upsert observer heartbeat record
+ *
+ * Phase 79: Uses createServerClient() (service role key) for database writes
  */
 async function upsertObserverHeartbeat(data: HeartbeatUpsert): Promise<boolean> {
+  const supabase = createServerClient();
+  if (!supabase) {
+    console.error('[INGEST] upsertObserverHeartbeat: No database connection - SUPABASE_SERVICE_ROLE_KEY not configured');
+    return false;
+  }
+
   try {
     const { error } = await supabase
       .from('observer_heartbeats')
@@ -480,6 +516,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const scrapedAtUtc = payload.scraped_at_utc;
     const serviceDateLocal = payload.service_date_local;
 
+    // ============================================================
+    // PHASE 80: SERVICE DATE DRIFT GUARDRAIL
+    // ============================================================
+    // Validate that the observer-provided service_date_local is reasonable.
+    // Log a warning if UTC date differs from local date (evening hours).
+    const utcDateFromScrape = new Date(scrapedAtUtc).toISOString().slice(0, 10);
+    if (utcDateFromScrape !== serviceDateLocal) {
+      console.log(
+        `[PHASE80] Ingest date drift: UTC=${utcDateFromScrape} LOCAL=${serviceDateLocal} ` +
+        `(observer correctly sent local date). This is normal after 7 PM EST.`
+      );
+    }
+
     // Calculate payload counts for receipt
     let payloadSailingsCount = 0;
     let payloadCancellationsCount = 0;
@@ -637,6 +686,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Persist sailing events to database
     const operatorId = mapOperatorId(payload.source);
+
+    // Phase 78.1: Determine schedule_source based on mode
+    // When mode === 'daily_schedule_snapshot', mark all rows as 'operator_snapshot'
+    // This indicates they are part of the canonical daily schedule from the operator
+    const isDailySnapshot = isDualSourcePayload(payload) && payload.mode === 'daily_schedule_snapshot';
+    const scheduleSourceForRows: 'operator_snapshot' | 'operator_status' = isDailySnapshot
+      ? 'operator_snapshot'
+      : 'operator_status';
+
+    if (isDailySnapshot) {
+      console.log(`[INGEST] Phase 78.1: mode=daily_schedule_snapshot, marking all ${sailingsToProcess.length} rows as operator_snapshot`);
+    }
+
     const eventInputs: SailingEventInput[] = sailingsToProcess.map((s) => {
       const fromSlug = normalizePortSlug(s.departing_terminal);
       const toSlug = normalizePortSlug(s.arriving_terminal);
@@ -653,6 +715,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         observed_at: payload.scraped_at_utc,
         // Phase 74: Pass through sailing_origin for removed sailing detection
         sailing_origin: s.sailing_origin,
+        // Phase 78: Mark schedule source for base schedule identification
+        schedule_source: s.schedule_source || scheduleSourceForRows,
       };
     });
 
@@ -889,14 +953,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Phase 50: Include NOAA weather snapshot stats
       noaa_snapshots_inserted: noaaSnapshotsInserted,
       noaa_snapshots_failed: noaaSnapshotsFailed,
-      // Phase 76.5: Ingest receipt stats
+      // Phase 76.5 + 78.1: Ingest receipt stats (REQUIRED FOR PROOF)
       request_id: requestId,
+      operator_id: operatorId,
       ingest_run_status: finalStatus,
+      // Phase 78.1: Canonical schedule_source used
+      schedule_source_applied: scheduleSourceForRows,
+      mode: isDualSourcePayload(payload) ? payload.mode : undefined,
       db_stats: {
-        inserted,
-        updated,
-        unchanged,
-        failed,
+        received_sailings: sailingsToProcess.length,
+        inserted_count: inserted,
+        updated_count: updated,
+        unchanged_count: unchanged,
+        error_count: failed,
       },
     });
   } catch (error) {

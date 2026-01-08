@@ -77,8 +77,8 @@ export async function getDailyTerminalBoard(
     for (const routeId of routeIds) {
       const scheduleResult = await getTodaySchedule(routeId);
 
-      // Track provenance
-      if (scheduleResult.provenance.source_type === 'operator_live') {
+      // Track provenance (Phase 80.3: canonical value)
+      if (scheduleResult.provenance.source_type === 'operator_status') {
         hasAnyLiveSchedule = true;
       }
 
@@ -132,10 +132,10 @@ export async function getDailyTerminalBoard(
     return true;
   });
 
-  // Determine overall schedule source
+  // Determine overall schedule source (Phase 80.3: canonical values)
   let scheduleSource: BoardProvenance['schedule_source'];
   if (hasAnyLiveSchedule && !allSailings.some((s) => s.schedule_source === 'template')) {
-    scheduleSource = 'operator_live';
+    scheduleSource = 'operator_status'; // Phase 80.3: Canonical value
   } else if (!hasAnyLiveSchedule) {
     scheduleSource = 'template';
   } else {
@@ -230,9 +230,9 @@ function convertSailingsToBoard(
       // Layer 2: Forecast risk
       forecast_risk: forecastRisk,
 
-      // Provenance
-      schedule_source: scheduleResult.provenance.source_type === 'operator_live'
-        ? 'operator_live'
+      // Provenance (Phase 80.3: canonical values)
+      schedule_source: scheduleResult.provenance.source_type === 'operator_status'
+        ? 'operator_status'
         : 'template',
       status_overlay_applied: sailing.statusFromOperator,
 

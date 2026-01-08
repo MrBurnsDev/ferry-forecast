@@ -15,8 +15,8 @@
  * - Layer 1: Operator Status (Sparse Overlay) - updates matching sailings
  * - Layer 2: Ferry Forecast Risk (Interpretive Only) - direction-aware
  *
- * PHASE 60 SCHEDULE AUTHORITY:
- * - "Today" views may ONLY show operator_live or operator_scraped sources
+ * PHASE 60/80.3 SCHEDULE AUTHORITY:
+ * - "Today" views may ONLY show operator_snapshot or operator_status sources
  * - "template" and "forecast_template" may NEVER appear in Today views
  * - Each sailing must declare its schedule_source
  *
@@ -177,8 +177,8 @@ export interface TerminalBoardSailing {
   /**
    * Where the schedule data came from
    *
-   * PHASE 60 SCHEDULE AUTHORITY:
-   * - Today views ONLY allow: 'operator_live' | 'operator_scraped'
+   * PHASE 60/80.3 SCHEDULE AUTHORITY:
+   * - Today views ONLY allow: 'operator_snapshot' | 'operator_status'
    * - Future views may show: 'forecast_template'
    * - 'template' and 'forecast_template' NEVER appear in Today views
    */
@@ -234,8 +234,8 @@ export interface BoardAdvisory {
 /**
  * Provenance metadata for the board
  *
- * Phase 60: Schedule Authority Lock
- * - Today boards MUST have schedule_source of 'operator_live' | 'operator_scraped' | 'mixed'
+ * Phase 60/80.3: Schedule Authority Lock
+ * - Today boards MUST have schedule_source of 'operator_snapshot' | 'operator_status' | 'mixed'
  * - 'mixed' allowed only if ALL components are operator sources
  * - 'unavailable' returned if no operator data
  *
@@ -256,10 +256,10 @@ export interface BoardProvenance {
   /** When the board was generated */
   generated_at: string;
 
-  /** Per-operator status fetch info (Phase 26: observer_cache added) */
+  /** Per-operator status fetch info (Phase 26: observer_cache added, Phase 80.2: supabase added) */
   operator_status_sources: Array<{
     operator_id: string;
-    source: 'status_page' | 'observer_cache' | 'unavailable';
+    source: 'status_page' | 'observer_cache' | 'supabase_sailing_events' | 'unavailable';
     fetched_at: string;
     url?: string;
   }>;
@@ -301,6 +301,42 @@ export interface BoardProvenance {
    * - "Operator schedule (wh-vh-ssa) takes precedence"
    */
   template_excluded_reason?: string | null;
+
+  // ============================================================
+  // PHASE 78.1: DEBUG AUDIT INFO
+  // ============================================================
+
+  /**
+   * Debug audit information for schedule authority decisions.
+   * Only populated when SCHEDULE_DEBUG is enabled or for diagnostics.
+   *
+   * Phase 78.1: Uses canonical schedule_source values
+   */
+  debug?: {
+    phase78_operator_schedule?: boolean;
+    operator_sailing_count?: number;
+    template_sailing_count?: number;
+    templates_included?: boolean;
+    base_schedule_source?: 'operator' | 'template';
+  };
+
+  /**
+   * Phase 77: Detailed schedule authority audit
+   * Records which operators had schedules and the decision logic.
+   */
+  schedule_authority_audit?: {
+    operator_checks: Array<{
+      operator_id: string;
+      has_schedule: boolean;
+      sailing_count: number;
+      distinct_times: string[];
+    }>;
+    today_authority: 'operator_only' | 'template_only';
+    operator_sailing_count: number;
+    template_sailing_count: number;
+    templates_included: boolean;
+    base_schedule_source: 'operator' | 'template';
+  };
 }
 
 /**

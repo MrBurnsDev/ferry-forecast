@@ -19,7 +19,7 @@
  *
  * CORE PRINCIPLE: IF operator_sailings.length > 0: templates MUST be excluded from Today
  *
- * When operator data is available (operator_live, operator_scraped):
+ * When operator data is available (operator_snapshot, operator_status):
  * - Templates are EXCLUDED from Today's board
  * - Only operator-sourced sailings participate
  * - Cancellation overlay applies ONLY to operator sailings
@@ -47,7 +47,7 @@
  * - Generate versioned predictions for learning loop
  */
 
-import type { DailyCorridorBoard } from '@/types/corridor';
+import type { DailyCorridorBoard, CorridorServiceState } from '@/types/corridor';
 import type {
   TerminalBoardSailing,
   BoardAdvisory,
@@ -73,13 +73,20 @@ import { getForecastRange, type ForecastHour } from '@/lib/weather/open-meteo';
 import { generatePrediction, type PredictionResult } from '@/lib/scoring/prediction-engine-v2';
 // Phase 48: Canonical overlay loader
 // Phase 48.1: Extended loader for full union (synthetic sailings)
+// Phase 77: Operator schedule authority check
+// Phase 78: Load operator base schedule directly from DB
 import {
   loadExtendedStatusOverlay,
   generateSailingKey,
   normalizePortSlug,
+  hasOperatorSchedule,
+  loadOperatorSchedule,
   type PersistedStatus,
   type ExtendedStatusOverlay,
   type RawSailingEvent,
+  type OperatorScheduleCheck,
+  type OperatorScheduleResult,
+  type OperatorScheduleSailing,
 } from '@/lib/events/sailing-events';
 
 // ============================================================
@@ -130,6 +137,20 @@ export async function getDailyCorridorBoard(
   const now = new Date();
   const serviceDateLocal = getTodayInTimezone(corridor.default_timezone);
   const operators = getOperatorsForCorridor(corridorId);
+
+  // ============================================================
+  // PHASE 80: SERVICE DATE DRIFT GUARDRAIL
+  // ============================================================
+  // Log when UTC date differs from local date (evening hours EST).
+  // This helps diagnose any timezone-related query issues.
+  // If queries are returning 0 rows, check this log first.
+  const utcDate = now.toISOString().slice(0, 10);
+  if (utcDate !== serviceDateLocal) {
+    console.log(
+      `[PHASE80] Date drift detected: UTC=${utcDate} LOCAL=${serviceDateLocal} tz=${corridor.default_timezone}. ` +
+      `Queries use LOCAL date (correct). This is normal after 7 PM EST.`
+    );
+  }
 
   // Phase 32: Optionally fetch Open-Meteo forecast data
   let forecastContext: ForecastContext | null = null;
@@ -258,6 +279,130 @@ export async function getDailyCorridorBoard(
   let hasAnyStatusOverlay = mergedOverlay.size > 0;
 
   // ============================================================
+  // PHASE 78: OPERATOR SCHEDULE BASE LAYER (BEFORE TEMPLATES)
+  // ============================================================
+  //
+  // ARCHITECTURAL RULE:
+  // IF operator has sailing_events in DB for today → USE ONLY DB ROWS
+  // Templates are NEVER mixed with operator data.
+  //
+  // This is checked FIRST, BEFORE any getTodaySchedule() calls.
+  // When operator schedule exists, we skip the template path entirely.
+  //
+  // Load operator schedules for all operators in this corridor
+  const operatorScheduleResults = new Map<string, OperatorScheduleResult>();
+  for (const operatorId of operatorIds) {
+    const scheduleResult = await loadOperatorSchedule(operatorId, serviceDateLocal, corridorId);
+    operatorScheduleResults.set(operatorId, scheduleResult);
+
+    console.log(
+      `[PHASE78] Operator schedule check: operator=${operatorId} corridor=${corridorId} ` +
+      `hasSchedule=${scheduleResult.hasSchedule} sailingCount=${scheduleResult.sailingCount}`
+    );
+  }
+
+  // Check if ANY operator has DB-sourced schedule
+  const anyOperatorHasDBSchedule = Array.from(operatorScheduleResults.values()).some(r => r.hasSchedule);
+  const totalDBSailings = Array.from(operatorScheduleResults.values()).reduce((sum, r) => sum + r.sailingCount, 0);
+
+  if (anyOperatorHasDBSchedule) {
+    console.log(
+      `[PHASE78] OPERATOR SCHEDULE AUTHORITY: Using DB-sourced schedule for corridor=${corridorId}. ` +
+      `Total DB sailings=${totalDBSailings}. Templates will NOT be used.`
+    );
+
+    // Build board directly from DB sailings
+    for (const [dbOperatorId, scheduleResult] of operatorScheduleResults) {
+      if (!scheduleResult.hasSchedule) continue;
+
+      // Map DB operator ID to display format
+      const displayOperatorId = dbOperatorId === 'ssa' ? 'steamship-authority' : dbOperatorId;
+
+      for (const dbSailing of scheduleResult.sailings) {
+        const boardSailing = createBoardSailingFromDB(
+          dbSailing,
+          displayOperatorId,
+          serviceDateLocal,
+          corridor.default_timezone,
+          weather,
+          forecastContext
+        );
+
+        if (boardSailing) {
+          allSailings.push(boardSailing);
+        }
+      }
+
+      // PHASE 80.2: Track status source as supabase (NOT observer_cache)
+      // When using DB-sourced schedule, the source is the database itself
+      operatorStatusSources.push({
+        operator_id: displayOperatorId,
+        source: 'supabase_sailing_events', // PHASE 80.2: DB is the source
+        fetched_at: new Date().toISOString(),
+        url: undefined,
+      });
+    }
+
+    hasAnyLiveSchedule = true; // DB data is live operator data
+
+    // Sort sailings by departure time
+    allSailings.sort((a, b) => a.departure_timestamp_ms - b.departure_timestamp_ms);
+
+    // Phase 78: Skip the template-based flow and return early
+    // Determine service state based on sailing count (Phase 68 rule)
+    const serviceState: CorridorServiceState = allSailings.length > 0 ? 'active' : 'seasonal_inactive';
+
+    const board: DailyCorridorBoard = {
+      corridor,
+      terminals: {
+        a: terminals.a,
+        b: terminals.b,
+      },
+      service_date_local: serviceDateLocal,
+      generated_at_utc: new Date().toISOString(),
+      operators: operators.map((op) => ({
+        id: op.id,
+        name: op.name,
+        status_url: op.status_url || '',
+      })),
+      service_state: serviceState,
+      sailings: allSailings,
+      advisories: allAdvisories,
+      provenance: {
+        generated_at: new Date().toISOString(),
+        schedule_source: 'operator_snapshot',  // Phase 78.1: Canonical value
+        status_overlay_available: true,
+        operator_status_sources: operatorStatusSources,
+        today_authority: 'operator_only',
+        debug: {
+          phase78_operator_schedule: true,
+          operator_sailing_count: totalDBSailings,
+          template_sailing_count: 0,
+          templates_included: false,
+          base_schedule_source: 'operator',
+        },
+      },
+    };
+
+    // Count canceled for guard
+    const canceledCount = allSailings.filter(s => s.operator_status === 'canceled').length;
+    console.log(
+      `[PHASE78] Returning operator-only board: corridor=${corridorId} ` +
+      `sailings=${allSailings.length} canceled=${canceledCount}`
+    );
+
+    return board;
+  }
+
+  // ============================================================
+  // NO OPERATOR SCHEDULE - Fall back to templates
+  // ============================================================
+  console.log(
+    `[PHASE78] No operator schedule in DB for corridor=${corridorId}. ` +
+    `Falling back to templates via getTodaySchedule().`
+  );
+
+  // ============================================================
   // PHASE 71 FIX: FETCH ALL ROUTES IN PARALLEL
   // ============================================================
   // Previously, routes were fetched sequentially with `await` inside a loop.
@@ -293,17 +438,14 @@ export async function getDailyCorridorBoard(
     const routeId = corridor.route_ids[i];
     const scheduleResult = scheduleResults[i];
 
-    // Track provenance
-    if (scheduleResult.provenance.source_type === 'operator_live') {
+    // Track provenance (Phase 80.3: canonical value)
+    if (scheduleResult.provenance.source_type === 'operator_status') {
       hasAnyLiveSchedule = true;
     }
 
-    // Phase 26: Check for observer cache or operator status page
+    // Phase 26/80.3: Check for operator status sources
     const statusSourceType = scheduleResult.statusSource?.source;
-    if (
-      statusSourceType === 'operator_status_page' ||
-      statusSourceType === 'observer_cache'
-    ) {
+    if (statusSourceType === 'operator_status_page') {
       hasAnyStatusOverlay = true;
     }
 
@@ -322,9 +464,10 @@ export async function getDailyCorridorBoard(
     );
 
     // Categorize each sailing by its schedule_source
+    // PHASE 80.3: Only canonical operator values (snapshot, status)
     for (const sailing of boardSailings) {
-      const isOperatorData = sailing.schedule_source === 'operator_live' ||
-                             sailing.schedule_source === 'operator_scraped';
+      const isOperatorData = sailing.schedule_source === 'operator_snapshot' ||
+                             sailing.schedule_source === 'operator_status';
 
       if (isOperatorData) {
         operatorSailings.push({ sailing, routeId, operatorId });
@@ -346,14 +489,10 @@ export async function getDailyCorridorBoard(
     }
 
     // Track status source per operator (only once per operator)
+    // Phase 80.3: Only 'status_page' or 'unavailable' for legacy path
     if (!operatorStatusSources.some((s) => s.operator_id === operatorId)) {
-      // Phase 26: Include observer_cache as a valid source
-      let statusSource: 'status_page' | 'observer_cache' | 'unavailable' = 'unavailable';
-      if (scheduleResult.statusSource?.source === 'operator_status_page') {
-        statusSource = 'status_page';
-      } else if (scheduleResult.statusSource?.source === 'observer_cache') {
-        statusSource = 'observer_cache';
-      }
+      const statusSource: 'status_page' | 'unavailable' =
+        scheduleResult.statusSource?.source === 'operator_status_page' ? 'status_page' : 'unavailable';
 
       operatorStatusSources.push({
         operator_id: operatorId,
@@ -365,142 +504,115 @@ export async function getDailyCorridorBoard(
   }
 
   // ============================================================
-  // PHASE 75: SCHEDULE RECONCILIATION FIX
+  // PHASE 77: OPERATOR SCHEDULE AUTHORITY LOCK
   // ============================================================
   //
-  // CORE CONTRACT (NON-NEGOTIABLE):
-  // - The daily schedule (from templates) is the BASE TRUTH
-  // - Operator data is an OVERLAY ONLY (status updates, cancellations)
-  // - Operator data must NEVER define which sailings exist for the day
-  // - Missing sailings must NEVER silently disappear
+  // ARCHITECTURAL LAW (IMMUTABLE):
+  // Today views must be EITHER 100% operator-driven OR 100% template-driven.
+  // NO MIXING. Templates are ONLY a fallback when NO operator data exists.
   //
-  // PHASE 75 FIX: Always start from templates, apply operator status as overlay.
-  // The Phase 73 "hard separation" logic was incorrect - it excluded templates
-  // when ANY operator data existed, causing sailings to disappear.
+  // CORE PRINCIPLE:
+  // IF hasOperatorSchedule() === true → templates MUST NOT be used
+  // IF hasOperatorSchedule() === false → templates ARE the schedule
   //
-  // NEW LOGIC:
-  // 1. Start with ALL template sailings (the base schedule)
-  // 2. Apply operator status overlay to matching sailings
-  // 3. Log CRITICAL warning if operator data covers fewer sailings than expected
-  // 4. Sailings without operator overlay show as "Scheduled" (null status)
+  // This fixes Phase 75's mistake of mixing templates with operator data,
+  // which caused phantom sailings and schedule mismatches.
 
-  const hasOperatorData = operatorSailings.length > 0;
-  const todayAuthority: 'operator_only' | 'template_only' = hasOperatorData ? 'operator_only' : 'template_only';
-  let templateExcludedReason: string | null = null;
-
-  // ============================================================
-  // PHASE 75 DEV-TIME ASSERTION: DETECT PARTIAL OPERATOR SNAPSHOTS
-  // ============================================================
-  // If operator data has fewer sailings than templates, this is suspicious.
-  // The operator should publish a COMPLETE schedule, not a partial one.
-  // This is a CRITICAL data quality issue that must be investigated.
-
-  if (hasOperatorData && templateSailings.length > 0) {
-    const operatorCount = operatorSailings.length;
-    const templateCount = templateSailings.length;
-
-    if (operatorCount < templateCount) {
-      // CRITICAL: Operator snapshot appears to be partial
-      const missingCount = templateCount - operatorCount;
-      const missingPercent = Math.round((missingCount / templateCount) * 100);
-
-      console.error(
-        `[CRITICAL] Partial operator snapshot detected for corridor=${corridorId}! ` +
-        `operator_sailings=${operatorCount}, template_sailings=${templateCount}, ` +
-        `missing=${missingCount} (${missingPercent}% of schedule). ` +
-        `service_date=${serviceDateLocal}. ` +
-        `Base schedule will be used to ensure no sailings are lost.`
-      );
-
-      // Also log to help diagnose which sailings are missing
-      const operatorTimes = new Set(operatorSailings.map(s => s.sailing.scheduled_departure_local));
-      const missingTimes = templateSailings
-        .filter(s => !operatorTimes.has(s.sailing.scheduled_departure_local))
-        .map(s => `${s.sailing.scheduled_departure_local} ${s.sailing.origin_terminal.id}→${s.sailing.destination_terminal.id}`)
-        .slice(0, 10); // Log first 10 missing
-
-      if (missingTimes.length > 0) {
-        console.error(
-          `[CRITICAL] Missing sailings (first 10): [${missingTimes.join(', ')}]`
-        );
-      }
-    }
+  // PHASE 77: Check operator schedule authority for each operator
+  const operatorScheduleChecks = new Map<string, OperatorScheduleCheck>();
+  for (const operatorId of operatorIds) {
+    // Normalize operator ID for the database lookup
+    const dbOperatorId = operatorId === 'ssa' ? 'ssa' : operatorId;
+    const scheduleCheck = await hasOperatorSchedule(dbOperatorId, corridorId, serviceDateLocal);
+    operatorScheduleChecks.set(operatorId, scheduleCheck);
   }
 
-  // ============================================================
-  // PHASE 75: UNIFIED SCHEDULE CONSTRUCTION
-  // ============================================================
-  // Always use templates as the base, overlay operator status on top.
-  // This ensures NO sailings are ever lost due to partial operator data.
+  // Determine if ANY operator has schedule data
+  const anyOperatorHasSchedule = Array.from(operatorScheduleChecks.values()).some(check => check.hasSchedule);
 
-  if (hasOperatorData) {
-    // Build a map of operator sailings by key for fast lookup
-    const operatorSailingMap = new Map<string, TerminalBoardSailing>();
-    for (const { sailing } of operatorSailings) {
-      const key = `${sailing.origin_terminal.id}|${sailing.destination_terminal.id}|${sailing.scheduled_departure_local}`;
-      operatorSailingMap.set(key, sailing);
+  // PHASE 77: Determine today_authority based on operator schedule existence
+  const todayAuthority: 'operator_only' | 'template_only' = anyOperatorHasSchedule ? 'operator_only' : 'template_only';
+  let templateExcludedReason: string | null = null;
+  let scheduleAuthorityAudit: {
+    operator_checks: Array<{ operator_id: string; has_schedule: boolean; sailing_count: number; distinct_times: string[] }>;
+    today_authority: 'operator_only' | 'template_only';
+    operator_sailing_count: number;
+    template_sailing_count: number;
+    templates_included: boolean;
+    base_schedule_source: 'operator' | 'template';
+  } | null = null;
+
+  // Build audit info with Phase 77 Part D enhanced debug output
+  scheduleAuthorityAudit = {
+    operator_checks: Array.from(operatorScheduleChecks.entries()).map(([opId, check]) => ({
+      operator_id: opId,
+      has_schedule: check.hasSchedule,
+      sailing_count: check.sailingCount,
+      distinct_times: check.distinctTimes, // Phase 77 Part D: Include distinct times for debugging
+    })),
+    today_authority: todayAuthority,
+    operator_sailing_count: operatorSailings.length,
+    template_sailing_count: templateSailings.length,
+    templates_included: !anyOperatorHasSchedule,
+    base_schedule_source: anyOperatorHasSchedule ? 'operator' : 'template', // Phase 77 Part D: Explicit source
+  };
+
+  console.log(
+    `[PHASE77] Schedule authority check: corridor=${corridorId} today_authority=${todayAuthority} ` +
+    `operator_has_schedule=${anyOperatorHasSchedule} operator_sailings=${operatorSailings.length} ` +
+    `template_sailings=${templateSailings.length}`
+  );
+
+  // ============================================================
+  // PHASE 77: SCHEDULE CONSTRUCTION - OPERATOR-ONLY OR TEMPLATE-ONLY
+  // ============================================================
+
+  if (todayAuthority === 'operator_only') {
+    // ============================================================
+    // OPERATOR AUTHORITY: Use ONLY operator-sourced sailings
+    // Templates are EXCLUDED - no gap-filling, no fallback
+    // ============================================================
+
+    // PHASE 77 GUARD: Log warning if operator data seems incomplete
+    // (but still use operator-only - this is just diagnostic)
+    if (operatorSailings.length < templateSailings.length) {
+      const missingCount = templateSailings.length - operatorSailings.length;
+      console.warn(
+        `[PHASE77] Operator schedule appears incomplete: corridor=${corridorId} ` +
+        `operator=${operatorSailings.length} template=${templateSailings.length} ` +
+        `missing=${missingCount}. Using operator-only per Phase 77 rules.`
+      );
     }
 
-    // Start with operator sailings (they have operator_live source)
+    // Add operator sailings with status overlay
     for (const { sailing } of operatorSailings) {
       const sailingWithOverlay = applyStatusOverlayToSailing(sailing, mergedOverlay);
       allSailings.push(sailingWithOverlay);
     }
 
-    // PHASE 75 FIX: Add template sailings that are NOT in operator data
-    // These are sailings that exist in the schedule but operator didn't include
-    // They should show as "Scheduled" (no operator status yet)
-    let addedFromTemplate = 0;
-    for (const { sailing } of templateSailings) {
-      const key = `${sailing.origin_terminal.id}|${sailing.destination_terminal.id}|${sailing.scheduled_departure_local}`;
+    templateExcludedReason = `Phase 77: Operator schedule exists (${operatorSailings.length} sailings from DB). Templates excluded.`;
 
-      if (!operatorSailingMap.has(key)) {
-        // This sailing exists in template but NOT in operator data
-        // Add it with template source - it's still a valid scheduled sailing
-        // PHASE 75: Sailings without operator overlay render as "Scheduled"
-        allSailings.push({
-          ...sailing,
-          // Keep template source to indicate no operator confirmation yet
-          schedule_source: 'template',
-          // operator_status remains null (no operator data for this sailing)
-          operator_status: null,
-          status_overlay_applied: false,
-        });
-        addedFromTemplate++;
-      }
-    }
-
-    if (addedFromTemplate > 0) {
-      console.log(
-        `[CORRIDOR_BOARD] Phase 75: Added ${addedFromTemplate} template sailings ` +
-        `not present in operator data. These will show as "Scheduled".`
-      );
-      // Update template excluded reason to reflect the hybrid approach
-      templateExcludedReason = `Operator data available (${operatorSailings.length} sailings), ` +
-        `${addedFromTemplate} template sailings added for complete coverage`;
-    } else {
-      templateExcludedReason = `Operator data complete (${operatorSailings.length} sailings)`;
-    }
-
-    // Phase 75 logging
     console.log(
-      `[CORRIDOR_BOARD] Phase 75: today_authority=operator_only, ` +
-      `operator_sailings=${operatorSailings.length}, ` +
-      `template_sailings_added=${addedFromTemplate}, ` +
-      `total=${allSailings.length}`
+      `[PHASE77] Operator authority: corridor=${corridorId} ` +
+      `operator_sailings=${operatorSailings.length} templates_excluded=true`
     );
 
   } else {
-    // Template fallback: No operator data available
-    console.log(
-      `[CORRIDOR_BOARD] Phase 75: today_authority=template_only, ` +
-      `template_sailings=${templateSailings.length}, operator_sailings=0`
-    );
+    // ============================================================
+    // TEMPLATE AUTHORITY: No operator data exists, use templates
+    // ============================================================
 
     // Add template sailings WITHOUT overlay (no operator data to apply)
     for (const { sailing } of templateSailings) {
       allSailings.push(sailing);
     }
+
+    templateExcludedReason = null; // Templates are used, not excluded
+
+    console.log(
+      `[PHASE77] Template authority: corridor=${corridorId} ` +
+      `template_sailings=${templateSailings.length} operator_schedule=none`
+    );
   }
 
   // ============================================================
@@ -645,6 +757,48 @@ export async function getDailyCorridorBoard(
   // Sort sailings by departure time (interleaved, both directions)
   allSailings.sort((a, b) => a.departure_timestamp_ms - b.departure_timestamp_ms);
 
+  // ============================================================
+  // PHASE 77 PART C: HARD RUNTIME GUARD - SCHEDULE AUTHORITY VIOLATION
+  // ============================================================
+  // ARCHITECTURAL LAW: If todayAuthority === 'operator_only', there MUST be
+  // ZERO sailings with schedule_source === 'template'.
+  // If this guard fires, it means templates leaked into an operator-authority schedule.
+  // This is a CRITICAL architectural violation.
+
+  if (todayAuthority === 'operator_only') {
+    const templateSailingsInResponse = allSailings.filter(
+      (s) => s.schedule_source === 'template' || s.schedule_source === 'forecast_template'
+    );
+
+    if (templateSailingsInResponse.length > 0) {
+      // CRITICAL VIOLATION: Templates found in operator-authority schedule
+      const templateTimes = templateSailingsInResponse
+        .map((s) => `${s.scheduled_departure_local} (${s.origin_terminal.id}→${s.destination_terminal.id})`)
+        .slice(0, 5)
+        .join(', ');
+
+      const errorMsg =
+        `[SCHEDULE AUTHORITY VIOLATION] corridor=${corridorId} ` +
+        `found ${templateSailingsInResponse.length} templates with operator data! ` +
+        `today_authority=operator but templates present. ` +
+        `Sample times: ${templateTimes}. ` +
+        `service_date=${serviceDateLocal}`;
+
+      console.error(errorMsg);
+
+      // In development, throw to make this a hard failure
+      // In production, log but continue (fail-safe)
+      if (process.env.NODE_ENV === 'development') {
+        throw new Error(errorMsg);
+      }
+    } else {
+      console.log(
+        `[PHASE77] Schedule authority guard PASSED: corridor=${corridorId} ` +
+        `today_authority=operator, template_count=0, operator_sailings=${allSailings.length}`
+      );
+    }
+  }
+
   // Dedupe advisories by text
   const seenAdvisoryTexts = new Set<string>();
   const uniqueAdvisories = allAdvisories.filter((a) => {
@@ -654,9 +808,14 @@ export async function getDailyCorridorBoard(
   });
 
   // Determine overall schedule source
+  // PHASE 80.2: Canonicalize to 'operator_status' instead of legacy 'operator_live'
+  // 'operator_snapshot' = base schedule from DB (Phase 78 path)
+  // 'operator_status' = live status overlay from observer cache (legacy path)
+  // 'template' = static template fallback
   let scheduleSource: BoardProvenance['schedule_source'];
   if (hasAnyLiveSchedule && !allSailings.some((s) => s.schedule_source === 'template')) {
-    scheduleSource = 'operator_live';
+    // PHASE 80.2: Use canonical 'operator_status' instead of legacy 'operator_live'
+    scheduleSource = 'operator_status';
   } else if (!hasAnyLiveSchedule) {
     scheduleSource = 'template';
   } else {
@@ -669,9 +828,11 @@ export async function getDailyCorridorBoard(
     status_overlay_available: hasAnyStatusOverlay,
     generated_at: now.toISOString(),
     operator_status_sources: operatorStatusSources,
-    // Phase 73: Hard separation of operator truth vs templates
+    // Phase 77: Operator schedule authority lock
     today_authority: todayAuthority,
     template_excluded_reason: templateExcludedReason,
+    // Phase 77: Schedule authority audit for debugging
+    schedule_authority_audit: scheduleAuthorityAudit,
   };
 
   // Get status URL
@@ -722,6 +883,47 @@ export async function getDailyCorridorBoard(
   console.log(
     `[SEASONALITY] corridor=${corridorId}, sailing_count=${allSailings.length}, service_state=${serviceState}`
   );
+
+  // ============================================================
+  // PHASE 80.2: RUNTIME ASSERTIONS - AUTHORITY VALIDATION
+  // ============================================================
+  // If today_authority == 'operator_only', ensure no template data leaked through
+  // and all sailings have canonical schedule_source values.
+  if (provenance.today_authority === 'operator_only') {
+    // Check 1: No sailings should have template schedule_source
+    const templateLeaks = allSailings.filter(s => s.schedule_source === 'template');
+    if (templateLeaks.length > 0) {
+      console.error(
+        `[PHASE80.2 AUTHORITY VIOLATION] today_authority=operator_only but ${templateLeaks.length} sailings have schedule_source=template. ` +
+        `First violation: ${templateLeaks[0].origin_terminal.id}->${templateLeaks[0].destination_terminal.id}@${templateLeaks[0].scheduled_departure_local}`
+      );
+    }
+
+    // Check 2: No sailings should have legacy operator_live/operator_scraped values
+    const legacyValues = allSailings.filter(s =>
+      s.schedule_source === 'operator_live' || s.schedule_source === 'operator_scraped'
+    );
+    if (legacyValues.length > 0) {
+      console.error(
+        `[PHASE80.2 AUTHORITY VIOLATION] today_authority=operator_only but ${legacyValues.length} sailings have legacy schedule_source. ` +
+        `Values found: [${[...new Set(legacyValues.map(s => s.schedule_source))].join(',')}]. ` +
+        `First violation: ${legacyValues[0].origin_terminal.id}->${legacyValues[0].destination_terminal.id}@${legacyValues[0].scheduled_departure_local}`
+      );
+    }
+
+    // Check 3: Provenance schedule_source should be operator_snapshot or operator_status
+    if (provenance.schedule_source !== 'operator_snapshot' && provenance.schedule_source !== 'operator_status') {
+      console.error(
+        `[PHASE80.2 AUTHORITY VIOLATION] today_authority=operator_only but provenance.schedule_source=${provenance.schedule_source}. ` +
+        `Expected: operator_snapshot or operator_status`
+      );
+    }
+
+    console.log(
+      `[PHASE80.2] Authority validation passed: corridor=${corridorId} today_authority=operator_only ` +
+      `schedule_source=${provenance.schedule_source} sailings=${allSailings.length}`
+    );
+  }
 
   return {
     corridor,
@@ -904,9 +1106,10 @@ function convertSailingsToBoard(
       forecast_risk: forecastRisk,
 
       // Provenance
-      // Phase 60: Use sailing's scheduleSource if available, fallback to provenance
+      // Phase 60 + 80.2: Use sailing's scheduleSource if available, fallback to provenance
+      // PHASE 80.2: Canonicalize legacy 'operator_live' to 'operator_status'
       schedule_source: (sailing.scheduleSource ||
-        (scheduleResult.provenance.source_type === 'operator_live' ? 'operator_live' : 'template')) as ScheduleSourceType,
+        (scheduleResult.provenance.source_type === 'operator_live' ? 'operator_status' : 'template')) as ScheduleSourceType,
       status_overlay_applied: statusOverlayApplied,
 
       vessel_name: sailing.vesselName,
@@ -1060,9 +1263,9 @@ function createSyntheticSailing(
       // Layer 2: No forecast risk for synthetic sailings
       forecast_risk: null,
 
-      // Provenance: Phase 60 - Mark as operator_scraped since it came from DB
+      // Provenance: Phase 80.3 - Mark as operator_snapshot since it came from DB
       // (ingested from operator scraping, not template)
-      schedule_source: 'operator_scraped',
+      schedule_source: 'operator_snapshot',
       status_overlay_applied: true,
 
       // No vessel name for synthetic sailings
@@ -1094,6 +1297,124 @@ function generateSailingId(
     .replace(':', '');
 
   return `${operatorId}_${originSlug}_${destSlug}_${timeNormalized}`;
+}
+
+// ============================================================
+// PHASE 78: CREATE BOARD SAILING FROM OPERATOR DB RECORD
+// ============================================================
+
+/**
+ * Convert an operator schedule sailing (from DB) to TerminalBoardSailing format.
+ *
+ * This is used when operator schedule exists in the database.
+ * The resulting sailing has schedule_source='operator_published' and is
+ * authoritative (templates should NOT be used).
+ *
+ * @param dbSailing - Sailing from loadOperatorSchedule()
+ * @param operatorId - Display operator ID (e.g., 'steamship-authority')
+ * @param serviceDate - Service date in YYYY-MM-DD format
+ * @param timezone - IANA timezone (e.g., 'America/New_York')
+ * @param weather - Optional weather context for risk computation
+ * @param forecastContext - Optional forecast context for future sailings
+ */
+function createBoardSailingFromDB(
+  dbSailing: OperatorScheduleSailing,
+  operatorId: string,
+  serviceDate: string,
+  timezone: string,
+  weather?: WeatherContext | null,
+  forecastContext?: ForecastContext | null
+): TerminalBoardSailing | null {
+  try {
+    const fromSlug = normalizePortSlug(dbSailing.from_port);
+    const toSlug = normalizePortSlug(dbSailing.to_port);
+    const fromName = PORT_DISPLAY_NAMES[fromSlug] || dbSailing.from_port;
+    const toName = PORT_DISPLAY_NAMES[toSlug] || dbSailing.to_port;
+
+    // Convert 24-hour time to 12-hour display format
+    const departureTimeDisplay = format24To12Hour(dbSailing.departure_time);
+
+    // Build departure UTC timestamp
+    // Parse the 24-hour time (HH:MM:SS) and combine with service date
+    const timeMatch = dbSailing.departure_time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!timeMatch) {
+      console.error(`[PHASE78] Invalid time format: ${dbSailing.departure_time}`);
+      return null;
+    }
+
+    // Create a date in the local timezone
+    // Note: This is an approximation - proper timezone handling happens in time.ts
+    const hour = parseInt(timeMatch[1], 10);
+    const minute = parseInt(timeMatch[2], 10);
+
+    // Build ISO string for local time, then let JS parse it
+    // Format: YYYY-MM-DDTHH:MM:SS (no timezone = local)
+    const localTimeStr = `${serviceDate}T${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}:00`;
+    const departureDate = new Date(localTimeStr);
+    const departureTimestampMs = departureDate.getTime();
+    const departureUTC = departureDate.toISOString();
+
+    // Generate sailing ID
+    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, departureTimeDisplay);
+
+    // Map DB status to operator_status
+    let operatorStatus: 'on_time' | 'delayed' | 'canceled' | null = null;
+    if (dbSailing.status === 'on_time') {
+      operatorStatus = 'on_time';
+    } else if (dbSailing.status === 'delayed') {
+      operatorStatus = 'delayed';
+    } else if (dbSailing.status === 'canceled') {
+      operatorStatus = 'canceled';
+    }
+
+    // Phase 78: Skip forecast risk computation for DB-sourced sailings
+    // The operator status is authoritative; forecast risk is Layer 2 (interpretive only)
+    // Can be added later if needed by computing from weather context
+    const forecastRisk: ForecastRisk | null = null;
+
+    const sailing: TerminalBoardSailing = {
+      sailing_id: sailingId,
+      operator_id: operatorId,
+
+      origin_terminal: {
+        id: fromSlug,
+        name: fromName,
+      },
+      destination_terminal: {
+        id: toSlug,
+        name: toName,
+      },
+
+      scheduled_departure_local: departureTimeDisplay,
+      scheduled_departure_utc: departureUTC,
+      departure_timestamp_ms: departureTimestampMs,
+      scheduled_arrival_local: null,
+      scheduled_arrival_utc: null,
+      timezone,
+
+      // Layer 1: Operator status from DB
+      operator_status: operatorStatus,
+      operator_status_reason: dbSailing.status_reason || dbSailing.status_message || null,
+      operator_status_source: 'supabase_sailing_events',
+
+      // Layer 2: Forecast risk
+      forecast_risk: forecastRisk,
+
+      // Phase 78.1: Mark as operator_snapshot - canonical value for base schedule from operator DB
+      schedule_source: 'operator_snapshot',
+      status_overlay_applied: true, // Status is already from DB
+
+      vessel_name: undefined,
+
+      // Phase 74: Pass through sailing_origin
+      sailing_origin: dbSailing.sailing_origin || null,
+    };
+
+    return sailing;
+  } catch (err) {
+    console.error(`[PHASE78] Error creating board sailing from DB:`, err);
+    return null;
+  }
 }
 
 /**

@@ -300,7 +300,7 @@ export async function GET(
     //
     // NON-NEGOTIABLES:
     // 1. SSA-only pages MUST show ONLY SSA sailings
-    // 2. For Today tab: schedule_source MUST be operator_live or operator_scraped ONLY
+    // 2. For Today tab: schedule_source MUST be operator_snapshot or operator_status ONLY (Phase 80.3)
     // 3. template and forecast_template MUST NEVER appear in Today views
     // 4. Footer provenance MUST NEVER show "Mixed Sources" on operator-specific pages
     //
