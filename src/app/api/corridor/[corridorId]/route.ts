@@ -83,7 +83,7 @@ export async function GET(
 
   // Parse query parameters
   const { searchParams } = new URL(request.url);
-  const useForecast = searchParams.get('forecast') === 'true';
+  // Note: useForecast param is deprecated - Phase 81.3 always fetches forecasts
 
   // Phase 65: Server-side operator filtering
   // When operator param is provided, ONLY return sailings from that operator.
@@ -274,11 +274,9 @@ export async function GET(
     }
 
     // Generate corridor board with weather context
-    // Phase 32: Optionally use Open-Meteo forecast data
+    // Phase 81.3: Forecasts are now always fetched (useForecast option removed)
     // Phase 63: Use resolved corridor ID for all operations
-    const board = await getDailyCorridorBoard(resolvedCorridorId, weather, {
-      useForecast,
-    });
+    const board = await getDailyCorridorBoard(resolvedCorridorId, weather);
 
     if (!board) {
       return NextResponse.json(
