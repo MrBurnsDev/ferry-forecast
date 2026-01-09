@@ -669,8 +669,8 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
           </span>
         </div>
 
-        {/* Phase 81: Likelihood to run (only when no operator status) */}
-        {likelihoodDisplay.show && !statusDisplay.show && !isDeparted && (
+        {/* Phase 81: Likelihood to run - ALWAYS show for upcoming sailings */}
+        {likelihoodDisplay.show && !isDeparted && (
           <span
             className={`text-xs font-medium flex items-center gap-1 ${likelihoodDisplay.className}`}
             title={`Likelihood to run${sailing.likelihood_basis === 'cross_operator' ? ' (based on similar routes)' : ''}`}
