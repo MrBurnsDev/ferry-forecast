@@ -178,12 +178,15 @@ export async function getDailyCorridorBoard(
       // Find today's predictions
       const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
       if (todayData && todayData.predictions.length > 0) {
-        // Build map from departure_time_local -> prediction
+        // Build map from minutes-since-midnight -> prediction for flexible matching
+        // Predictions have times like "07:00", DB sailings have "7:00 AM"
         const predictionsMap = new Map<string, ForecastPrediction>();
         for (const pred of todayData.predictions) {
-          // Normalize time format: "07:00" -> "7:00 AM"
-          const timeKey = normalizeTimeFor12Hour(pred.departure_time_local);
-          predictionsMap.set(timeKey, pred);
+          // Store by minutes-since-midnight for accurate matching
+          const minutesKey = timeToMinutes(pred.departure_time_local);
+          if (minutesKey !== null) {
+            predictionsMap.set(String(minutesKey), pred);
+          }
         }
         todayPredictions = {
           predictions: predictionsMap,
@@ -1314,25 +1317,61 @@ function degreesToCardinal(degrees: number): string {
 }
 
 /**
- * Phase 81.3: Normalize 24-hour time to 12-hour display format for map lookup
- * Converts "07:00" -> "7:00 AM", "15:30" -> "3:30 PM"
+ * Phase 81.3: Convert any time format to minutes since midnight
+ * Handles both "07:00" (24h) and "7:00 AM" (12h) formats
  */
-function normalizeTimeFor12Hour(time24: string): string {
-  const match = time24.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (!match) return time24;
-
-  const hour = parseInt(match[1], 10);
-  const minute = match[2];
-
-  if (hour === 0) {
-    return `12:${minute} AM`;
-  } else if (hour < 12) {
-    return `${hour}:${minute} AM`;
-  } else if (hour === 12) {
-    return `12:${minute} PM`;
-  } else {
-    return `${hour - 12}:${minute} PM`;
+function timeToMinutes(timeStr: string): number | null {
+  // Try 24-hour format first: "07:00" or "07:00:00"
+  const match24 = timeStr.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match24) {
+    const hour = parseInt(match24[1], 10);
+    const minute = parseInt(match24[2], 10);
+    return hour * 60 + minute;
   }
+
+  // Try 12-hour format: "7:00 AM" or "12:30 PM"
+  const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match12) {
+    let hour = parseInt(match12[1], 10);
+    const minute = parseInt(match12[2], 10);
+    const isPM = match12[3].toUpperCase() === 'PM';
+
+    if (hour === 12) {
+      hour = isPM ? 12 : 0;
+    } else if (isPM) {
+      hour += 12;
+    }
+    return hour * 60 + minute;
+  }
+
+  return null;
+}
+
+/**
+ * Phase 81.3: Find the closest prediction for a sailing time
+ * Uses minutes-since-midnight for matching, with 30-minute tolerance
+ */
+function findClosestPrediction(
+  sailingTimeDisplay: string,
+  predictions: Map<string, ForecastPrediction>
+): ForecastPrediction | null {
+  const sailingMinutes = timeToMinutes(sailingTimeDisplay);
+  if (sailingMinutes === null || predictions.size === 0) return null;
+
+  let closest: ForecastPrediction | null = null;
+  let closestDiff = Infinity;
+
+  for (const [minutesKey, prediction] of predictions) {
+    const predMinutes = parseInt(minutesKey, 10);
+    const diff = Math.abs(predMinutes - sailingMinutes);
+    // Match within 30 minutes
+    if (diff < closestDiff && diff <= 30) {
+      closestDiff = diff;
+      closest = prediction;
+    }
+  }
+
+  return closest;
 }
 
 // ============================================================
@@ -1546,9 +1585,9 @@ function createBoardSailingFromDB(
     let forecastWindDirection: number | null = null;
     let forecastWindDirectionText: string | null = null;
 
-    // Try to find prediction for this sailing time
+    // Try to find prediction for this sailing time (closest match within 30 min)
     if (todayPredictions && todayPredictions.predictions.size > 0) {
-      const prediction = todayPredictions.predictions.get(departureTimeDisplay);
+      const prediction = findClosestPrediction(departureTimeDisplay, todayPredictions.predictions);
       if (prediction) {
         // Use prediction data - same format as 7-day/14-day forecasts
         forecastRisk = {
