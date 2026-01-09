@@ -29,6 +29,9 @@ interface ForecastPrediction {
   explanation: string[];
   model_version: string;
   hours_ahead: number;
+  // Phase 81: Likelihood fields
+  likelihood_to_run_pct?: number;
+  likelihood_confidence?: 'high' | 'medium' | 'low';
 }
 
 interface DayForecast {
@@ -123,6 +126,30 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
   );
 }
 
+/**
+ * Phase 81: Likelihood display for forecast predictions
+ * Converts risk_score to likelihood_to_run_pct if not provided
+ */
+function LikelihoodDisplay({ prediction }: { prediction: ForecastPrediction }) {
+  // Use likelihood if available, otherwise convert from risk score
+  const likelihood = prediction.likelihood_to_run_pct ?? Math.max(0, 100 - prediction.risk_score);
+  const confidence = prediction.likelihood_confidence || prediction.confidence;
+  const isEstimate = confidence !== 'high';
+
+  // Color based on likelihood
+  const colorClass = likelihood >= 90
+    ? 'text-green-600'
+    : likelihood >= 70
+      ? 'text-yellow-600'
+      : 'text-red-600';
+
+  return (
+    <span className={`text-xs font-medium ${colorClass}`}>
+      {likelihood}%{isEstimate ? ' (est.)' : ''}
+    </span>
+  );
+}
+
 function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: boolean; onToggle: () => void }) {
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden bg-card">
@@ -167,9 +194,7 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <RiskBadge level={prediction.risk_level} />
-                  <span className="text-xs text-muted-foreground">
-                    Score: {prediction.risk_score}
-                  </span>
+                  <LikelihoodDisplay prediction={prediction} />
                 </div>
                 {prediction.explanation.length > 0 && (
                   <div className="text-xs text-muted-foreground">

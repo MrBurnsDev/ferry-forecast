@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
 import Link from 'next/link';
@@ -617,14 +618,35 @@ function CancellationSummary({ canceledCount }: { canceledCount: number }) {
   );
 }
 
+function ChevronIcon({ className, expanded }: { className?: string; expanded: boolean }) {
+  return (
+    <svg
+      className={`${className} transition-transform ${expanded ? 'rotate-180' : ''}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
 /**
- * Single sailing row
+ * Single sailing row - collapsible for mobile UX
+ *
+ * Phase 81: Shows compact view by default with likelihood %
+ * Expands to show full details (risk, weather context link)
  *
  * Phase 74: sailing_origin === 'operator_removed' treatment
  * - Muted + strikethrough styling
  * - Shows as canceled but visually distinct (inferred from disappearance)
  */
-function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
+function SailingRow({ sailing, isExpanded, onToggle }: {
+  sailing: TerminalBoardSailing;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
   const timeStatus = getTimeStatus(sailing);
   const statusDisplay = getStatusDisplay(sailing);
   const riskDisplay = getRiskDisplay(sailing);
@@ -648,34 +670,33 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const routeId = getRouteIdForSailing(sailing);
 
   return (
-    <div className={`flex flex-col gap-2 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors ${rowOpacity}`}>
-      {/* Main row */}
-      <div className="flex items-center gap-4">
+    <div className={`rounded-lg bg-secondary/30 overflow-hidden ${rowOpacity}`}>
+      {/* Compact header row - always visible, clickable to expand */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 p-3 hover:bg-secondary/50 transition-colors text-left"
+      >
         {/* Time */}
-        <div className="w-20 flex-shrink-0">
-          <span className={`text-lg ${timeClass} ${isOperatorRemoved ? 'line-through' : ''}`}>
+        <div className="w-16 flex-shrink-0">
+          <span className={`text-base ${timeClass} ${isOperatorRemoved ? 'line-through' : ''}`}>
             {sailing.scheduled_departure_local}
           </span>
         </div>
 
-        {/* Direction */}
-        <div className={`flex-1 min-w-0 flex items-center gap-2 ${isOperatorRemoved ? 'line-through' : ''}`}>
-          <span className="text-muted-foreground truncate">
+        {/* Direction - compact */}
+        <div className={`flex-1 min-w-0 flex items-center gap-1 ${isOperatorRemoved ? 'line-through' : ''}`}>
+          <span className="text-sm text-muted-foreground truncate">
             {sailing.origin_terminal.name}
           </span>
-          <ArrowRightIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <span className="font-medium text-foreground truncate">
+          <ArrowRightIcon className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+          <span className="text-sm font-medium text-foreground truncate">
             {sailing.destination_terminal.name}
           </span>
         </div>
 
-        {/* Phase 81: Likelihood to run - ALWAYS show for upcoming sailings */}
+        {/* Phase 81: Likelihood % - always show for upcoming */}
         {likelihoodDisplay.show && !isDeparted && (
-          <span
-            className={`text-xs font-medium flex items-center gap-1 ${likelihoodDisplay.className}`}
-            title={`Likelihood to run${sailing.likelihood_basis === 'cross_operator' ? ' (based on similar routes)' : ''}`}
-          >
-            <TrendingUpIcon className="w-3 h-3" />
+          <span className={`text-xs font-medium ${likelihoodDisplay.className}`}>
             {likelihoodDisplay.text}
             {likelihoodDisplay.confidence}
           </span>
@@ -688,40 +709,58 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
           </span>
         )}
 
-        {/* Risk badge (weather-based) */}
-        {riskDisplay.show && !isCanceled && (
-          <span
-            className={`px-2 py-0.5 text-xs font-medium rounded border flex items-center gap-1 ${riskDisplay.className}`}
-            title={riskDisplay.explanation || undefined}
-          >
-            <WindIcon className="w-3 h-3" />
-            {riskDisplay.text}
-          </span>
-        )}
-
         {/* Time status indicator */}
         {isDeparted && !isCanceled && (
           <span className="text-xs text-muted-foreground">Departed</span>
         )}
         {timeStatus === 'departing_soon' && !isCanceled && !isDeparted && (
-          <span className="text-xs text-accent font-medium">Boarding soon</span>
+          <span className="text-xs text-accent font-medium">Soon</span>
         )}
 
-        {/* Weather context link */}
-        <Link
-          href={`/routes/${routeId}`}
-          className="text-muted-foreground hover:text-accent transition-colors"
-          title="View weather context"
-        >
-          <CloudIcon className="w-4 h-4" />
-        </Link>
-      </div>
+        {/* Expand/collapse chevron */}
+        <ChevronIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" expanded={isExpanded} />
+      </button>
 
-      {/* Risk explanation row (if moderate or elevated) */}
-      {riskDisplay.show && riskDisplay.explanation && riskDisplay.text !== 'Low Risk' && !isCanceled && (
-        <div className="ml-24 text-xs text-muted-foreground flex items-center gap-1">
-          <WindIcon className="w-3 h-3" />
-          <span>{riskDisplay.explanation}</span>
+      {/* Expanded details */}
+      {isExpanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/30 bg-secondary/20 space-y-2">
+          {/* Risk badge row */}
+          {riskDisplay.show && !isCanceled && (
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-2 py-0.5 text-xs font-medium rounded border flex items-center gap-1 ${riskDisplay.className}`}
+              >
+                <WindIcon className="w-3 h-3" />
+                {riskDisplay.text}
+              </span>
+              {riskDisplay.explanation && (
+                <span className="text-xs text-muted-foreground">{riskDisplay.explanation}</span>
+              )}
+            </div>
+          )}
+
+          {/* Likelihood details */}
+          {likelihoodDisplay.show && !isDeparted && sailing.likelihood_basis && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <TrendingUpIcon className="w-3 h-3" />
+              <span>
+                {sailing.likelihood_basis === 'cross_operator'
+                  ? 'Based on similar routes'
+                  : sailing.likelihood_basis === 'same_operator'
+                    ? 'Based on operator history'
+                    : 'Limited historical data'}
+              </span>
+            </div>
+          )}
+
+          {/* Weather context link */}
+          <Link
+            href={`/routes/${routeId}`}
+            className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+          >
+            <CloudIcon className="w-3 h-3" />
+            View weather details
+          </Link>
         </div>
       )}
     </div>
@@ -733,6 +772,21 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
 // ============================================================
 
 export function CorridorBoard({ board, weatherContext, loading, error }: CorridorBoardProps) {
+  // Phase 81: Track which sailings are expanded
+  const [expandedSailings, setExpandedSailings] = useState<Set<string>>(new Set());
+
+  const toggleSailing = (sailingId: string) => {
+    setExpandedSailings((prev) => {
+      const next = new Set(prev);
+      if (next.has(sailingId)) {
+        next.delete(sailingId);
+      } else {
+        next.add(sailingId);
+      }
+      return next;
+    });
+  };
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -880,7 +934,12 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
       {upcomingSailings.length > 0 ? (
         <div className="space-y-2">
           {upcomingSailings.map((sailing) => (
-            <SailingRow key={sailing.sailing_id} sailing={sailing} />
+            <SailingRow
+              key={sailing.sailing_id}
+              sailing={sailing}
+              isExpanded={expandedSailings.has(sailing.sailing_id)}
+              onToggle={() => toggleSailing(sailing.sailing_id)}
+            />
           ))}
         </div>
       ) : (
@@ -897,7 +956,12 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
           </summary>
           <div className="mt-3 space-y-2">
             {departedSailings.map((sailing) => (
-              <SailingRow key={sailing.sailing_id} sailing={sailing} />
+              <SailingRow
+                key={sailing.sailing_id}
+                sailing={sailing}
+                isExpanded={expandedSailings.has(sailing.sailing_id)}
+                onToggle={() => toggleSailing(sailing.sailing_id)}
+              />
             ))}
           </div>
         </details>
