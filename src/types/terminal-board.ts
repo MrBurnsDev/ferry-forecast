@@ -247,6 +247,31 @@ export interface TerminalBoardSailing {
    * Useful for debugging and transparency
    */
   likelihood_sample_size?: number | null;
+
+  // ============================================================
+  // PHASE 81.3: PER-SAILING WEATHER FORECAST
+  // ============================================================
+
+  /**
+   * Phase 81.3: Forecasted wind speed for this sailing's departure time (mph)
+   * Each sailing has its own weather forecast, not shared current conditions.
+   */
+  forecast_wind_speed?: number | null;
+
+  /**
+   * Phase 81.3: Forecasted wind gusts for this sailing's departure time (mph)
+   */
+  forecast_wind_gusts?: number | null;
+
+  /**
+   * Phase 81.3: Forecasted wind direction for this sailing's departure time (degrees)
+   */
+  forecast_wind_direction?: number | null;
+
+  /**
+   * Phase 81.3: Wind direction as cardinal text (e.g., "NNW", "E")
+   */
+  forecast_wind_direction_text?: string | null;
 }
 
 // ============================================================

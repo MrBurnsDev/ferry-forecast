@@ -1077,6 +1077,12 @@ function convertSailingsToBoard(
     let predictionResult: PredictionResult | null = null;
     const sailingTime = new Date(sailing.departureTime);
 
+    // Phase 81.3: Per-sailing weather forecast data
+    let forecastWindSpeed: number | null = null;
+    let forecastWindGusts: number | null = null;
+    let forecastWindDirection: number | null = null;
+    let forecastWindDirectionText: string | null = null;
+
     // Phase 32: Try to use hour-specific forecast if available
     if (forecastContext && forecastContext.forecasts.length > 0) {
       const forecastHour = findForecastForSailing(sailingTime, forecastContext.forecasts);
@@ -1096,6 +1102,14 @@ function convertSailingsToBoard(
           model_version: predictionResult.modelVersion,
           forecast_source: forecastContext.source,
         };
+
+        // Phase 81.3: Store per-sailing weather forecast
+        forecastWindSpeed = forecastHour.windSpeed10mMph;
+        forecastWindGusts = forecastHour.windGustsMph;
+        forecastWindDirection = forecastHour.windDirectionDeg;
+        forecastWindDirectionText = forecastWindDirection != null
+          ? degreesToCardinal(forecastWindDirection)
+          : null;
       }
     }
 
@@ -1107,6 +1121,13 @@ function convertSailingsToBoard(
         explanation: risk.reason ? [risk.reason] : [],
         wind_relation: mapWindRelation(risk.windRelation),
       };
+      // Phase 81.3: Use current weather as fallback for per-sailing display
+      forecastWindSpeed = weather.windSpeed;
+      forecastWindGusts = weather.windGusts ?? null;
+      forecastWindDirection = weather.windDirection;
+      forecastWindDirectionText = weather.windDirection != null
+        ? degreesToCardinal(weather.windDirection)
+        : null;
     }
 
     // ============================================================
@@ -1202,6 +1223,12 @@ function convertSailingsToBoard(
       status_overlay_applied: statusOverlayApplied,
 
       vessel_name: sailing.vesselName,
+
+      // Phase 81.3: Per-sailing weather forecast
+      forecast_wind_speed: forecastWindSpeed,
+      forecast_wind_gusts: forecastWindGusts,
+      forecast_wind_direction: forecastWindDirection,
+      forecast_wind_direction_text: forecastWindDirectionText,
     };
   });
 }
@@ -1241,6 +1268,15 @@ function mapWindRelation(
     default:
       return 'cross';
   }
+}
+
+/**
+ * Phase 81.3: Convert wind direction degrees to cardinal text
+ */
+function degreesToCardinal(degrees: number): string {
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const index = Math.round(degrees / 22.5) % 16;
+  return directions[index];
 }
 
 // ============================================================

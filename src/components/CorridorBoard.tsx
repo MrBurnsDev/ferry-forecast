@@ -604,11 +604,10 @@ function ChevronIcon({ className, expanded }: { className?: string; expanded: bo
  * - Muted + strikethrough styling
  * - Shows as canceled but visually distinct (inferred from disappearance)
  */
-function SailingRow({ sailing, isExpanded, onToggle, weather }: {
+function SailingRow({ sailing, isExpanded, onToggle }: {
   sailing: TerminalBoardSailing;
   isExpanded: boolean;
   onToggle: () => void;
-  weather?: WeatherContext | null;
 }) {
   const timeStatus = getTimeStatus(sailing);
   const statusDisplay = getStatusDisplay(sailing);
@@ -638,11 +637,13 @@ function SailingRow({ sailing, isExpanded, onToggle, weather }: {
   };
   const confidenceStyle = confidenceStyles[sailing.likelihood_confidence || 'medium'] || confidenceStyles.medium;
 
-  // Wind direction as cardinal
-  const windCardinal = weather?.wind_direction != null ? getWindCardinal(weather.wind_direction) : null;
+  // Phase 81.3: Use sailing's own forecast weather (not global weather context)
+  const windSpeed = sailing.forecast_wind_speed;
+  const windGusts = sailing.forecast_wind_gusts;
+  const windCardinal = sailing.forecast_wind_direction_text;
 
   // Gust color (orange if significant)
-  const gustsSignificant = weather?.wind_gusts != null && weather.wind_speed != null && weather.wind_gusts > weather.wind_speed;
+  const gustsSignificant = windGusts != null && windSpeed != null && windGusts > windSpeed;
 
   return (
     <div className={`rounded-lg bg-secondary/30 overflow-hidden ${rowOpacity}`}>
@@ -713,16 +714,16 @@ function SailingRow({ sailing, isExpanded, onToggle, weather }: {
             )}
           </div>
 
-          {/* Row 2: Weather data (wind, gusts, direction) */}
-          {weather && weather.wind_speed != null && (
+          {/* Row 2: Weather data (wind, gusts, direction) - per-sailing forecast */}
+          {windSpeed != null && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
               <WindIcon className="w-3 h-3" />
               <span>
-                {weather.wind_speed} mph {windCardinal && `${windCardinal}`} ({mphToKnots(weather.wind_speed)} kt)
+                {Math.round(windSpeed)} mph {windCardinal && `${windCardinal}`} ({mphToKnots(windSpeed)} kt)
               </span>
-              {gustsSignificant && weather.wind_gusts != null && (
+              {gustsSignificant && windGusts != null && (
                 <span className="text-orange-500 font-medium">
-                  gusts {weather.wind_gusts} mph ({mphToKnots(weather.wind_gusts)} kt)
+                  gusts {Math.round(windGusts)} mph ({mphToKnots(windGusts)} kt)
                 </span>
               )}
             </div>
@@ -912,7 +913,6 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
               sailing={sailing}
               isExpanded={expandedSailings.has(sailing.sailing_id)}
               onToggle={() => toggleSailing(sailing.sailing_id)}
-              weather={weatherContext}
             />
           ))}
         </div>
@@ -935,7 +935,6 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
                 sailing={sailing}
                 isExpanded={expandedSailings.has(sailing.sailing_id)}
                 onToggle={() => toggleSailing(sailing.sailing_id)}
-                weather={weatherContext}
               />
             ))}
           </div>

@@ -248,6 +248,29 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
   );
 }
 
+/**
+ * Phase 81.3: Likelihood display - converts risk score to likelihood percentage
+ * Replaces "Score: X" with "XX% (est.)" format
+ */
+function LikelihoodDisplay({ riskScore, confidence }: { riskScore: number; confidence: string }) {
+  // Convert risk score (0-100, higher = worse) to likelihood (0-100, higher = better)
+  const likelihood = Math.max(0, 100 - riskScore);
+  const isEstimate = confidence !== 'high';
+
+  // Color based on likelihood
+  const colorClass = likelihood >= 90
+    ? 'text-green-600'
+    : likelihood >= 70
+      ? 'text-yellow-600'
+      : 'text-red-600';
+
+  return (
+    <span className={`text-xs font-medium ${colorClass}`}>
+      {likelihood}%{isEstimate ? ' (est.)' : ''}
+    </span>
+  );
+}
+
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr + 'T12:00:00');
   const today = new Date();
@@ -401,9 +424,7 @@ function DayCard({ day, isExpanded, onToggle }: { day: DayForecast; isExpanded: 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <RiskBadge level={prediction.risk_level} />
-                  <span className="text-xs text-muted-foreground">
-                    Score: {prediction.risk_score}
-                  </span>
+                  <LikelihoodDisplay riskScore={prediction.risk_score} confidence={prediction.confidence} />
                 </div>
                 {/* Phase 51: Wind data for individual sailing */}
                 {prediction.wind_speed_mph !== null && (
