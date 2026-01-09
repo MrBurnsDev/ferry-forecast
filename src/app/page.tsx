@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { AccountButton } from '@/components/auth/AccountButton';
 
 // Homepage-specific metadata
 export const metadata: Metadata = {
@@ -129,8 +130,8 @@ export default function Home() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              {/* Region indicator will be shown when user selects a region */}
+            <div className="flex items-center gap-4">
+              <AccountButton />
             </div>
           </div>
         </div>

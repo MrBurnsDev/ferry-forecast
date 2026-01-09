@@ -13,12 +13,14 @@ interface SignInWithFacebookButtonProps {
   className?: string;
   variant?: 'default' | 'compact' | 'text';
   redirectTo?: string;
+  onClick?: () => void;
 }
 
 export function SignInWithFacebookButton({
   className = '',
   variant = 'default',
   redirectTo,
+  onClick,
 }: SignInWithFacebookButtonProps) {
   const available = useAuthAvailable();
 
@@ -31,6 +33,7 @@ export function SignInWithFacebookButton({
       className={className}
       variant={variant}
       redirectTo={redirectTo}
+      onClick={onClick}
     />
   );
 }
@@ -39,6 +42,7 @@ function SignInWithFacebookButtonInner({
   className,
   variant,
   redirectTo,
+  onClick,
 }: SignInWithFacebookButtonProps) {
   const { signInWithFacebook, isLoading, error } = useAuth();
 
@@ -50,6 +54,7 @@ function SignInWithFacebookButtonInner({
       localStorage.setItem('auth_redirect', window.location.pathname);
     }
 
+    onClick?.();
     signInWithFacebook();
   };
 

@@ -7,3 +7,4 @@
 export { SignInWithFacebookButton } from './SignInWithFacebookButton';
 export { AuthGate, AuthGateInline } from './AuthGate';
 export { UserMenu, UserAvatar } from './UserMenu';
+export { AccountButton } from './AccountButton';
