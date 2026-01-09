@@ -183,10 +183,10 @@ export async function getDailyCorridorBoard(
     console.log(`[PHASE81.3] getCorridorForecast returned: ${forecast ? `${forecast.days.length} days` : 'null'}`);
     predictionLoadDebug = forecast ? `db_returned_${forecast.days.length}_days` : 'db_returned_null';
 
-    // If database unavailable (service role not configured), use heuristic baseline
-    if (!forecast) {
-      console.log(`[CORRIDOR_BOARD] Phase 81.3: DB unavailable, using heuristic baseline for ${corridorId}`);
-      predictionLoadDebug = 'trying_heuristic';
+    // If database unavailable OR returned empty, use heuristic baseline
+    if (!forecast || forecast.days.length === 0) {
+      console.log(`[CORRIDOR_BOARD] Phase 81.3: DB unavailable or empty, using heuristic baseline for ${corridorId}`);
+      predictionLoadDebug = !forecast ? 'trying_heuristic_db_null' : 'trying_heuristic_db_empty';
       const heuristic = await generateHeuristicForecast(corridorId, '7_day');
       if (heuristic) {
         // Convert heuristic format to CorridorForecast-like structure
@@ -225,12 +225,24 @@ export async function getDailyCorridorBoard(
       }
     }
 
+    if (!forecast) {
+      predictionLoadDebug += '_no_forecast';
+    } else if (forecast.days.length === 0) {
+      predictionLoadDebug += '_forecast_has_0_days';
+    }
+
     if (forecast && forecast.days.length > 0) {
       predictionLoadDebug += `_searching_for_${serviceDateLocal}`;
       // Find today's predictions
       console.log(`[PHASE81.3] Searching for today (${serviceDateLocal}) in ${forecast.days.length} days. Available: [${forecast.days.map(d => d.service_date).join(', ')}]`);
       const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
       console.log(`[PHASE81.3] todayData found: ${!!todayData}, predictions: ${todayData?.predictions?.length ?? 0}`);
+      if (!todayData) {
+        predictionLoadDebug += '_today_not_found_in_days';
+      } else if (todayData.predictions.length === 0) {
+        predictionLoadDebug += '_today_has_0_predictions';
+      }
+
       if (todayData && todayData.predictions.length > 0) {
         predictionLoadDebug += `_found_${todayData.predictions.length}`;
         // Build map from minutes-since-midnight -> prediction for flexible matching
