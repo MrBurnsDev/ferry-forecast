@@ -88,6 +88,11 @@ import {
   type OperatorScheduleResult,
   type OperatorScheduleSailing,
 } from '@/lib/events/sailing-events';
+// Phase 81: Likelihood prediction
+import {
+  computeSimplifiedLikelihood,
+  operatorHasLiveStatus,
+} from '@/lib/likelihood';
 
 // ============================================================
 // CORRIDOR BOARD GENERATION
@@ -346,6 +351,40 @@ export async function getDailyCorridorBoard(
     // Sort sailings by departure time
     allSailings.sort((a, b) => a.departure_timestamp_ms - b.departure_timestamp_ms);
 
+    // ============================================================
+    // PHASE 81: COMPUTE LIKELIHOOD FOR EACH SAILING
+    // ============================================================
+    const operatorsWithLiveStatus: string[] = [];
+    const operatorsUsingCrossOperator: string[] = [];
+
+    for (const sailing of allSailings) {
+      // Convert WeatherContext to WeatherConditions for likelihood computation
+      const weatherForLikelihood = weather ? {
+        wind_speed_mph: weather.windSpeed,
+        wind_direction_degrees: weather.windDirection,
+        has_advisory: !!weather.advisoryLevel,
+      } : null;
+
+      // Compute simplified likelihood based on weather
+      const likelihoodResult = computeSimplifiedLikelihood(weatherForLikelihood, sailing.operator_id);
+
+      sailing.likelihood_to_run_pct = likelihoodResult.likelihood_to_run_pct;
+      sailing.likelihood_confidence = likelihoodResult.likelihood_confidence;
+      sailing.likelihood_basis = likelihoodResult.likelihood_basis;
+      sailing.likelihood_sample_size = likelihoodResult.sample_size;
+
+      // Track which operators have live status
+      if (operatorHasLiveStatus(sailing.operator_id)) {
+        if (!operatorsWithLiveStatus.includes(sailing.operator_id)) {
+          operatorsWithLiveStatus.push(sailing.operator_id);
+        }
+      } else {
+        if (!operatorsUsingCrossOperator.includes(sailing.operator_id)) {
+          operatorsUsingCrossOperator.push(sailing.operator_id);
+        }
+      }
+    }
+
     // Phase 78: Skip the template-based flow and return early
     // Determine service state based on sailing count (Phase 68 rule)
     const serviceState: CorridorServiceState = allSailings.length > 0 ? 'active' : 'seasonal_inactive';
@@ -372,6 +411,9 @@ export async function getDailyCorridorBoard(
         status_overlay_available: true,
         operator_status_sources: operatorStatusSources,
         today_authority: 'operator_only',
+        // Phase 81: Track which operators have live status
+        operators_with_live_status: operatorsWithLiveStatus,
+        operators_using_cross_operator_model: operatorsUsingCrossOperator,
         debug: {
           phase78_operator_schedule: true,
           operator_sailing_count: totalDBSailings,
@@ -825,6 +867,42 @@ export async function getDailyCorridorBoard(
     scheduleSource = 'mixed';
   }
 
+  // ============================================================
+  // PHASE 81: COMPUTE LIKELIHOOD FOR TEMPLATE PATH SAILINGS
+  // ============================================================
+  const operatorsWithLiveStatusTemplate: string[] = [];
+  const operatorsUsingCrossOperatorTemplate: string[] = [];
+
+  for (const sailing of allSailings) {
+    // Only compute likelihood if not already set
+    if (sailing.likelihood_to_run_pct === undefined) {
+      // Convert WeatherContext to WeatherConditions for likelihood computation
+      const weatherForLikelihood = weather ? {
+        wind_speed_mph: weather.windSpeed,
+        wind_direction_degrees: weather.windDirection,
+        has_advisory: !!weather.advisoryLevel,
+      } : null;
+
+      const likelihoodResult = computeSimplifiedLikelihood(weatherForLikelihood, sailing.operator_id);
+
+      sailing.likelihood_to_run_pct = likelihoodResult.likelihood_to_run_pct;
+      sailing.likelihood_confidence = likelihoodResult.likelihood_confidence;
+      sailing.likelihood_basis = likelihoodResult.likelihood_basis;
+      sailing.likelihood_sample_size = likelihoodResult.sample_size;
+    }
+
+    // Track which operators have live status
+    if (operatorHasLiveStatus(sailing.operator_id)) {
+      if (!operatorsWithLiveStatusTemplate.includes(sailing.operator_id)) {
+        operatorsWithLiveStatusTemplate.push(sailing.operator_id);
+      }
+    } else {
+      if (!operatorsUsingCrossOperatorTemplate.includes(sailing.operator_id)) {
+        operatorsUsingCrossOperatorTemplate.push(sailing.operator_id);
+      }
+    }
+  }
+
   // Build provenance
   const provenance: BoardProvenance = {
     schedule_source: scheduleSource,
@@ -836,6 +914,9 @@ export async function getDailyCorridorBoard(
     template_excluded_reason: templateExcludedReason,
     // Phase 77: Schedule authority audit for debugging
     schedule_authority_audit: scheduleAuthorityAudit,
+    // Phase 81: Track which operators have live status
+    operators_with_live_status: operatorsWithLiveStatusTemplate,
+    operators_using_cross_operator_model: operatorsUsingCrossOperatorTemplate,
   };
 
   // Get status URL

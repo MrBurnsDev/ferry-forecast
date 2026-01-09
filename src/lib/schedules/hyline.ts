@@ -13,6 +13,11 @@
  * - source_type: "template" if using known schedule data
  * - source_type: "unavailable" if fetch fails
  * - NEVER silent static fallback
+ *
+ * PHASE 81 GUARDS:
+ * - Never silently return zero sailings for active routes
+ * - Always log errors when scrape fails
+ * - Explicit template fallback with provenance tracking
  */
 
 import type {
@@ -186,6 +191,23 @@ function getKnownScheduleKey(routeId: string): string | null {
 }
 
 /**
+ * Phase 81: Check if a route is expected to have sailings today
+ *
+ * Some routes are seasonal (e.g., Vineyard Haven service).
+ * Returns false for seasonal routes during off-season.
+ */
+function isRouteActiveToday(routeId: string): boolean {
+  const scheduleKey = getKnownScheduleKey(routeId);
+  if (!scheduleKey) return false;
+
+  const schedule = HYLINE_KNOWN_SCHEDULES[scheduleKey];
+  if (!schedule) return false;
+
+  // If the known schedule has zero departures, the route is not active
+  return schedule.departures.length > 0;
+}
+
+/**
  * Parse schedule from Hy-Line website HTML
  */
 function parseHyLineScheduleFromHtml(
@@ -350,10 +372,8 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      if (SCHEDULE_DEBUG) {
-        console.log(`[SCHEDULE_DEBUG] Hy-Line returned HTTP ${response.status}, falling back to known schedule`);
-      }
-      return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone);
+      console.warn(`[HYLINE] ${routeId}: HTTP ${response.status} from ${HYLINE_SCHEDULE_URL}`);
+      return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone, `HTTP ${response.status}`);
     }
 
     const html = await response.text();
@@ -392,19 +412,16 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
       };
     }
 
-    if (SCHEDULE_DEBUG) {
-      console.log(`[SCHEDULE_DEBUG] Hy-Line ${routeId}: HTML parsing failed, using known schedule template`);
-    }
-    return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone);
+    console.warn(`[HYLINE] ${routeId}: HTML parsing found 0 sailings from ${htmlSize} bytes`);
+    return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone, 'HTML parsing found 0 sailings');
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    if (SCHEDULE_DEBUG) {
-      console.log(`[SCHEDULE_DEBUG] Hy-Line ${routeId}: fetch failed - ${errorMessage}`);
-    }
+    // Phase 81: Always log fetch failures
+    console.error(`[HYLINE] ${routeId}: Fetch failed - ${errorMessage}`);
 
-    return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone);
+    return createTemplateResult(routeId, route, direction, serviceDateLocal, timezone, `Fetch error: ${errorMessage}`);
   }
 }
 
@@ -412,23 +429,42 @@ export async function fetchHyLineSchedule(routeId: string): Promise<ScheduleFetc
  * Create a template result using known schedule data
  *
  * Phase 60: Template sailings are explicitly labeled - NOT allowed in Today views
+ * Phase 81: Added logging and guards for zero sailings
  */
 function createTemplateResult(
   routeId: string,
   route: HyLineRouteInfo,
   direction: SailingDirection,
   serviceDateLocal: string,
-  timezone: string
+  timezone: string,
+  fallbackReason: string = 'HTML parsing failed'
 ): ScheduleFetchResult {
+  // Phase 81: Log template fallback with reason
+  console.warn(`[HYLINE] ${routeId}: Falling back to template schedule - ${fallbackReason}`);
+
   // Phase 60: Explicitly pass 'template' as scheduleSource
   const sailings = createSailingsFromKnownSchedule(routeId, direction, serviceDateLocal, timezone, 'template');
 
+  // Phase 81: Guard against unexpected zero sailings
   if (sailings.length === 0) {
+    // Check if this is expected (seasonal route)
+    if (!isRouteActiveToday(routeId)) {
+      console.log(`[HYLINE] ${routeId}: No sailings expected (seasonal route)`);
+      return createUnavailableResult(
+        routeId,
+        'Seasonal service - no sailings scheduled for this date'
+      );
+    }
+
+    // Unexpected zero sailings - this is an error condition
+    console.error(`[HYLINE] ${routeId}: UNEXPECTED zero sailings in template! Route should be active.`);
     return createUnavailableResult(
       routeId,
-      'No schedule data available for this route'
+      'Schedule data unavailable - please check operator website'
     );
   }
+
+  console.log(`[HYLINE] ${routeId}: Using template with ${sailings.length} sailings`);
 
   const provenance: ScheduleProvenance = {
     source_type: 'template',
@@ -437,6 +473,8 @@ function createTemplateResult(
     source_url: HYLINE_SCHEDULE_URL,
     parse_confidence: 'medium',
     raw_status_supported: false,
+    // Phase 81: Track fallback reason
+    error_message: `Template fallback: ${fallbackReason}`,
   };
 
   return {

@@ -211,6 +211,42 @@ export interface TerminalBoardSailing {
    *   indicating it was inferred from disappearance, not explicitly marked
    */
   sailing_origin?: 'operator_removed' | null;
+
+  // ============================================================
+  // PHASE 81: LIKELIHOOD TO RUN PREDICTION
+  // ============================================================
+
+  /**
+   * Phase 81: Predicted likelihood this sailing will run (0-100%)
+   *
+   * Based on historical data + current weather conditions.
+   * This is INTERPRETIVE, not authoritative.
+   */
+  likelihood_to_run_pct?: number | null;
+
+  /**
+   * Phase 81: Confidence level of the likelihood prediction
+   *
+   * - 'high': >= 100 historical samples
+   * - 'medium': 30-99 samples
+   * - 'low': < 30 samples
+   */
+  likelihood_confidence?: 'high' | 'medium' | 'low' | null;
+
+  /**
+   * Phase 81: Basis for the likelihood calculation
+   *
+   * - 'same_operator': Based on this operator's historical data
+   * - 'cross_operator': Based on similar routes from other operators
+   * - 'limited_data': Insufficient data, using defaults
+   */
+  likelihood_basis?: 'same_operator' | 'cross_operator' | 'limited_data' | null;
+
+  /**
+   * Phase 81: Sample size used for likelihood calculation
+   * Useful for debugging and transparency
+   */
+  likelihood_sample_size?: number | null;
 }
 
 // ============================================================
@@ -337,6 +373,26 @@ export interface BoardProvenance {
     templates_included: boolean;
     base_schedule_source: 'operator' | 'template';
   };
+
+  // ============================================================
+  // PHASE 81: OPERATOR LIVE STATUS AVAILABILITY
+  // ============================================================
+
+  /**
+   * Phase 81: Which operators have live status feeds available
+   *
+   * Used to show appropriate UI messaging for operators like Hy-Line
+   * that don't publish real-time status updates.
+   */
+  operators_with_live_status?: string[];
+
+  /**
+   * Phase 81: Which operators are using cross-operator likelihood modeling
+   *
+   * When an operator doesn't have enough historical data, we use
+   * data from similar routes on other operators.
+   */
+  operators_using_cross_operator_model?: string[];
 }
 
 /**

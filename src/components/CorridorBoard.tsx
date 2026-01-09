@@ -86,6 +86,15 @@ function InfoIcon({ className }: { className?: string }) {
   );
 }
 
+function TrendingUpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  );
+}
+
 function CloudIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -280,6 +289,57 @@ function getExposureExplanation(windDir: number, windSpeedMph: number): string {
       return `Strong ${cardinal} winds at ${formatWindWithUnits(windSpeedMph)}. This crossing is exposed to these conditions. Watch for delays or cancellations.`;
     }
     return `${cardinal} winds at ${formatWindWithUnits(windSpeedMph)}. While this crossing has some protection, expect rougher conditions.`;
+  }
+}
+
+/**
+ * Phase 81: Get likelihood display properties
+ *
+ * Shows likelihood_to_run_pct with styling based on value and confidence.
+ * Cross-operator modeling (Hy-Line using SSA data) is indicated.
+ */
+function getLikelihoodDisplay(sailing: TerminalBoardSailing): {
+  text: string;
+  className: string;
+  confidence: string;
+  show: boolean;
+} {
+  const likelihood = sailing.likelihood_to_run_pct;
+
+  // Don't show if not computed or sailing already has operator status
+  if (likelihood == null || sailing.operator_status === 'canceled') {
+    return { text: '', className: '', confidence: '', show: false };
+  }
+
+  // Confidence text
+  const confidenceText = sailing.likelihood_confidence === 'high'
+    ? ''
+    : sailing.likelihood_confidence === 'medium'
+      ? ' (est.)'
+      : ' (est.)';
+
+  // Color based on likelihood percentage
+  if (likelihood >= 90) {
+    return {
+      text: `${likelihood}%`,
+      className: 'text-success',
+      confidence: confidenceText,
+      show: true,
+    };
+  } else if (likelihood >= 70) {
+    return {
+      text: `${likelihood}%`,
+      className: 'text-warning',
+      confidence: confidenceText,
+      show: true,
+    };
+  } else {
+    return {
+      text: `${likelihood}%`,
+      className: 'text-destructive',
+      confidence: confidenceText,
+      show: true,
+    };
   }
 }
 
@@ -508,6 +568,40 @@ function StatusUnavailableBanner() {
 }
 
 /**
+ * Phase 81: Cross-Operator Modeling Banner
+ *
+ * Shows when likelihood predictions are based on a different operator's data
+ * (e.g., Hy-Line using SSA historical data).
+ */
+function CrossOperatorModelBanner({ operators }: { operators: string[] }) {
+  if (!operators || operators.length === 0) return null;
+
+  // Format operator names for display
+  const operatorNames = operators.map((op) => {
+    if (op.toLowerCase() === 'hyline' || op.toLowerCase() === 'hy-line-cruises') {
+      return 'Hy-Line';
+    }
+    return op;
+  });
+
+  return (
+    <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <InfoIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-foreground">Estimated Schedule</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {operatorNames.join(', ')} does not publish real-time status.
+            Likelihood estimates are based on similar routes and weather conditions.
+            Always verify with the operator before traveling.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Cancellation Summary
  */
 function CancellationSummary({ canceledCount }: { canceledCount: number }) {
@@ -534,6 +628,7 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
   const timeStatus = getTimeStatus(sailing);
   const statusDisplay = getStatusDisplay(sailing);
   const riskDisplay = getRiskDisplay(sailing);
+  const likelihoodDisplay = getLikelihoodDisplay(sailing);
   const isDeparted = timeStatus === 'departed';
   const isCanceled = sailing.operator_status === 'canceled';
 
@@ -573,6 +668,18 @@ function SailingRow({ sailing }: { sailing: TerminalBoardSailing }) {
             {sailing.destination_terminal.name}
           </span>
         </div>
+
+        {/* Phase 81: Likelihood to run (only when no operator status) */}
+        {likelihoodDisplay.show && !statusDisplay.show && !isDeparted && (
+          <span
+            className={`text-xs font-medium flex items-center gap-1 ${likelihoodDisplay.className}`}
+            title={`Likelihood to run${sailing.likelihood_basis === 'cross_operator' ? ' (based on similar routes)' : ''}`}
+          >
+            <TrendingUpIcon className="w-3 h-3" />
+            {likelihoodDisplay.text}
+            {likelihoodDisplay.confidence}
+          </span>
+        )}
 
         {/* Status badge (operator confirmed) */}
         {statusDisplay.show && (
@@ -757,6 +864,11 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
 
       {/* Status Unavailable Banner (when no live status) */}
       {!hasLiveStatus && <StatusUnavailableBanner />}
+
+      {/* Phase 81: Cross-operator modeling banner (Hy-Line, etc.) */}
+      {provenance.operators_using_cross_operator_model && provenance.operators_using_cross_operator_model.length > 0 && (
+        <CrossOperatorModelBanner operators={provenance.operators_using_cross_operator_model} />
+      )}
 
       {/* Advisories */}
       <AdvisoryBanner advisories={advisories} />
