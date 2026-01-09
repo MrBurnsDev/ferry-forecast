@@ -95,6 +95,7 @@ import {
 } from '@/lib/likelihood';
 // Phase 81.3: Per-sailing forecast predictions
 import { getCorridorForecast, type ForecastPrediction } from '@/lib/forecasts';
+import { generateHeuristicForecast } from '@/lib/forecast/heuristic-baseline';
 
 // ============================================================
 // CORRIDOR BOARD GENERATION
@@ -168,12 +169,52 @@ export async function getDailyCorridorBoard(
     );
   }
 
-  // Phase 81.3: Load today's predictions from prediction_snapshots_v2
-  // This provides per-sailing weather forecasts with unique wind data for each sailing time.
-  // Uses the same data source as 7-day/14-day forecasts for consistency.
+  // Phase 81.3: Load today's predictions for per-sailing weather
+  // Try database first, fall back to heuristic baseline if service role unavailable
   let todayPredictions: TodayPredictionsContext | null = null;
   try {
-    const forecast = await getCorridorForecast(corridorId, '7_day');
+    // First try database (requires service role)
+    let forecast = await getCorridorForecast(corridorId, '7_day');
+    let source: 'database' | 'heuristic_baseline' = 'database';
+
+    // If database unavailable (service role not configured), use heuristic baseline
+    if (!forecast) {
+      console.log(`[CORRIDOR_BOARD] Phase 81.3: DB unavailable, using heuristic baseline for ${corridorId}`);
+      const heuristic = await generateHeuristicForecast(corridorId, '7_day');
+      if (heuristic) {
+        // Convert heuristic format to CorridorForecast-like structure
+        forecast = {
+          corridor_id: corridorId,
+          forecast_type: '7_day',
+          days: heuristic.days.map(d => ({
+            service_date: d.service_date,
+            predictions: d.predictions.map(p => ({
+              service_date: p.service_date,
+              departure_time_local: p.departure_time_local,
+              risk_level: p.risk_level,
+              risk_score: p.risk_score,
+              confidence: p.confidence,
+              explanation: p.explanation,
+              model_version: p.model_version,
+              hours_ahead: p.hours_ahead,
+              sailing_time: p.sailing_time,
+              wind_speed_mph: p.wind_speed_mph,
+              wind_gust_mph: p.wind_gust_mph,
+              wind_direction_deg: p.wind_direction_deg,
+              advisory_level: null,
+            })),
+            highest_risk_level: d.highest_risk_level,
+            prediction_count: d.prediction_count,
+            daily_risk: d.daily_risk,
+          })),
+          total_predictions: heuristic.total_predictions,
+          generated_at: heuristic.generated_at,
+          source: 'heuristic_baseline',
+        };
+        source = 'heuristic_baseline';
+      }
+    }
+
     if (forecast && forecast.days.length > 0) {
       // Find today's predictions
       const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
@@ -190,11 +231,11 @@ export async function getDailyCorridorBoard(
         }
         todayPredictions = {
           predictions: predictionsMap,
-          source: forecast.source || 'database',
+          source,
         };
         console.log(
           `[CORRIDOR_BOARD] Phase 81.3: Loaded ${predictionsMap.size} today predictions for ${corridorId} ` +
-          `(source: ${todayPredictions.source})`
+          `(source: ${source})`
         );
       }
     }
