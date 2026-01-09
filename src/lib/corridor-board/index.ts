@@ -172,17 +172,21 @@ export async function getDailyCorridorBoard(
   // Phase 81.3: Load today's predictions for per-sailing weather
   // Try database first, fall back to heuristic baseline if service role unavailable
   let todayPredictions: TodayPredictionsContext | null = null;
+  let predictionLoadDebug = 'starting';  // Track where we got to
   try {
     console.log(`[PHASE81.3] Loading predictions for ${corridorId}, serviceDateLocal=${serviceDateLocal}`);
+    predictionLoadDebug = 'called_getCorridorForecast';
 
     // First try database (requires service role)
     let forecast = await getCorridorForecast(corridorId, '7_day');
     let source: 'database' | 'heuristic_baseline' = 'database';
     console.log(`[PHASE81.3] getCorridorForecast returned: ${forecast ? `${forecast.days.length} days` : 'null'}`);
+    predictionLoadDebug = forecast ? `db_returned_${forecast.days.length}_days` : 'db_returned_null';
 
     // If database unavailable (service role not configured), use heuristic baseline
     if (!forecast) {
       console.log(`[CORRIDOR_BOARD] Phase 81.3: DB unavailable, using heuristic baseline for ${corridorId}`);
+      predictionLoadDebug = 'trying_heuristic';
       const heuristic = await generateHeuristicForecast(corridorId, '7_day');
       if (heuristic) {
         // Convert heuristic format to CorridorForecast-like structure
@@ -215,15 +219,20 @@ export async function getDailyCorridorBoard(
           source: 'heuristic_baseline',
         };
         source = 'heuristic_baseline';
+        predictionLoadDebug = `heuristic_returned_${heuristic.days.length}_days`;
+      } else {
+        predictionLoadDebug = 'heuristic_returned_null';
       }
     }
 
     if (forecast && forecast.days.length > 0) {
+      predictionLoadDebug += `_searching_for_${serviceDateLocal}`;
       // Find today's predictions
       console.log(`[PHASE81.3] Searching for today (${serviceDateLocal}) in ${forecast.days.length} days. Available: [${forecast.days.map(d => d.service_date).join(', ')}]`);
       const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
       console.log(`[PHASE81.3] todayData found: ${!!todayData}, predictions: ${todayData?.predictions?.length ?? 0}`);
       if (todayData && todayData.predictions.length > 0) {
+        predictionLoadDebug += `_found_${todayData.predictions.length}`;
         // Build map from minutes-since-midnight -> prediction for flexible matching
         // Predictions have times like "07:00", DB sailings have "7:00 AM"
         const predictionsMap = new Map<string, ForecastPrediction>();
@@ -251,6 +260,7 @@ export async function getDailyCorridorBoard(
     }
   } catch (error) {
     console.warn(`[CORRIDOR_BOARD] Phase 81.3: Predictions fetch failed for ${corridorId}:`, error);
+    predictionLoadDebug = `error_${error instanceof Error ? error.message : 'unknown'}`;
     // Continue without predictions - will fall back to current weather
   }
 
@@ -476,13 +486,20 @@ export async function getDailyCorridorBoard(
     const serviceState: CorridorServiceState = allSailings.length > 0 ? 'active' : 'seasonal_inactive';
 
     // DEBUG: Add prediction context to provenance for diagnosing Phase 81.3 issue
+    // Also track WHY it might be null
     const predictionDebug = todayPredictions
       ? {
           source: todayPredictions.source,
           predictions_size: todayPredictions.predictions.size,
           sample_keys: Array.from(todayPredictions.predictions.keys()).slice(0, 5),
+          load_trace: predictionLoadDebug,
         }
-      : null;
+      : {
+          source: 'none' as const,
+          predictions_size: 0,
+          sample_keys: [],
+          load_trace: predictionLoadDebug,
+        };
 
     const board: DailyCorridorBoard = {
       corridor,

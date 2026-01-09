@@ -381,9 +381,10 @@ export interface BoardProvenance {
     base_schedule_source?: 'operator' | 'template';
     // Phase 81.3 debug
     prediction_context?: {
-      source: 'database' | 'heuristic_baseline';
+      source: 'database' | 'heuristic_baseline' | 'none';
       predictions_size: number;
       sample_keys: string[];
+      load_trace: string;
     } | null;
   };
 
