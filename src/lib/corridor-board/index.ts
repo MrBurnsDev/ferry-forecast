@@ -1349,7 +1349,8 @@ function timeToMinutes(timeStr: string): number | null {
 
 /**
  * Phase 81.3: Find the closest prediction for a sailing time
- * Uses minutes-since-midnight for matching, with 30-minute tolerance
+ * Uses minutes-since-midnight for matching, with 60-minute tolerance
+ * (wider tolerance needed because prediction times don't always match DB times)
  */
 function findClosestPrediction(
   sailingTimeDisplay: string,
@@ -1364,8 +1365,8 @@ function findClosestPrediction(
   for (const [minutesKey, prediction] of predictions) {
     const predMinutes = parseInt(minutesKey, 10);
     const diff = Math.abs(predMinutes - sailingMinutes);
-    // Match within 30 minutes
-    if (diff < closestDiff && diff <= 30) {
+    // Match within 60 minutes (wider tolerance for mismatched schedules)
+    if (diff < closestDiff && diff <= 60) {
       closestDiff = diff;
       closest = prediction;
     }
