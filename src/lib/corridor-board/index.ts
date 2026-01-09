@@ -69,7 +69,7 @@ import {
   computeSailingRisk,
   type WeatherContext,
 } from '@/lib/scoring/sailing-risk';
-import { getForecastRange, type ForecastHour } from '@/lib/weather/open-meteo';
+import { type ForecastHour } from '@/lib/weather/open-meteo';
 import { generatePrediction, type PredictionResult } from '@/lib/scoring/prediction-engine-v2';
 // Phase 48: Canonical overlay loader
 // Phase 48.1: Extended loader for full union (synthetic sailings)
@@ -93,6 +93,8 @@ import {
   computeSimplifiedLikelihood,
   operatorHasLiveStatus,
 } from '@/lib/likelihood';
+// Phase 81.3: Per-sailing forecast predictions
+import { getCorridorForecast, type ForecastPrediction } from '@/lib/forecasts';
 
 // ============================================================
 // CORRIDOR BOARD GENERATION
@@ -113,6 +115,15 @@ export interface CorridorBoardOptions {
 interface ForecastContext {
   forecasts: ForecastHour[];
   source: 'gfs' | 'ecmwf';
+}
+
+/**
+ * Phase 81.3: Today's predictions context for per-sailing weather
+ * Maps departure_time_local -> prediction
+ */
+interface TodayPredictionsContext {
+  predictions: Map<string, ForecastPrediction>;
+  source: 'database' | 'heuristic_baseline';
 }
 
 /**
@@ -157,21 +168,40 @@ export async function getDailyCorridorBoard(
     );
   }
 
-  // Phase 32/81.3: Always fetch Open-Meteo forecast data for per-sailing weather display
-  // Previously this was optional (useForecast flag), but Phase 81.3 requires forecast
-  // data for each sailing's dropdown to show unique weather conditions.
-  let forecastContext: ForecastContext | null = null;
+  // Phase 81.3: Load today's predictions from prediction_snapshots_v2
+  // This provides per-sailing weather forecasts with unique wind data for each sailing time.
+  // Uses the same data source as 7-day/14-day forecasts for consistency.
+  let todayPredictions: TodayPredictionsContext | null = null;
   try {
-    // Fetch 24-hour forecast range for this corridor
-    const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const forecasts = await getForecastRange(corridorId, now, endTime, 'gfs');
-    if (forecasts.length > 0) {
-      forecastContext = { forecasts, source: 'gfs' };
+    const forecast = await getCorridorForecast(corridorId, '7_day');
+    if (forecast && forecast.days.length > 0) {
+      // Find today's predictions
+      const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
+      if (todayData && todayData.predictions.length > 0) {
+        // Build map from departure_time_local -> prediction
+        const predictionsMap = new Map<string, ForecastPrediction>();
+        for (const pred of todayData.predictions) {
+          // Normalize time format: "07:00" -> "7:00 AM"
+          const timeKey = normalizeTimeFor12Hour(pred.departure_time_local);
+          predictionsMap.set(timeKey, pred);
+        }
+        todayPredictions = {
+          predictions: predictionsMap,
+          source: forecast.source || 'database',
+        };
+        console.log(
+          `[CORRIDOR_BOARD] Phase 81.3: Loaded ${predictionsMap.size} today predictions for ${corridorId} ` +
+          `(source: ${todayPredictions.source})`
+        );
+      }
     }
   } catch (error) {
-    console.warn(`[CORRIDOR_BOARD] Forecast fetch failed for ${corridorId}:`, error);
-    // Continue without forecast data - will fall back to current weather
+    console.warn(`[CORRIDOR_BOARD] Phase 81.3: Predictions fetch failed for ${corridorId}:`, error);
+    // Continue without predictions - will fall back to current weather
   }
+
+  // Legacy: Keep forecastContext for template path (convertSailingsToBoard)
+  const forecastContext: ForecastContext | null = null;
 
   // ============================================================
   // PHASE 48.1: LOAD EXTENDED STATUS OVERLAY FROM SUPABASE
@@ -329,8 +359,8 @@ export async function getDailyCorridorBoard(
           displayOperatorId,
           serviceDateLocal,
           corridor.default_timezone,
-          forecastContext,  // Phase 81.3: Pass forecast context for per-sailing weather
-          weather           // Phase 81.3: Pass current weather as fallback
+          todayPredictions,  // Phase 81.3: Pass today's predictions for per-sailing weather
+          weather            // Phase 81.3: Pass current weather as fallback
         );
 
         if (boardSailing) {
@@ -1283,6 +1313,28 @@ function degreesToCardinal(degrees: number): string {
   return directions[index];
 }
 
+/**
+ * Phase 81.3: Normalize 24-hour time to 12-hour display format for map lookup
+ * Converts "07:00" -> "7:00 AM", "15:30" -> "3:30 PM"
+ */
+function normalizeTimeFor12Hour(time24: string): string {
+  const match = time24.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return time24;
+
+  const hour = parseInt(match[1], 10);
+  const minute = match[2];
+
+  if (hour === 0) {
+    return `12:${minute} AM`;
+  } else if (hour < 12) {
+    return `${hour}:${minute} AM`;
+  } else if (hour === 12) {
+    return `12:${minute} PM`;
+  } else {
+    return `${hour - 12}:${minute} PM`;
+  }
+}
+
 // ============================================================
 // PHASE 48.1: SYNTHETIC SAILING CREATION
 // ============================================================
@@ -1443,7 +1495,7 @@ function generateSailingId(
  * @param operatorId - Display operator ID (e.g., 'steamship-authority')
  * @param serviceDate - Service date in YYYY-MM-DD format
  * @param timezone - IANA timezone (e.g., 'America/New_York')
- * @param forecastContext - Phase 81.3: Optional forecast context for per-sailing weather
+ * @param todayPredictions - Phase 81.3: Optional predictions for per-sailing weather (from prediction_snapshots_v2)
  * @param weather - Phase 81.3: Optional current weather as fallback
  */
 function createBoardSailingFromDB(
@@ -1451,7 +1503,7 @@ function createBoardSailingFromDB(
   operatorId: string,
   serviceDate: string,
   timezone: string,
-  forecastContext?: ForecastContext | null,
+  todayPredictions?: TodayPredictionsContext | null,
   weather?: WeatherContext | null
 ): TerminalBoardSailing | null {
   try {
@@ -1484,47 +1536,40 @@ function createBoardSailingFromDB(
     }
 
     // ============================================================
-    // PHASE 81.3: PER-SAILING WEATHER FORECAST
+    // PHASE 81.3: PER-SAILING WEATHER FORECAST FROM PREDICTIONS
     // ============================================================
-    // Compute forecast risk and weather data for this specific sailing's departure time
+    // Use today's predictions (from prediction_snapshots_v2) which has per-sailing
+    // weather data matching the 7-day/14-day forecast format.
     let forecastRisk: ForecastRisk | null = null;
     let forecastWindSpeed: number | null = null;
     let forecastWindGusts: number | null = null;
     let forecastWindDirection: number | null = null;
     let forecastWindDirectionText: string | null = null;
 
-    const sailingTime = new Date(departureUTC);
-
-    // Try to use hour-specific forecast if available
-    if (forecastContext && forecastContext.forecasts.length > 0) {
-      const forecastHour = findForecastForSailing(sailingTime, forecastContext.forecasts);
-      if (forecastHour) {
-        // Use prediction engine v2 for forecast-based risk
-        const predictionResult = generatePrediction(
-          forecastHour,
-          fromSlug,
-          toSlug,
-          sailingTime
-        );
+    // Try to find prediction for this sailing time
+    if (todayPredictions && todayPredictions.predictions.size > 0) {
+      const prediction = todayPredictions.predictions.get(departureTimeDisplay);
+      if (prediction) {
+        // Use prediction data - same format as 7-day/14-day forecasts
         forecastRisk = {
-          level: predictionResult.riskLevel as RiskLevel,
-          explanation: predictionResult.explanation,
-          wind_relation: mapWindRelation(predictionResult.windRelation),
-          model_version: predictionResult.modelVersion,
-          forecast_source: forecastContext.source,
+          level: prediction.risk_level as RiskLevel,
+          explanation: prediction.explanation || [],
+          wind_relation: 'cross', // Default for predictions
+          model_version: prediction.model_version,
+          forecast_source: 'gfs',
         };
 
-        // Store per-sailing weather forecast
-        forecastWindSpeed = forecastHour.windSpeed10mMph;
-        forecastWindGusts = forecastHour.windGustsMph;
-        forecastWindDirection = forecastHour.windDirectionDeg;
+        // Per-sailing weather from prediction
+        forecastWindSpeed = prediction.wind_speed_mph;
+        forecastWindGusts = prediction.wind_gust_mph;
+        forecastWindDirection = prediction.wind_direction_deg;
         forecastWindDirectionText = forecastWindDirection != null
           ? degreesToCardinal(forecastWindDirection)
           : null;
       }
     }
 
-    // Fallback to current weather if no forecast available
+    // Fallback to current weather if no prediction available
     if (!forecastRisk && weather) {
       const operatorSlugForRisk = operatorId === 'steamship-authority' ? 'ssa' : operatorId;
       const risk = computeSailingRisk(
