@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
-import Link from 'next/link';
 
 /**
  * Phase 56: WeatherContext with authority field for three-state display
@@ -83,23 +82,6 @@ function InfoIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4M12 8h.01" />
-    </svg>
-  );
-}
-
-function TrendingUpIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-      <polyline points="17 6 23 6 23 12" />
-    </svg>
-  );
-}
-
-function CloudIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
     </svg>
   );
 }
@@ -342,30 +324,6 @@ function getLikelihoodDisplay(sailing: TerminalBoardSailing): {
       show: true,
     };
   }
-}
-
-/**
- * Get route ID for weather context link
- */
-function getRouteIdForSailing(sailing: TerminalBoardSailing): string {
-  const origin = sailing.origin_terminal.id;
-  const dest = sailing.destination_terminal.id;
-  const opSuffix = sailing.operator_id === 'steamship-authority' ? 'ssa' : 'hlc';
-
-  // Build route ID from sailing info
-  const originShort = origin === 'woods-hole' ? 'wh' :
-    origin === 'vineyard-haven' ? 'vh' :
-    origin === 'oak-bluffs' ? 'ob' :
-    origin === 'hyannis' ? 'hy' :
-    origin === 'nantucket' ? 'nan' : origin;
-
-  const destShort = dest === 'woods-hole' ? 'wh' :
-    dest === 'vineyard-haven' ? 'vh' :
-    dest === 'oak-bluffs' ? 'ob' :
-    dest === 'hyannis' ? 'hy' :
-    dest === 'nantucket' ? 'nan' : dest;
-
-  return `${originShort}-${destShort}-${opSuffix}`;
 }
 
 // ============================================================
@@ -636,16 +594,21 @@ function ChevronIcon({ className, expanded }: { className?: string; expanded: bo
  * Single sailing row - collapsible for mobile UX
  *
  * Phase 81: Shows compact view by default with likelihood %
- * Expands to show full details (risk, weather context link)
+ * Expands to show full details matching 7-day forecast style:
+ * - Confidence badge
+ * - Risk badge
+ * - Wind speed/gusts/direction
+ * - Explanation text
  *
  * Phase 74: sailing_origin === 'operator_removed' treatment
  * - Muted + strikethrough styling
  * - Shows as canceled but visually distinct (inferred from disappearance)
  */
-function SailingRow({ sailing, isExpanded, onToggle }: {
+function SailingRow({ sailing, isExpanded, onToggle, weather }: {
   sailing: TerminalBoardSailing;
   isExpanded: boolean;
   onToggle: () => void;
+  weather?: WeatherContext | null;
 }) {
   const timeStatus = getTimeStatus(sailing);
   const statusDisplay = getStatusDisplay(sailing);
@@ -667,7 +630,19 @@ function SailingRow({ sailing, isExpanded, onToggle }: {
       ? 'text-muted-foreground'
       : 'text-foreground font-semibold';
 
-  const routeId = getRouteIdForSailing(sailing);
+  // Confidence badge styling
+  const confidenceStyles: Record<string, string> = {
+    high: 'bg-blue-100 text-blue-800',
+    medium: 'bg-gray-100 text-gray-700',
+    low: 'bg-gray-50 text-gray-500',
+  };
+  const confidenceStyle = confidenceStyles[sailing.likelihood_confidence || 'medium'] || confidenceStyles.medium;
+
+  // Wind direction as cardinal
+  const windCardinal = weather?.wind_direction != null ? getWindCardinal(weather.wind_direction) : null;
+
+  // Gust color (orange if significant)
+  const gustsSignificant = weather?.wind_gusts != null && weather.wind_speed != null && weather.wind_gusts > weather.wind_speed;
 
   return (
     <div className={`rounded-lg bg-secondary/30 overflow-hidden ${rowOpacity}`}>
@@ -721,46 +696,44 @@ function SailingRow({ sailing, isExpanded, onToggle }: {
         <ChevronIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" expanded={isExpanded} />
       </button>
 
-      {/* Expanded details */}
+      {/* Expanded details - matches 7-day forecast style */}
       {isExpanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/30 bg-secondary/20 space-y-2">
-          {/* Risk badge row */}
-          {riskDisplay.show && !isCanceled && (
-            <div className="flex items-center gap-2">
-              <span
-                className={`px-2 py-0.5 text-xs font-medium rounded border flex items-center gap-1 ${riskDisplay.className}`}
-              >
-                <WindIcon className="w-3 h-3" />
+        <div className="px-3 pb-3 pt-2 border-t border-border/30 bg-secondary/20">
+          {/* Row 1: Confidence badge + Risk badge */}
+          <div className="flex items-center gap-2 mb-2">
+            {sailing.likelihood_confidence && (
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${confidenceStyle}`}>
+                {sailing.likelihood_confidence} conf.
+              </span>
+            )}
+            {riskDisplay.show && !isCanceled && (
+              <span className={`px-2 py-0.5 text-xs font-medium rounded border ${riskDisplay.className}`}>
                 {riskDisplay.text}
               </span>
-              {riskDisplay.explanation && (
-                <span className="text-xs text-muted-foreground">{riskDisplay.explanation}</span>
+            )}
+          </div>
+
+          {/* Row 2: Weather data (wind, gusts, direction) */}
+          {weather && weather.wind_speed != null && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+              <WindIcon className="w-3 h-3" />
+              <span>
+                {weather.wind_speed} mph {windCardinal && `${windCardinal}`} ({mphToKnots(weather.wind_speed)} kt)
+              </span>
+              {gustsSignificant && weather.wind_gusts != null && (
+                <span className="text-orange-500 font-medium">
+                  gusts {weather.wind_gusts} mph ({mphToKnots(weather.wind_gusts)} kt)
+                </span>
               )}
             </div>
           )}
 
-          {/* Likelihood details */}
-          {likelihoodDisplay.show && !isDeparted && sailing.likelihood_basis && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <TrendingUpIcon className="w-3 h-3" />
-              <span>
-                {sailing.likelihood_basis === 'cross_operator'
-                  ? 'Based on similar routes'
-                  : sailing.likelihood_basis === 'same_operator'
-                    ? 'Based on operator history'
-                    : 'Limited historical data'}
-              </span>
+          {/* Row 3: Explanation */}
+          {riskDisplay.explanation && !isCanceled && (
+            <div className="text-xs text-muted-foreground">
+              {riskDisplay.explanation}
             </div>
           )}
-
-          {/* Weather context link */}
-          <Link
-            href={`/routes/${routeId}`}
-            className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-          >
-            <CloudIcon className="w-3 h-3" />
-            View weather details
-          </Link>
         </div>
       )}
     </div>
@@ -939,6 +912,7 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
               sailing={sailing}
               isExpanded={expandedSailings.has(sailing.sailing_id)}
               onToggle={() => toggleSailing(sailing.sailing_id)}
+              weather={weatherContext}
             />
           ))}
         </div>
@@ -961,6 +935,7 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
                 sailing={sailing}
                 isExpanded={expandedSailings.has(sailing.sailing_id)}
                 onToggle={() => toggleSailing(sailing.sailing_id)}
+                weather={weatherContext}
               />
             ))}
           </div>
