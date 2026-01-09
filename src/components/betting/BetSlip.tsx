@@ -22,6 +22,9 @@ import {
   type BetType,
   type BetSize,
 } from '@/lib/betting';
+// Auth imports available for future integration when betting persistence is added
+// import { useAuth, useAuthAvailable } from '@/lib/auth';
+// import { AuthGate } from '@/components/auth';
 
 interface BetSlipProps {
   sailingId: string;

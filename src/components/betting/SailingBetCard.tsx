@@ -15,6 +15,9 @@ import {
   formatOdds,
   type BetType,
 } from '@/lib/betting';
+// Auth imports available for future integration when betting persistence is added
+// import { useAuth, useAuthAvailable } from '@/lib/auth';
+// import { SignInWithFacebookButton } from '@/components/auth';
 
 interface SailingBetCardProps {
   sailingId: string;
@@ -71,6 +74,8 @@ function SailingBetCardInner({
 
   // Quick bet handler (25 pts default)
   const handleQuickBet = async (betType: BetType) => {
+    // For now, betting works without auth (local storage only)
+    // Auth integration for persistence will be added in future phase
     setIsPlacing(true);
     const result = placeBet(sailingId, betType, 25, likelihood, departureTimestampMs);
     setIsPlacing(false);
