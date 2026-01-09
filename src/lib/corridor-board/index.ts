@@ -1036,6 +1036,7 @@ export async function getDailyCorridorBoard(
 
 /**
  * Find the closest forecast hour for a given sailing time
+ * Phase 81.3: Widened to 60 minutes to ensure all sailings get forecast data
  */
 function findForecastForSailing(
   sailingTime: Date,
@@ -1050,8 +1051,9 @@ function findForecastForSailing(
   for (const forecast of forecasts) {
     const forecastMs = new Date(forecast.forecastTime).getTime();
     const diff = Math.abs(forecastMs - sailingMs);
-    // Only use forecasts within 30 minutes of sailing
-    if (diff < closestDiff && diff <= 30 * 60 * 1000) {
+    // Use forecasts within 60 minutes of sailing (nearest hour)
+    // This ensures every sailing gets the closest available hourly forecast
+    if (diff < closestDiff && diff <= 60 * 60 * 1000) {
       closestDiff = diff;
       closest = forecast;
     }
