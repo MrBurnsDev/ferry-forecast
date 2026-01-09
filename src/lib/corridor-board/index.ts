@@ -172,15 +172,13 @@ export async function getDailyCorridorBoard(
   // Phase 81.3: Load today's predictions for per-sailing weather
   // Try database first, fall back to heuristic baseline if service role unavailable
   let todayPredictions: TodayPredictionsContext | null = null;
-  let predictionLoadDebug = 'starting';  // Track where we got to
+  let predictionLoadDebug = 'starting';  // Track where we got to for diagnostics
   try {
-    console.log(`[PHASE81.3] Loading predictions for ${corridorId}, serviceDateLocal=${serviceDateLocal}`);
     predictionLoadDebug = 'called_getCorridorForecast';
 
     // First try database (requires service role)
     let forecast = await getCorridorForecast(corridorId, '7_day');
     let source: 'database' | 'heuristic_baseline' = 'database';
-    console.log(`[PHASE81.3] getCorridorForecast returned: ${forecast ? `${forecast.days.length} days` : 'null'}`);
     predictionLoadDebug = forecast ? `db_returned_${forecast.days.length}_days` : 'db_returned_null';
 
     // If database unavailable OR returned empty, use heuristic baseline
@@ -234,9 +232,7 @@ export async function getDailyCorridorBoard(
     if (forecast && forecast.days.length > 0) {
       predictionLoadDebug += `_searching_for_${serviceDateLocal}`;
       // Find today's predictions
-      console.log(`[PHASE81.3] Searching for today (${serviceDateLocal}) in ${forecast.days.length} days. Available: [${forecast.days.map(d => d.service_date).join(', ')}]`);
       const todayData = forecast.days.find(d => d.service_date === serviceDateLocal);
-      console.log(`[PHASE81.3] todayData found: ${!!todayData}, predictions: ${todayData?.predictions?.length ?? 0}`);
       if (!todayData) {
         predictionLoadDebug += '_today_not_found_in_days';
       } else if (todayData.predictions.length === 0) {
@@ -248,26 +244,17 @@ export async function getDailyCorridorBoard(
         // Build map from minutes-since-midnight -> prediction for flexible matching
         // Predictions have times like "07:00", DB sailings have "7:00 AM"
         const predictionsMap = new Map<string, ForecastPrediction>();
-        const sampleKeys: string[] = [];
         for (const pred of todayData.predictions) {
           // Store by minutes-since-midnight for accurate matching
           const minutesKey = timeToMinutes(pred.departure_time_local);
           if (minutesKey !== null) {
             predictionsMap.set(String(minutesKey), pred);
-            if (sampleKeys.length < 5) {
-              sampleKeys.push(`${pred.departure_time_local}=>${minutesKey}min(${pred.wind_speed_mph}mph)`);
-            }
           }
         }
-        console.log(`[PHASE81.3] Built predictions map: ${predictionsMap.size} entries. Samples: [${sampleKeys.join(', ')}]`);
         todayPredictions = {
           predictions: predictionsMap,
           source,
         };
-        console.log(
-          `[CORRIDOR_BOARD] Phase 81.3: Loaded ${predictionsMap.size} today predictions for ${corridorId} ` +
-          `(source: ${source})`
-        );
       }
     }
   } catch (error) {
@@ -1680,13 +1667,6 @@ function createBoardSailingFromDB(
     // Try to find prediction for this sailing time (closest match within 60 min)
     if (todayPredictions && todayPredictions.predictions.size > 0) {
       const prediction = findClosestPrediction(departureTimeDisplay, todayPredictions.predictions);
-      // DEBUG: Log prediction matching
-      const sailingMinutes = timeToMinutes(departureTimeDisplay);
-      console.log(
-        `[PHASE81.3] Prediction match for ${departureTimeDisplay} (${sailingMinutes} min): ` +
-        `found=${!!prediction}, predictions_size=${todayPredictions.predictions.size}, ` +
-        `wind=${prediction?.wind_speed_mph ?? 'null'}mph`
-      );
       if (prediction) {
         // Use prediction data - same format as 7-day/14-day forecasts
         forecastRisk = {
@@ -1705,16 +1685,6 @@ function createBoardSailingFromDB(
           ? degreesToCardinal(forecastWindDirection)
           : null;
       }
-    }
-
-    // DEBUG: Log when falling back to current weather (no prediction found)
-    if (!forecastRisk) {
-      console.log(
-        `[PHASE81.3] No prediction for ${departureTimeDisplay}: ` +
-        `todayPredictions=${!!todayPredictions}, ` +
-        `size=${todayPredictions?.predictions?.size ?? 0}, ` +
-        `falling back to current weather`
-      );
     }
 
     // Fallback to current weather if no prediction available
