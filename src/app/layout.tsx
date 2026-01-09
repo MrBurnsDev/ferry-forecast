@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { RegionProvider } from "@/lib/region";
+import { BettingProvider } from "@/lib/betting";
 
 const BASE_URL = 'https://www.istheferryrunning.com';
 
@@ -44,7 +45,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <RegionProvider>
-          {children}
+          <BettingProvider>
+            {children}
+          </BettingProvider>
         </RegionProvider>
       </body>
     </html>
