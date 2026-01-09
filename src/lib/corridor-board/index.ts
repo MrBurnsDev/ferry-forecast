@@ -475,6 +475,15 @@ export async function getDailyCorridorBoard(
     // Determine service state based on sailing count (Phase 68 rule)
     const serviceState: CorridorServiceState = allSailings.length > 0 ? 'active' : 'seasonal_inactive';
 
+    // DEBUG: Add prediction context to provenance for diagnosing Phase 81.3 issue
+    const predictionDebug = todayPredictions
+      ? {
+          source: todayPredictions.source,
+          predictions_size: todayPredictions.predictions.size,
+          sample_keys: Array.from(todayPredictions.predictions.keys()).slice(0, 5),
+        }
+      : null;
+
     const board: DailyCorridorBoard = {
       corridor,
       terminals: {
@@ -506,6 +515,8 @@ export async function getDailyCorridorBoard(
           template_sailing_count: 0,
           templates_included: false,
           base_schedule_source: 'operator',
+          // Phase 81.3 debug
+          prediction_context: predictionDebug,
         },
       },
     };

@@ -379,6 +379,12 @@ export interface BoardProvenance {
     template_sailing_count?: number;
     templates_included?: boolean;
     base_schedule_source?: 'operator' | 'template';
+    // Phase 81.3 debug
+    prediction_context?: {
+      source: 'database' | 'heuristic_baseline';
+      predictions_size: number;
+      sample_keys: string[];
+    } | null;
   };
 
   /**
