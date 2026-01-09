@@ -58,6 +58,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
   });
 
   // ============================================================
+  // AUTHORITY / METHODOLOGY PAGE - High priority for SEO
+  // ============================================================
+  entries.push({
+    url: `${BASE_URL}/how-weather-affects-ferries`,
+    lastModified: new Date(),
+    changeFrequency: 'weekly',
+    priority: 0.8,
+  });
+
+  // ============================================================
   // REGION PAGES - High priority entry points
   // ============================================================
   for (const regionId of VALID_REGION_IDS) {

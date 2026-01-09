@@ -1,4 +1,54 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
+
+// Homepage-specific metadata
+export const metadata: Metadata = {
+  title: "Is the Ferry Running? Ferry Delay & Cancellation Forecasts by Route",
+  description: "Is the ferry running today? View ferry delay and cancellation likelihoods for Martha's Vineyard, Nantucket, Hyannis, Woods Hole, and Oak Bluffs using weather and historical data.",
+  alternates: {
+    canonical: "https://www.istheferryrunning.com",
+  },
+};
+
+// FAQ Schema for structured data
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is the ferry running today?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Ferry operations depend on weather and marine conditions. This site estimates likelihood based on historical data and current weather forecasts. It is not an official schedule—always verify with your ferry operator before traveling."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is this an official ferry operator site?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. This site is independent and analyzes historical outcomes across ferry routes and operators. We are not affiliated with any ferry company, including the Steamship Authority, Hy-Line Cruises, or any other operator."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How are ferry cancellation predictions made?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Predictions combine current weather forecasts (wind speed, gusts, direction) with historical sailing data to estimate the likelihood a ferry will run. Different routes and vessel types respond differently to weather conditions."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which ferry routes are covered?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "We currently cover ferry routes in the Cape Cod & Islands region, including Woods Hole, Vineyard Haven, Oak Bluffs, Hyannis, and Nantucket. The system is designed to scale to hundreds of ports and operators."
+      }
+    }
+  ]
+};
 
 function MapPinIcon({ className }: { className?: string }) {
   return (
@@ -57,6 +107,12 @@ const regions = [
 export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* FAQ Structured Data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+      />
+
       {/* Skip to main content link for keyboard users */}
       <a
         href="#main-content"
@@ -85,11 +141,11 @@ export default function Home() {
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-              Will the ferry run today?
+              Is the Ferry Running Today?
             </h1>
 
             <p className="text-lg lg:text-xl text-muted-foreground mb-2 leading-relaxed">
-              View probability-based ferry run predictions built from weather conditions and historical sailing outcomes.
+              Is the ferry running? Check delay and cancellation likelihoods for ferry routes across multiple ports and operators. Our predictions combine real-time weather data with historical sailing outcomes to help you plan ahead&mdash;whether you&apos;re traveling to Martha&apos;s Vineyard, Nantucket, or other ferry destinations.
             </p>
             <p className="text-base text-muted-foreground/80 italic mb-4">
               Not official schedules. Not guarantees. Just better expectations.
@@ -178,14 +234,28 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Learn More - Internal Linking */}
+      <section className="py-8 lg:py-12">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="max-w-3xl mx-auto text-center">
+            <p className="text-muted-foreground">
+              Want to understand why ferries get canceled?{' '}
+              <Link href="/how-weather-affects-ferries" className="text-accent hover:underline">
+                Learn how weather affects ferry operations
+              </Link>
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Important Notice */}
       <section className="py-8 lg:py-12">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="max-w-3xl mx-auto">
             <div className="bg-warning-muted border border-warning/30 rounded-xl p-6">
               <p className="text-sm text-warning-foreground leading-relaxed">
-                <strong>Important:</strong> Ferry Forecast shows schedule and status information
-                from ferry operators. This is not an official source. Always verify with
+                <strong>Important:</strong> This site is not affiliated with any ferry operator.
+                Predictions are estimates based on weather and historical data. Always verify with
                 the operator before traveling, especially during severe weather.
               </p>
             </div>
