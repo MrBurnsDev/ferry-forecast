@@ -64,7 +64,7 @@ import {
 } from '@/lib/config/corridors';
 import { getTodaySchedule } from '@/lib/schedules';
 import type { Sailing, ScheduleFetchResult, ScheduleSourceType } from '@/lib/schedules/types';
-import { getTodayInTimezone } from '@/lib/schedules/time';
+import { getTodayInTimezone, parseTimeInTimezone } from '@/lib/schedules/time';
 import {
   computeSailingRisk,
   type WeatherContext,
@@ -388,6 +388,11 @@ export async function getDailyCorridorBoard(
       `[PHASE78] Returning operator-only board: corridor=${corridorId} ` +
       `sailings=${allSailings.length} canceled=${canceledCount}`
     );
+
+    // PHASE 80.4: Provenance invariant - MUST never be null
+    if (!board.provenance) {
+      throw new Error(`[PHASE80.4] Provenance missing in DB path – invalid corridor response for ${corridorId}`);
+    }
 
     return board;
   }
@@ -923,6 +928,11 @@ export async function getDailyCorridorBoard(
     );
   }
 
+  // PHASE 80.4: Provenance invariant - MUST never be null
+  if (!provenance) {
+    throw new Error(`[PHASE80.4] Provenance missing in template path – invalid corridor response for ${corridorId}`);
+  }
+
   return {
     corridor,
     terminals,
@@ -1317,7 +1327,6 @@ function createBoardSailingFromDB(
   dbSailing: OperatorScheduleSailing,
   operatorId: string,
   serviceDate: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   timezone: string
 ): TerminalBoardSailing | null {
   try {
@@ -1329,24 +1338,12 @@ function createBoardSailingFromDB(
     // Convert 24-hour time to 12-hour display format
     const departureTimeDisplay = format24To12Hour(dbSailing.departure_time);
 
-    // Build departure UTC timestamp
-    // Parse the 24-hour time (HH:MM:SS) and combine with service date
-    const timeMatch = dbSailing.departure_time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-    if (!timeMatch) {
-      console.error(`[PHASE78] Invalid time format: ${dbSailing.departure_time}`);
-      return null;
-    }
-
-    // Create a date in the local timezone
-    // Note: This is an approximation - proper timezone handling happens in time.ts
-    // hour/minute parsed but used via timeMatch for string formatting below
-
-    // Build ISO string for local time, then let JS parse it
-    // Format: YYYY-MM-DDTHH:MM:SS (no timezone = local)
-    const localTimeStr = `${serviceDate}T${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}:00`;
-    const departureDate = new Date(localTimeStr);
-    const departureTimestampMs = departureDate.getTime();
-    const departureUTC = departureDate.toISOString();
+    // PHASE 80.4: Use timezone-aware parsing to fix "all sailings departed" bug
+    // The DB stores times like "06:00:00" which must be interpreted as local time (EST/EDT)
+    // parseTimeInTimezone correctly handles DST and produces proper UTC timestamps
+    const parsedTime = parseTimeInTimezone(departureTimeDisplay, serviceDate, timezone);
+    const departureTimestampMs = parsedTime.timestampMs;
+    const departureUTC = parsedTime.utc;
 
     // Generate sailing ID
     const sailingId = generateSailingId(operatorId, fromSlug, toSlug, departureTimeDisplay);
