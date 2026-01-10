@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { SignInButtons } from '@/components/auth/SignInButtons';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -77,7 +78,7 @@ function LoadingState() {
   );
 }
 
-export default function AccountPage() {
+function AccountPageContent() {
   const { isLoading, isAuthenticated, session, profile, profileLoading, signOut } = useAuth();
   const router = useRouter();
 
@@ -180,5 +181,17 @@ export default function AccountPage() {
 
       <SiteFooter />
     </div>
+  );
+}
+
+/**
+ * Account Page wrapped in ErrorBoundary
+ * Protects against browser extension conflicts (wallet extensions, etc.)
+ */
+export default function AccountPage() {
+  return (
+    <ErrorBoundary>
+      <AccountPageContent />
+    </ErrorBoundary>
   );
 }
