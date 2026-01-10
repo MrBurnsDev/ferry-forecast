@@ -21,7 +21,7 @@ import {
 
 interface SailingBetCardProps {
   sailingId: string;
-  corridorId?: string; // Optional until fully integrated with board components
+  corridorId: string; // Required - must come from board.corridor.id
   likelihood: number;
   departureTimestampMs: number;
   className?: string;
@@ -84,8 +84,9 @@ function SailingBetCardInner({
 
   // Quick bet handler (25 pts default)
   const handleQuickBet = async (betType: BetType) => {
+    // Defensive runtime check
     if (!corridorId) {
-      console.error('Bet failed: corridorId required for API-backed betting');
+      console.error('[BETTING] Missing corridorId for bet', { sailingId, likelihood });
       return;
     }
     setIsPlacing(true);

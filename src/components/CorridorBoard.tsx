@@ -605,8 +605,9 @@ function ChevronIcon({ className, expanded }: { className?: string; expanded: bo
  * - Muted + strikethrough styling
  * - Shows as canceled but visually distinct (inferred from disappearance)
  */
-function SailingRow({ sailing, isExpanded, onToggle }: {
+function SailingRow({ sailing, corridorId, isExpanded, onToggle }: {
   sailing: TerminalBoardSailing;
+  corridorId: string;
   isExpanded: boolean;
   onToggle: () => void;
 }) {
@@ -747,6 +748,7 @@ function SailingRow({ sailing, isExpanded, onToggle }: {
             <div className="mt-3 pt-3 border-t border-border/20">
               <SailingBetCard
                 sailingId={sailing.sailing_id}
+                corridorId={corridorId}
                 likelihood={sailing.likelihood_to_run_pct}
                 departureTimestampMs={sailing.departure_timestamp_ms}
                 compact={false}
@@ -929,6 +931,7 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
             <SailingRow
               key={sailing.sailing_id}
               sailing={sailing}
+              corridorId={board.corridor.id}
               isExpanded={expandedSailings.has(sailing.sailing_id)}
               onToggle={() => toggleSailing(sailing.sailing_id)}
             />
@@ -951,6 +954,7 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
               <SailingRow
                 key={sailing.sailing_id}
                 sailing={sailing}
+                corridorId={board.corridor.id}
                 isExpanded={expandedSailings.has(sailing.sailing_id)}
                 onToggle={() => toggleSailing(sailing.sailing_id)}
               />

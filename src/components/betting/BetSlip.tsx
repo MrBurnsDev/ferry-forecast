@@ -28,7 +28,7 @@ import {
 
 interface BetSlipProps {
   sailingId: string;
-  corridorId?: string;          // Optional until fully integrated with board components
+  corridorId: string;           // Required - must come from board.corridor.id
   likelihood: number;           // Likelihood to sail (0-100)
   departureTimestampMs: number;
   departureTimeDisplay: string; // e.g., "9:30 AM"
