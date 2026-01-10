@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase/client';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -29,21 +30,62 @@ export default function AuthCallbackPage() {
       return;
     }
 
-    // The Supabase client with detectSessionInUrl: true will automatically
-    // process the auth tokens from the URL hash/params when it initializes.
-    // We just need to wait a moment for this to complete, then redirect.
+    // Wait for the SIGNED_IN event which confirms the session is established
+    if (!supabase) {
+      setStatus('error');
+      setErrorMessage('Authentication not configured');
+      return;
+    }
 
-    const timer = setTimeout(() => {
-      // Get redirect URL from localStorage or default to home
-      const redirectTo = localStorage.getItem('auth_redirect') || '/';
-      localStorage.removeItem('auth_redirect');
+    let redirected = false;
 
-      console.log('[AUTH CALLBACK] Redirecting to:', redirectTo);
-      setStatus('success');
-      router.replace(redirectTo);
-    }, 1500); // Give Supabase time to process the auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('[AUTH CALLBACK] Auth event:', event, session?.user?.id ? 'has user' : 'no user');
 
-    return () => clearTimeout(timer);
+        if (redirected) return;
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          redirected = true;
+          const redirectTo = localStorage.getItem('auth_redirect') || '/';
+          localStorage.removeItem('auth_redirect');
+
+          console.log('[AUTH CALLBACK] Session confirmed, redirecting to:', redirectTo);
+          setStatus('success');
+
+          // Small delay to ensure session is persisted to storage
+          setTimeout(() => {
+            router.replace(redirectTo);
+          }, 500);
+        }
+      }
+    );
+
+    // Fallback: if no SIGNED_IN event after 5 seconds, check session and redirect anyway
+    const fallbackTimer = setTimeout(async () => {
+      if (redirected) return;
+
+      console.log('[AUTH CALLBACK] Fallback triggered, checking session...');
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        redirected = true;
+        const redirectTo = localStorage.getItem('auth_redirect') || '/';
+        localStorage.removeItem('auth_redirect');
+        console.log('[AUTH CALLBACK] Fallback: session found, redirecting to:', redirectTo);
+        setStatus('success');
+        router.replace(redirectTo);
+      } else {
+        console.error('[AUTH CALLBACK] Fallback: no session found');
+        setStatus('error');
+        setErrorMessage('Sign in failed. Please try again.');
+      }
+    }, 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(fallbackTimer);
+    };
   }, [router]);
 
   if (status === 'error') {
