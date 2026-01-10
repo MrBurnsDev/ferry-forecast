@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth, useAuthAvailable } from '@/lib/auth';
+import { useAuthSafe } from '@/lib/auth';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { SignInButtons } from '@/components/auth/SignInButtons';
 
@@ -36,12 +36,6 @@ function LogOutIcon({ className }: { className?: string }) {
 }
 
 export default function AccountPage() {
-  const available = useAuthAvailable();
-
-  if (!available) {
-    return <AccountPageLoading />;
-  }
-
   return <AccountPageContent />;
 }
 
@@ -77,8 +71,15 @@ function AccountPageLoading() {
 }
 
 function AccountPageContent() {
-  const { user, isAuthenticated, isLoading, signOut, toggleBettingMode } = useAuth();
+  const auth = useAuthSafe();
   const router = useRouter();
+
+  // If auth context not ready, show loading
+  if (!auth) {
+    return <AccountPageLoading />;
+  }
+
+  const { user, isAuthenticated, isLoading, signOut, toggleBettingMode } = auth;
 
   if (isLoading) {
     return <AccountPageLoading />;
