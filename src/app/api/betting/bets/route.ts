@@ -7,6 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Force dynamic rendering - uses cookies for auth
+export const dynamic = 'force-dynamic';
 import { createRouteClient } from '@/lib/supabase/serverRouteClient';
 
 export async function GET(request: NextRequest) {

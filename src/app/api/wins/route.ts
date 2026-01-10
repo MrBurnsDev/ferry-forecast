@@ -8,6 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Force dynamic rendering - uses request.url
+export const dynamic = 'force-dynamic';
 import { createServiceRoleClient } from '@/lib/supabase/serverServiceClient';
 
 // Minimum bet requirements for leaderboard qualification
