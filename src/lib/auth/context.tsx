@@ -144,12 +144,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Refresh user from current session
    */
   const refreshUser = useCallback(async () => {
+    console.log('[AUTH] refreshUser called, isSupabaseConfigured:', isSupabaseConfigured(), 'supabase:', !!supabase);
+
     if (!isSupabaseConfigured() || !supabase) {
+      console.log('[AUTH] Supabase not configured, skipping auth');
       setIsLoading(false);
       return;
     }
 
     try {
+      console.log('[AUTH] Getting session...');
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError) {
@@ -160,7 +164,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      console.log('[AUTH] Session result:', session ? 'has session' : 'no session', session?.user?.id);
+
       if (!session?.user) {
+        console.log('[AUTH] No session user, clearing state');
         setUser(null);
         setBankroll(null);
         setIsLoading(false);
