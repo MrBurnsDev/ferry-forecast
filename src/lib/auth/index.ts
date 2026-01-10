@@ -1,13 +1,16 @@
 /**
  * Auth Module
  *
- * Facebook OAuth authentication for social predictions.
+ * Google and Apple OAuth authentication.
+ * Facebook has been intentionally removed.
  */
 
 // Types
 export type {
-  SocialUser,
+  AuthProvider as AuthProviderType,
+  User,
   SessionUser,
+  Bankroll,
   AuthState,
   AuthActions,
   AuthContextValue,
@@ -20,4 +23,5 @@ export {
   useAuth,
   useAuthAvailable,
   useUser,
+  useAuthSafe,
 } from './context';

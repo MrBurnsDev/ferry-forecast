@@ -3,8 +3,10 @@
 /**
  * Auth Context
  *
- * React context for Facebook OAuth authentication.
- * Handles sign-in, sign-out, and session persistence.
+ * React context for Google and Apple OAuth authentication.
+ * Handles sign-in, sign-out, session persistence, and betting mode.
+ *
+ * Facebook has been intentionally removed.
  */
 
 import {
@@ -16,7 +18,7 @@ import {
   type ReactNode,
 } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
-import type { AuthContextValue, SessionUser, SocialUser } from './types';
+import type { AuthContextValue, SessionUser, Bankroll, User, AuthProvider } from './types';
 
 // ============================================================
 // CONTEXT
@@ -30,45 +32,45 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [bankroll, setBankroll] = useState<Bankroll | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Convert Supabase auth user + social profile to SessionUser
+   * Convert database user to SessionUser
    */
   const toSessionUser = useCallback((
-    socialUser: SocialUser,
+    dbUser: User,
     isNewUser = false
   ): SessionUser => {
     return {
-      id: socialUser.user_id,
-      displayName: socialUser.display_name,
-      avatarUrl: socialUser.avatar_url,
-      provider: socialUser.provider,
+      id: dbUser.id,
+      username: dbUser.username,
+      provider: dbUser.auth_provider,
+      bettingModeEnabled: dbUser.betting_mode_enabled,
       isNewUser,
     };
   }, []);
 
   /**
-   * Get or create social user profile from auth user
+   * Get or create user profile from auth data
    */
-  const getOrCreateSocialUser = useCallback(async (
-    authUserId: string,
-    displayName: string,
-    avatarUrl: string | null,
-    provider: string
-  ): Promise<SocialUser | null> => {
+  const getOrCreateUser = useCallback(async (
+    authProvider: AuthProvider,
+    authProviderId: string,
+    username: string,
+    email: string | null
+  ): Promise<User | null> => {
     if (!supabase) return null;
 
     try {
-      // Call the database function to get or create user
       const { data, error: rpcError } = await supabase.rpc(
-        'get_or_create_social_user',
+        'get_or_create_user',
         {
-          p_auth_user_id: authUserId,
-          p_display_name: displayName,
-          p_avatar_url: avatarUrl,
-          p_provider: provider,
+          p_auth_provider: authProvider,
+          p_auth_provider_id: authProviderId,
+          p_username: username,
+          p_email: email,
         }
       );
 
@@ -77,9 +79,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      return data as SocialUser;
+      return data as User;
     } catch (err) {
-      console.error('[AUTH] Failed to get/create social user:', err);
+      console.error('[AUTH] Failed to get/create user:', err);
+      return null;
+    }
+  }, []);
+
+  /**
+   * Fetch user's bankroll
+   */
+  const fetchBankroll = useCallback(async (userId: string): Promise<Bankroll | null> => {
+    if (!supabase) return null;
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('bankrolls')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (fetchError) {
+        console.error('[AUTH] Bankroll fetch error:', fetchError);
+        return null;
+      }
+
+      return {
+        userId: data.user_id,
+        balancePoints: data.balance_points,
+        dailyLimit: data.daily_limit,
+        spentToday: data.spent_today,
+        lastResetAt: data.last_reset_at,
+      };
+    } catch (err) {
+      console.error('[AUTH] Failed to fetch bankroll:', err);
       return null;
     }
   }, []);
@@ -87,25 +120,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Extract user info from Supabase auth session
    */
-  const extractUserInfo = useCallback((authUser: { id: string; user_metadata?: Record<string, unknown> }) => {
+  const extractUserInfo = useCallback((authUser: { id: string; user_metadata?: Record<string, unknown>; app_metadata?: Record<string, unknown> }) => {
     const metadata = authUser.user_metadata || {};
+    const appMetadata = authUser.app_metadata || {};
 
-    // Facebook provides these fields
-    const displayName =
+    // Get display name from various provider fields
+    const username =
       (metadata.full_name as string) ||
       (metadata.name as string) ||
-      'Ferry Fan';
+      (metadata.email as string)?.split('@')[0] ||
+      'user';
 
-    const avatarUrl =
-      (metadata.avatar_url as string) ||
-      (metadata.picture as string) ||
-      null;
+    const email = (metadata.email as string) || null;
 
-    const provider =
-      (metadata.provider as string) ||
-      'facebook';
+    // Determine provider from app_metadata
+    const provider = (appMetadata.provider as AuthProvider) || 'google';
 
-    return { displayName, avatarUrl, provider };
+    return { username, email, provider };
   }, []);
 
   /**
@@ -123,36 +154,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (sessionError) {
         console.error('[AUTH] Session error:', sessionError);
         setUser(null);
+        setBankroll(null);
         setIsLoading(false);
         return;
       }
 
       if (!session?.user) {
         setUser(null);
+        setBankroll(null);
         setIsLoading(false);
         return;
       }
 
       const authUser = session.user;
-      const { displayName, avatarUrl, provider } = extractUserInfo(authUser);
+      const { username, email, provider } = extractUserInfo(authUser);
 
-      // Get or create social user profile
-      const socialUser = await getOrCreateSocialUser(
+      // Get or create user profile
+      const dbUser = await getOrCreateUser(
+        provider,
         authUser.id,
-        displayName,
-        avatarUrl,
-        provider
+        username,
+        email
       );
 
-      if (socialUser) {
-        setUser(toSessionUser(socialUser, false));
+      if (dbUser) {
+        setUser(toSessionUser(dbUser, false));
+        const userBankroll = await fetchBankroll(dbUser.id);
+        setBankroll(userBankroll);
       } else {
         // Fallback: create session user from auth data only
         setUser({
           id: authUser.id,
-          displayName,
-          avatarUrl,
-          provider: provider as 'facebook' | 'google' | 'anonymous',
+          username,
+          provider,
+          bettingModeEnabled: false,
           isNewUser: false,
         });
       }
@@ -162,12 +197,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [extractUserInfo, getOrCreateSocialUser, toSessionUser]);
+  }, [extractUserInfo, getOrCreateUser, toSessionUser, fetchBankroll]);
 
   /**
-   * Sign in with Facebook OAuth
+   * Sign in with Google OAuth
    */
-  const signInWithFacebook = useCallback(async () => {
+  const signInWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured() || !supabase) {
       setError('Authentication not configured');
       return;
@@ -177,20 +212,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const { error: signInError } = await supabase.auth.signInWithOAuth({
-        provider: 'facebook',
+        provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
-          scopes: 'public_profile',
         },
       });
 
       if (signInError) {
-        console.error('[AUTH] Sign in error:', signInError);
-        setError('Failed to sign in. Please try again.');
+        console.error('[AUTH] Google sign in error:', signInError);
+        setError('Failed to sign in with Google. Please try again.');
       }
-      // Note: OAuth redirects, so no need to handle success here
     } catch (err) {
-      console.error('[AUTH] Sign in failed:', err);
+      console.error('[AUTH] Google sign in failed:', err);
+      setError('Something went wrong. Please try again.');
+    }
+  }, []);
+
+  /**
+   * Sign in with Apple OAuth
+   */
+  const signInWithApple = useCallback(async () => {
+    if (!isSupabaseConfigured() || !supabase) {
+      setError('Authentication not configured');
+      return;
+    }
+
+    setError(null);
+
+    try {
+      const { error: signInError } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (signInError) {
+        console.error('[AUTH] Apple sign in error:', signInError);
+        setError('Failed to sign in with Apple. Please try again.');
+      }
+    } catch (err) {
+      console.error('[AUTH] Apple sign in failed:', err);
       setError('Something went wrong. Please try again.');
     }
   }, []);
@@ -204,12 +266,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await supabase.auth.signOut();
       setUser(null);
+      setBankroll(null);
       setError(null);
     } catch (err) {
       console.error('[AUTH] Sign out failed:', err);
       setError('Failed to sign out');
     }
   }, []);
+
+  /**
+   * Toggle betting mode
+   */
+  const toggleBettingMode = useCallback(async (enabled: boolean) => {
+    if (!supabase || !user) {
+      setError('Not authenticated');
+      return;
+    }
+
+    try {
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ betting_mode_enabled: enabled })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('[AUTH] Failed to update betting mode:', updateError);
+        setError('Failed to update betting mode');
+        return;
+      }
+
+      // Update local state
+      setUser(prev => prev ? { ...prev, bettingModeEnabled: enabled } : null);
+    } catch (err) {
+      console.error('[AUTH] Toggle betting mode failed:', err);
+      setError('Failed to update betting mode');
+    }
+  }, [user]);
 
   // ============================================================
   // EFFECTS
@@ -228,24 +320,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
           const authUser = session.user;
-          const { displayName, avatarUrl, provider } = extractUserInfo(authUser);
+          const { username, email, provider } = extractUserInfo(authUser);
 
           // Check if this is a new user (created within last 5 seconds)
           const createdAt = new Date(authUser.created_at).getTime();
           const isNewUser = Date.now() - createdAt < 5000;
 
-          const socialUser = await getOrCreateSocialUser(
+          const dbUser = await getOrCreateUser(
+            provider,
             authUser.id,
-            displayName,
-            avatarUrl,
-            provider
+            username,
+            email
           );
 
-          if (socialUser) {
-            setUser(toSessionUser(socialUser, isNewUser));
+          if (dbUser) {
+            setUser(toSessionUser(dbUser, isNewUser));
+            const userBankroll = await fetchBankroll(dbUser.id);
+            setBankroll(userBankroll);
           }
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
+          setBankroll(null);
         }
       }
     );
@@ -253,7 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [extractUserInfo, getOrCreateSocialUser, toSessionUser]);
+  }, [extractUserInfo, getOrCreateUser, toSessionUser, fetchBankroll]);
 
   // ============================================================
   // CONTEXT VALUE
@@ -261,12 +356,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     user,
+    bankroll,
     isLoading,
     isAuthenticated: !!user,
     error,
-    signInWithFacebook,
+    signInWithGoogle,
+    signInWithApple,
     signOut,
     refreshUser,
+    toggleBettingMode,
   };
 
   return (
@@ -307,4 +405,12 @@ export function useAuthAvailable(): boolean {
 export function useUser(): SessionUser | null {
   const context = useContext(AuthContext);
   return context?.user ?? null;
+}
+
+/**
+ * Safe auth hook that returns null values if outside provider
+ * Use for components that may exist without AuthProvider
+ */
+export function useAuthSafe(): AuthContextValue | null {
+  return useContext(AuthContext);
 }

@@ -5,11 +5,13 @@
  *
  * Shows user avatar + dropdown menu when signed in.
  * Shows sign-in button when not authenticated.
+ *
+ * Phase 85: Updated for Google/Apple OAuth (Facebook removed).
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth, useAuthAvailable } from '@/lib/auth';
-import { SignInWithFacebookButton } from './SignInWithFacebookButton';
+import { SignInButtons } from './SignInButtons';
 
 interface UserMenuProps {
   className?: string;
@@ -49,10 +51,10 @@ function UserMenuInner({ className }: UserMenuProps) {
     );
   }
 
-  // Not authenticated - show sign-in button
+  // Not authenticated - show sign-in buttons
   if (!isAuthenticated || !user) {
     return (
-      <SignInWithFacebookButton variant="compact" className={className} />
+      <SignInButtons variant="compact" className={className} />
     );
   }
 
@@ -64,17 +66,9 @@ function UserMenuInner({ className }: UserMenuProps) {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 rounded-full hover:ring-2 hover:ring-accent/30 transition-all"
       >
-        {user.avatarUrl ? (
-          <img
-            src={user.avatarUrl}
-            alt={user.displayName}
-            className="w-8 h-8 rounded-full object-cover"
-          />
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-sm font-medium">
-            {user.displayName.charAt(0).toUpperCase()}
-          </div>
-        )}
+        <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-sm font-medium">
+          {user.username.charAt(0).toUpperCase()}
+        </div>
       </button>
 
       {/* Dropdown menu */}
@@ -83,10 +77,10 @@ function UserMenuInner({ className }: UserMenuProps) {
           {/* User info */}
           <div className="px-4 py-3 border-b border-border/50">
             <p className="font-medium text-foreground truncate">
-              {user.displayName}
+              {user.username}
             </p>
             <p className="text-xs text-muted-foreground">
-              Signed in with Facebook
+              Signed in with {user.provider === 'google' ? 'Google' : 'Apple'}
             </p>
           </div>
 
@@ -130,19 +124,11 @@ function UserAvatarInner({ className }: { className?: string }) {
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      {user.avatarUrl ? (
-        <img
-          src={user.avatarUrl}
-          alt={user.displayName}
-          className="w-6 h-6 rounded-full object-cover"
-        />
-      ) : (
-        <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
-          {user.displayName.charAt(0).toUpperCase()}
-        </div>
-      )}
+      <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
+        {user.username.charAt(0).toUpperCase()}
+      </div>
       <span className="text-sm font-medium text-foreground truncate max-w-[100px]">
-        {user.displayName}
+        {user.username}
       </span>
     </div>
   );

@@ -1,32 +1,50 @@
 /**
  * Auth Types
  *
- * Type definitions for Facebook OAuth authentication.
+ * Type definitions for Google and Apple OAuth authentication.
+ * Facebook has been intentionally removed.
  */
 
 /**
- * Social user profile stored in database
+ * Supported auth providers
  */
-export interface SocialUser {
-  user_id: string;
-  auth_user_id: string;
-  display_name: string;
-  avatar_url: string | null;
-  provider: 'facebook' | 'google' | 'anonymous';
+export type AuthProvider = 'google' | 'apple';
+
+/**
+ * User record stored in database (users table)
+ */
+export interface User {
+  id: string;
+  username: string;
+  auth_provider: AuthProvider;
+  auth_provider_id: string;
+  email: string | null;
+  betting_mode_enabled: boolean;
   created_at: string;
   last_login_at: string;
 }
 
 /**
  * Session-safe user object (returned to client)
- * Does not include internal IDs or sensitive data
+ * Does not include auth_provider_id or other sensitive data
  */
 export interface SessionUser {
-  id: string;              // user_id
-  displayName: string;
-  avatarUrl: string | null;
-  provider: 'facebook' | 'google' | 'anonymous';
-  isNewUser: boolean;      // First login indicator
+  id: string;
+  username: string;
+  provider: AuthProvider;
+  bettingModeEnabled: boolean;
+  isNewUser: boolean;
+}
+
+/**
+ * Bankroll state
+ */
+export interface Bankroll {
+  userId: string;
+  balancePoints: number;
+  dailyLimit: number;
+  spentToday: number;
+  lastResetAt: string;
 }
 
 /**
@@ -34,6 +52,7 @@ export interface SessionUser {
  */
 export interface AuthState {
   user: SessionUser | null;
+  bankroll: Bankroll | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
@@ -43,9 +62,11 @@ export interface AuthState {
  * Auth actions available in context
  */
 export interface AuthActions {
-  signInWithFacebook: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  toggleBettingMode: (enabled: boolean) => Promise<void>;
 }
 
 /**

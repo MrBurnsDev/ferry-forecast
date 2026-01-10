@@ -28,6 +28,7 @@ import {
 
 interface BetSlipProps {
   sailingId: string;
+  corridorId?: string;          // Optional until fully integrated with board components
   likelihood: number;           // Likelihood to sail (0-100)
   departureTimestampMs: number;
   departureTimeDisplay: string; // e.g., "9:30 AM"
@@ -37,6 +38,7 @@ interface BetSlipProps {
 
 export function BetSlip({
   sailingId,
+  corridorId,
   likelihood,
   departureTimestampMs,
   departureTimeDisplay,
@@ -52,6 +54,7 @@ export function BetSlip({
   return (
     <BetSlipInner
       sailingId={sailingId}
+      corridorId={corridorId}
       likelihood={likelihood}
       departureTimestampMs={departureTimestampMs}
       departureTimeDisplay={departureTimeDisplay}
@@ -63,6 +66,7 @@ export function BetSlip({
 
 function BetSlipInner({
   sailingId,
+  corridorId,
   likelihood,
   departureTimestampMs,
   departureTimeDisplay,
@@ -93,11 +97,15 @@ function BetSlipInner({
 
   const handlePlaceBet = async () => {
     if (!selectedBetType) return;
+    if (!corridorId) {
+      setError('corridorId required for betting');
+      return;
+    }
 
     setIsPlacing(true);
     setError(null);
 
-    const result = placeBet(sailingId, selectedBetType, selectedStake, likelihood, departureTimestampMs);
+    const result = await placeBet(sailingId, corridorId, selectedBetType, selectedStake, likelihood, departureTimestampMs);
 
     if (!result.success) {
       setError(result.error || 'Failed to place bet');
@@ -323,8 +331,9 @@ function BetSlipInner({
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => {
+            if (!corridorId) return;
             setSelectedBetType('will_sail');
-            placeBet(sailingId, 'will_sail', 25, likelihood, departureTimestampMs);
+            placeBet(sailingId, corridorId, 'will_sail', 25, likelihood, departureTimestampMs);
           }}
           className="py-3 rounded-lg bg-success-muted/30 border border-success/30 text-success font-medium hover:bg-success-muted/50 transition-colors"
         >
@@ -332,8 +341,9 @@ function BetSlipInner({
         </button>
         <button
           onClick={() => {
+            if (!corridorId) return;
             setSelectedBetType('will_cancel');
-            placeBet(sailingId, 'will_cancel', 25, likelihood, departureTimestampMs);
+            placeBet(sailingId, corridorId, 'will_cancel', 25, likelihood, departureTimestampMs);
           }}
           className="py-3 rounded-lg bg-destructive-muted/30 border border-destructive/30 text-destructive font-medium hover:bg-destructive-muted/50 transition-colors"
         >

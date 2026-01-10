@@ -4,18 +4,19 @@
  * Account Button Component
  *
  * Shows "My Account" button in the navigation bar.
- * Opens a dropdown with sign-in option or user menu.
+ * Opens a dropdown with sign-in options or user menu.
+ *
+ * Supports Google and Apple sign-in only.
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth, useAuthAvailable } from '@/lib/auth';
-import { SignInWithFacebookButton } from './SignInWithFacebookButton';
+import { SignInButtons } from './SignInButtons';
 
 export function AccountButton() {
   const available = useAuthAvailable();
 
   if (!available) {
-    // Auth not configured - don't show button
     return null;
   }
 
@@ -23,7 +24,7 @@ export function AccountButton() {
 }
 
 function AccountButtonInner() {
-  const { user, isAuthenticated, isLoading, signOut } = useAuth();
+  const { user, isAuthenticated, isLoading, signOut, toggleBettingMode } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -57,25 +58,17 @@ function AccountButtonInner() {
       >
         {isAuthenticated && user ? (
           <>
-            {user.avatarUrl ? (
-              <img
-                src={user.avatarUrl}
-                alt=""
-                className="w-5 h-5 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
-                {user.displayName.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
+              {user.username.charAt(0).toUpperCase()}
+            </div>
             <span className="hidden sm:inline">My Account</span>
             <span className="sm:hidden">Account</span>
           </>
         ) : (
           <>
             <UserIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">My Account</span>
-            <span className="sm:hidden">Account</span>
+            <span className="hidden sm:inline">Sign In</span>
+            <span className="sm:hidden">Sign In</span>
           </>
         )}
         <ChevronDownIcon className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -83,31 +76,47 @@ function AccountButtonInner() {
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-popover border border-border rounded-lg shadow-lg overflow-hidden z-50">
+        <div className="absolute right-0 mt-2 w-72 bg-popover border border-border rounded-lg shadow-lg overflow-hidden z-50">
           {isAuthenticated && user ? (
             <>
               {/* Signed in state */}
               <div className="px-4 py-3 border-b border-border/50">
                 <div className="flex items-center gap-3">
-                  {user.avatarUrl ? (
-                    <img
-                      src={user.avatarUrl}
-                      alt=""
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-lg font-medium">
-                      {user.displayName.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-lg font-medium">
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground truncate">
-                      {user.displayName}
+                      {user.username}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Signed in with Facebook
+                      Signed in with {user.provider === 'google' ? 'Google' : 'Apple'}
                     </p>
                   </div>
+                </div>
+              </div>
+
+              {/* Betting Mode Toggle */}
+              <div className="px-4 py-3 border-b border-border/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Betting Mode</p>
+                    <p className="text-xs text-muted-foreground">
+                      {user.bettingModeEnabled ? 'Odds & stakes shown' : 'Neutral predictions'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => toggleBettingMode(!user.bettingModeEnabled)}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      user.bettingModeEnabled ? 'bg-accent' : 'bg-secondary'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                        user.bettingModeEnabled ? 'translate-x-5' : ''
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
 
@@ -132,9 +141,8 @@ function AccountButtonInner() {
                 <p className="text-sm text-muted-foreground mb-4">
                   Sign in to save your predictions and compete on leaderboards.
                 </p>
-                <SignInWithFacebookButton
-                  className="w-full justify-center"
-                  onClick={() => setIsOpen(false)}
+                <SignInButtons
+                  onSignInStart={() => setIsOpen(false)}
                 />
               </div>
             </>

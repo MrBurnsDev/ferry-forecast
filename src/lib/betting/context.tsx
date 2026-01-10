@@ -7,7 +7,10 @@
  * Handles user settings, bankroll, and active bets.
  *
  * CRITICAL: Betting mode is disabled by default. Users must explicitly
- * opt-in via the settings toggle.
+ * opt-in via the settings toggle in their account.
+ *
+ * Phase 85: Now backed by server-side API for persistent betting state.
+ * localStorage is only used for unauthenticated UI preferences.
  */
 
 import {
@@ -36,6 +39,7 @@ import {
   BETTING_LANGUAGE,
 } from './types';
 import { getOddsForBetType, calculateProfit } from './odds';
+import { useAuthSafe } from '@/lib/auth';
 
 // ============================================================
 // STATE
@@ -63,6 +67,7 @@ interface BettingState {
 
   // UI state
   isLoading: boolean;
+  isSyncing: boolean;
   error: string | null;
 }
 
@@ -85,6 +90,7 @@ const initialState: BettingState = {
     loadedAt: null,
   },
   isLoading: false,
+  isSyncing: false,
   error: null,
 };
 
@@ -97,12 +103,14 @@ type BettingAction =
   | { type: 'TOGGLE_BETTING_MODE'; payload: boolean }
   | { type: 'SET_BANKROLL'; payload: UserBankroll }
   | { type: 'PLACE_BET'; payload: Bet }
+  | { type: 'SET_BETS'; payload: Bet[] }
   | { type: 'UPDATE_BET'; payload: { sailingId: string; updates: Partial<Bet> } }
   | { type: 'RESOLVE_BET'; payload: { sailingId: string; outcome: 'sailed' | 'canceled' } }
   | { type: 'SET_LEADERBOARD'; payload: { daily: LeaderboardEntry[]; allTime: LeaderboardEntry[]; crown: DailyCrown | null } }
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_SYNCING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'REPLENISH_DAILY' };
+  | { type: 'RESET_STATE' };
 
 function bettingReducer(state: BettingState, action: BettingAction): BettingState {
   switch (action.type) {
@@ -141,6 +149,17 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
           balance: state.bankroll.balance - action.payload.stake,
           spentToday: state.bankroll.spentToday + action.payload.stake,
         },
+      };
+    }
+
+    case 'SET_BETS': {
+      const newBets = new Map<string, Bet>();
+      action.payload.forEach(bet => {
+        newBets.set(bet.sailingId, bet);
+      });
+      return {
+        ...state,
+        bets: newBets,
       };
     }
 
@@ -201,27 +220,22 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
         isLoading: action.payload,
       };
 
+    case 'SET_SYNCING':
+      return {
+        ...state,
+        isSyncing: action.payload,
+      };
+
     case 'SET_ERROR':
       return {
         ...state,
         error: action.payload,
       };
 
-    case 'REPLENISH_DAILY': {
-      const today = new Date().toISOString().split('T')[0];
-      if (state.bankroll.lastReplenishDate === today) {
-        return state; // Already replenished today
-      }
+    case 'RESET_STATE':
       return {
-        ...state,
-        bankroll: {
-          ...state.bankroll,
-          balance: DEFAULT_BANKROLL.balance,
-          spentToday: 0,
-          lastReplenishDate: today,
-        },
+        ...initialState,
       };
-    }
 
     default:
       return state;
@@ -242,14 +256,19 @@ interface BettingContextValue {
   // Betting
   placeBet: (
     sailingId: string,
+    corridorId: string,
     betType: BetType,
     stake: BetSize,
     likelihood: number,
     departureTimestampMs: number
-  ) => { success: boolean; error?: string };
+  ) => Promise<{ success: boolean; error?: string }>;
   getBetForSailing: (sailingId: string) => Bet | undefined;
   canPlaceBet: (stake: BetSize) => boolean;
   getTimeUntilLock: (departureTimestampMs: number) => { minutes: number; locked: boolean };
+
+  // Sync
+  refreshBets: () => Promise<void>;
+  refreshLeaderboard: () => Promise<void>;
 
   // Language helpers
   isBettingMode: boolean;
@@ -262,78 +281,119 @@ const BettingContext = createContext<BettingContextValue | null>(null);
 // PROVIDER
 // ============================================================
 
-const STORAGE_KEY = 'ferry-betting-state';
-
 export function BettingProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(bettingReducer, initialState);
 
-  // Load persisted state on mount
+  // Use safe auth hook that returns null if outside AuthProvider
+  const auth = useAuthSafe();
+  const user = auth?.user;
+  const isAuthenticated = auth?.isAuthenticated ?? false;
+  const bankroll = auth?.bankroll;
+
+  // Sync betting mode from user's server-side setting
   useEffect(() => {
+    if (isAuthenticated && user) {
+      dispatch({ type: 'TOGGLE_BETTING_MODE', payload: user.bettingModeEnabled });
+    } else {
+      dispatch({ type: 'RESET_STATE' });
+    }
+  }, [isAuthenticated, user]);
+
+  // Sync bankroll from auth context
+  useEffect(() => {
+    if (bankroll) {
+      dispatch({
+        type: 'SET_BANKROLL',
+        payload: {
+          userId: bankroll.userId,
+          balance: bankroll.balancePoints,
+          dailyLimit: bankroll.dailyLimit,
+          spentToday: bankroll.spentToday,
+          lastReplenishDate: bankroll.lastResetAt,
+        },
+      });
+    }
+  }, [bankroll]);
+
+  // Fetch user's bets from API on auth
+  const refreshBets = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    dispatch({ type: 'SET_SYNCING', payload: true });
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-
-        // Restore settings
-        if (parsed.settings) {
-          dispatch({ type: 'SET_SETTINGS', payload: parsed.settings });
+      const response = await fetch('/api/betting/bets');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.bets) {
+          // Transform API bets to local format
+          const bets: Bet[] = data.bets.map((apiBet: {
+            id: string;
+            sailingId: string;
+            corridorId: string;
+            betType: BetType;
+            stakePoints: number;
+            likelihoodSnapshot: number;
+            oddsSnapshot: number;
+            payoutPoints: number;
+            status: 'pending' | 'locked' | 'won' | 'lost' | 'push';
+            placedAt: string;
+            lockedAt: string | null;
+            resolvedAt: string | null;
+          }) => ({
+            id: apiBet.id,
+            userId: user?.id || '',
+            sailingId: apiBet.sailingId,
+            corridorId: apiBet.corridorId,
+            betType: apiBet.betType,
+            stake: apiBet.stakePoints,
+            likelihoodSnapshot: apiBet.likelihoodSnapshot,
+            americanOdds: apiBet.oddsSnapshot,
+            potentialPayout: apiBet.payoutPoints,
+            placedAt: apiBet.placedAt,
+            lockedAt: apiBet.lockedAt,
+            resolvedAt: apiBet.resolvedAt,
+            status: apiBet.status,
+            outcome: null,
+            profit: apiBet.status === 'won' ? apiBet.payoutPoints - apiBet.stakePoints :
+                   apiBet.status === 'lost' ? -apiBet.stakePoints : null,
+          }));
+          dispatch({ type: 'SET_BETS', payload: bets });
         }
+      }
+    } catch (err) {
+      console.error('[BETTING] Failed to fetch bets:', err);
+    } finally {
+      dispatch({ type: 'SET_SYNCING', payload: false });
+    }
+  }, [isAuthenticated, user?.id]);
 
-        // Restore bankroll (with daily replenish check)
-        if (parsed.bankroll) {
-          const today = new Date().toISOString().split('T')[0];
-          const bankroll = {
-            ...parsed.bankroll,
-            // Replenish if new day
-            balance: parsed.bankroll.lastReplenishDate !== today
-              ? DEFAULT_BANKROLL.balance
-              : parsed.bankroll.balance,
-            spentToday: parsed.bankroll.lastReplenishDate !== today
-              ? 0
-              : parsed.bankroll.spentToday,
-            lastReplenishDate: today,
-          };
-          dispatch({ type: 'SET_BANKROLL', payload: bankroll });
-        }
+  // Fetch bets on initial auth
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshBets();
+    }
+  }, [isAuthenticated, refreshBets]);
 
-        // Restore bets (filter out resolved ones older than 24h)
-        if (parsed.bets) {
-          const cutoff = Date.now() - (24 * 60 * 60 * 1000);
-          Object.entries(parsed.bets).forEach(([sailingId, bet]) => {
-            const typedBet = bet as Bet;
-            const betTime = new Date(typedBet.placedAt).getTime();
-            if (betTime > cutoff || typedBet.status === 'pending' || typedBet.status === 'locked') {
-              dispatch({ type: 'PLACE_BET', payload: { ...typedBet, sailingId } });
-            }
+  // Fetch leaderboard
+  const refreshLeaderboard = useCallback(async () => {
+    try {
+      const response = await fetch('/api/betting/leaderboard');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          dispatch({
+            type: 'SET_LEADERBOARD',
+            payload: {
+              daily: data.daily || [],
+              allTime: data.allTime || [],
+              crown: null, // TODO: Fetch crown data
+            },
           });
         }
       }
-    } catch {
-      // Ignore storage errors
+    } catch (err) {
+      console.error('[BETTING] Failed to fetch leaderboard:', err);
     }
-  }, []);
-
-  // Persist state changes
-  useEffect(() => {
-    try {
-      const toStore = {
-        settings: state.settings,
-        bankroll: state.bankroll,
-        bets: Object.fromEntries(state.bets),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
-    } catch {
-      // Ignore storage errors
-    }
-  }, [state.settings, state.bankroll, state.bets]);
-
-  // Check for daily replenish
-  useEffect(() => {
-    const interval = setInterval(() => {
-      dispatch({ type: 'REPLENISH_DAILY' });
-    }, 60000); // Check every minute
-
-    return () => clearInterval(interval);
   }, []);
 
   // ============================================================
@@ -341,6 +401,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   // ============================================================
 
   const toggleBettingMode = useCallback((enabled: boolean) => {
+    // Local UI update - actual persistence is handled by auth context
     dispatch({ type: 'TOGGLE_BETTING_MODE', payload: enabled });
   }, []);
 
@@ -351,16 +412,22 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     });
   }, [state.settings]);
 
-  const placeBet = useCallback((
+  const placeBet = useCallback(async (
     sailingId: string,
+    corridorId: string,
     betType: BetType,
     stake: BetSize,
     likelihood: number,
     departureTimestampMs: number
-  ): { success: boolean; error?: string } => {
+  ): Promise<{ success: boolean; error?: string }> => {
     // Validate betting mode is enabled
     if (!state.settings.enabled) {
       return { success: false, error: 'Betting mode is not enabled' };
+    }
+
+    // Validate user is authenticated
+    if (!isAuthenticated) {
+      return { success: false, error: 'Must be signed in to place bets' };
     }
 
     // Validate sufficient balance
@@ -379,38 +446,83 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Betting window has closed' };
     }
 
-    // Calculate odds and payout
+    // Calculate odds for optimistic update
     const americanOdds = getOddsForBetType(likelihood, betType);
     const potentialPayout = calculateProfit(stake, americanOdds) + stake;
 
-    const bet: Bet = {
-      id: `${sailingId}-${Date.now()}`,
-      userId: state.bankroll.userId || 'anonymous',
-      sailingId,
-      betType,
-      stake,
-      likelihoodSnapshot: likelihood,
-      americanOdds,
-      potentialPayout,
-      placedAt: new Date().toISOString(),
-      lockedAt: null,
-      resolvedAt: null,
-      status: 'pending',
-      outcome: null,
-      profit: null,
-    };
+    dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'SET_ERROR', payload: null });
 
-    dispatch({ type: 'PLACE_BET', payload: bet });
-    return { success: true };
-  }, [state.settings.enabled, state.bankroll.balance, state.bankroll.userId, state.bets]);
+    try {
+      const response = await fetch('/api/betting/place', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sailingId,
+          corridorId,
+          betType,
+          stakePoints: stake,
+          likelihood,
+          departureTimestampMs,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        dispatch({ type: 'SET_ERROR', payload: data.error || 'Failed to place bet' });
+        return { success: false, error: data.error || 'Failed to place bet' };
+      }
+
+      // Create bet from server response
+      const bet: Bet = {
+        id: data.bet.id,
+        userId: user?.id || '',
+        sailingId,
+        betType,
+        stake,
+        likelihoodSnapshot: likelihood,
+        americanOdds: data.bet.oddsSnapshot || americanOdds,
+        potentialPayout: data.bet.payoutPoints || potentialPayout,
+        placedAt: data.bet.placedAt || new Date().toISOString(),
+        lockedAt: null,
+        resolvedAt: null,
+        status: 'pending',
+        outcome: null,
+        profit: null,
+      };
+
+      dispatch({ type: 'PLACE_BET', payload: bet });
+
+      // Update bankroll from server
+      if (data.newBalance !== undefined) {
+        dispatch({
+          type: 'SET_BANKROLL',
+          payload: {
+            ...state.bankroll,
+            balance: data.newBalance,
+            spentToday: state.bankroll.spentToday + stake,
+          },
+        });
+      }
+
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Network error';
+      dispatch({ type: 'SET_ERROR', payload: message });
+      return { success: false, error: message };
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }, [state.settings.enabled, state.bankroll, state.bets, isAuthenticated, user?.id]);
 
   const getBetForSailing = useCallback((sailingId: string): Bet | undefined => {
     return state.bets.get(sailingId);
   }, [state.bets]);
 
   const canPlaceBet = useCallback((stake: BetSize): boolean => {
-    return state.settings.enabled && stake <= state.bankroll.balance;
-  }, [state.settings.enabled, state.bankroll.balance]);
+    return state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
+  }, [state.settings.enabled, state.bankroll.balance, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
@@ -434,6 +546,8 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     getBetForSailing,
     canPlaceBet,
     getTimeUntilLock,
+    refreshBets,
+    refreshLeaderboard,
     isBettingMode: state.settings.enabled,
     lang: state.language,
   };

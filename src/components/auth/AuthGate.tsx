@@ -5,10 +5,12 @@
  *
  * Wrapper that shows sign-in CTA if not authenticated,
  * or renders children if signed in.
+ *
+ * Phase 85: Updated for Google/Apple OAuth (Facebook removed).
  */
 
 import { useAuth, useAuthAvailable } from '@/lib/auth';
-import { SignInWithFacebookButton } from './SignInWithFacebookButton';
+import { SignInButtons } from './SignInButtons';
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -66,7 +68,7 @@ function AuthGateInner({
           <p className="text-foreground font-medium mb-4">
             {message}
           </p>
-          <SignInWithFacebookButton />
+          <SignInButtons />
         </div>
       </div>
     );
@@ -110,7 +112,7 @@ function AuthGateInlineInner({
 
   if (!isAuthenticated) {
     return (
-      <SignInWithFacebookButton variant="text" />
+      <SignInButtons variant="compact" />
     );
   }
 

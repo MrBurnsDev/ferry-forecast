@@ -21,6 +21,7 @@ import {
 
 interface SailingBetCardProps {
   sailingId: string;
+  corridorId?: string; // Optional until fully integrated with board components
   likelihood: number;
   departureTimestampMs: number;
   className?: string;
@@ -29,6 +30,7 @@ interface SailingBetCardProps {
 
 export function SailingBetCard({
   sailingId,
+  corridorId,
   likelihood,
   departureTimestampMs,
   className = '',
@@ -43,6 +45,7 @@ export function SailingBetCard({
   return (
     <SailingBetCardInner
       sailingId={sailingId}
+      corridorId={corridorId}
       likelihood={likelihood}
       departureTimestampMs={departureTimestampMs}
       className={className}
@@ -53,6 +56,7 @@ export function SailingBetCard({
 
 function SailingBetCardInner({
   sailingId,
+  corridorId,
   likelihood,
   departureTimestampMs,
   className,
@@ -74,10 +78,12 @@ function SailingBetCardInner({
 
   // Quick bet handler (25 pts default)
   const handleQuickBet = async (betType: BetType) => {
-    // For now, betting works without auth (local storage only)
-    // Auth integration for persistence will be added in future phase
+    if (!corridorId) {
+      console.error('Bet failed: corridorId required for API-backed betting');
+      return;
+    }
     setIsPlacing(true);
-    const result = placeBet(sailingId, betType, 25, likelihood, departureTimestampMs);
+    const result = await placeBet(sailingId, corridorId, betType, 25, likelihood, departureTimestampMs);
     setIsPlacing(false);
     setShowConfirm(null);
 
