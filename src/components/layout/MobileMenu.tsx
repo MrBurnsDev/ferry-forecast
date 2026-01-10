@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useBetting, useBettingAvailable } from '@/lib/betting';
 
 function MenuIcon({ className }: { className?: string }) {
   return (
@@ -61,9 +62,23 @@ function LogOutIcon({ className }: { className?: string }) {
   );
 }
 
+function TrophyIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+      <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+      <path d="M4 22h16" />
+      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+      <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+    </svg>
+  );
+}
+
 export function MobileMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const { isAuthenticated, signOut } = useAuth();
+  const bettingAvailable = useBettingAvailable();
 
   return (
     <>
@@ -128,6 +143,10 @@ export function MobileMenu() {
             <UserIcon className="w-5 h-5 text-accent" />
             <span className="text-foreground">Account</span>
           </Link>
+          {/* Leaderboard - only shown when betting/predictions is enabled */}
+          {bettingAvailable && (
+            <LeaderboardLink onClose={() => setIsOpen(false)} />
+          )}
         </nav>
 
         {/* Divider */}
@@ -178,5 +197,28 @@ export function MobileMenu() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Leaderboard link - only renders when bettingEnabled is true
+ */
+function LeaderboardLink({ onClose }: { onClose: () => void }) {
+  const { bettingEnabled } = useBetting();
+
+  // Only show when game mode is actually enabled
+  if (!bettingEnabled) {
+    return null;
+  }
+
+  return (
+    <Link
+      href="/leaderboard"
+      onClick={onClose}
+      className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+    >
+      <TrophyIcon className="w-5 h-5 text-accent" />
+      <span className="text-foreground">Leaderboard</span>
+    </Link>
   );
 }
