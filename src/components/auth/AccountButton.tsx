@@ -41,13 +41,13 @@ function AccountButtonInner() {
   }, []);
 
   // Get display name from profile or session
-  const displayName = profile?.displayName ||
+  const displayName = profile?.username ||
     session?.user?.user_metadata?.full_name ||
     session?.user?.user_metadata?.name ||
     session?.user?.email?.split('@')[0] ||
     'User';
 
-  const provider = profile?.provider ||
+  const provider = profile?.authProvider ||
     session?.user?.app_metadata?.provider ||
     'google';
 

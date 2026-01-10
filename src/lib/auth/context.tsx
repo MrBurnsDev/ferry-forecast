@@ -1,13 +1,15 @@
 'use client';
 
 /**
- * Auth Context - RESET & FIXED
+ * Auth Context - Phase 85 Aligned
  *
  * CRITICAL RULES:
  * 1. Session exists = user is authenticated (NEVER check DB for auth state)
  * 2. User provisioning is async and non-blocking
  * 3. DB failures NEVER cause logout or redirect
  * 4. Missing user records NEVER block rendering
+ *
+ * Uses ferry_forecast.users table and get_or_create_user function.
  */
 
 import {
@@ -28,14 +30,14 @@ import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 export type AuthProvider = 'google' | 'apple';
 
 /**
- * App-level user profile (from social_users table)
+ * App-level user profile (from ferry_forecast.users table)
  * This is OPTIONAL - session alone = authenticated
  */
 export interface UserProfile {
-  userId: string;
-  displayName: string;
-  avatarUrl: string | null;
-  provider: string;
+  id: string;
+  username: string;
+  authProvider: AuthProvider;
+  email: string | null;
   bettingModeEnabled: boolean;
 }
 
@@ -77,6 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Provision user in database - ASYNC, NON-BLOCKING
    * Failures are logged but NEVER affect auth state
+   *
+   * Calls ferry_forecast.get_or_create_user per Phase 85 spec
    */
   const provisionUser = useCallback(async (user: SupabaseUser) => {
     if (!supabase) return;
@@ -85,22 +89,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const metadata = user.user_metadata || {};
-      const displayName =
+      const provider = (user.app_metadata?.provider as string) || 'google';
+
+      // Generate username from user metadata
+      const username =
         (metadata.full_name as string) ||
         (metadata.name as string) ||
         (metadata.email as string)?.split('@')[0] ||
         'User';
-      const avatarUrl = (metadata.avatar_url as string) || null;
-      const provider = (user.app_metadata?.provider as string) || 'google';
 
-      // Call the CORRECT function that uses auth.uid()
+      const email = (metadata.email as string) || user.email || null;
+
+      // Call Phase 85 canonical function: get_or_create_user
+      // Parameters: p_auth_provider, p_auth_provider_id, p_username, p_email
       const { data, error } = await supabase.rpc(
-        'get_or_create_social_user',
+        'get_or_create_user',
         {
-          p_auth_user_id: user.id, // This IS auth.uid()
-          p_display_name: displayName,
-          p_avatar_url: avatarUrl,
-          p_provider: provider,
+          p_auth_provider: provider,
+          p_auth_provider_id: user.id, // This is auth.uid() - Supabase user ID
+          p_username: username,
+          p_email: email,
         }
       );
 
@@ -112,11 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data) {
         setProfile({
-          userId: data.user_id,
-          displayName: data.display_name,
-          avatarUrl: data.avatar_url,
-          provider: data.provider,
-          bettingModeEnabled: false, // TODO: Add to social_users if needed
+          id: data.id,
+          username: data.username,
+          authProvider: data.auth_provider as AuthProvider,
+          email: data.email,
+          bettingModeEnabled: data.betting_mode_enabled || false,
         });
       }
     } catch (err) {
