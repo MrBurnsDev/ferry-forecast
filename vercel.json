@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/betting/settle",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
