@@ -11,20 +11,20 @@
  *
  * Phase 86E: Removed serverAuthReady gating - betting UI activates
  * as soon as client-side session exists.
+ * Phase 86F: Simplified to thumbs up/down model - no stake selection,
+ *            server computes all betting math.
  */
 
 import { useState } from 'react';
 import {
   useBetting,
   useBettingAvailable,
-  BET_SIZES,
   getOddsDisplay,
   formatOdds,
   calculateProfit,
-  getTimeBonus,
   type BetType,
-  type BetSize,
 } from '@/lib/betting';
+// Phase 86F: Removed BET_SIZES, getTimeBonus, BetSize - server uses default stake
 // Auth imports available for future integration when betting persistence is added
 // import { useAuth, useAuthAvailable } from '@/lib/auth';
 // import { AuthGate } from '@/components/auth';
@@ -76,11 +76,10 @@ function BetSlipInner({
   routeDisplay,
   className,
 }: BetSlipProps) {
-  const { state, bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
+  const { bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
 
   // Hooks must be called unconditionally
-  const [selectedBetType, setSelectedBetType] = useState<BetType | null>(null);
-  const [selectedStake, setSelectedStake] = useState<BetSize>(25);
+  // Phase 86F: Removed selectedBetType, selectedStake - server computes everything
   const [isPlacing, setIsPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,17 +94,11 @@ function BetSlipInner({
   // Get lock status
   const { minutes: minutesUntilLock, locked } = getTimeUntilLock(departureTimestampMs);
 
-  // Get odds
+  // Get odds for display only
   const odds = getOddsDisplay(likelihood);
-  const timeBonus = getTimeBonus(departureTimestampMs);
-  const hasTimeBonus = timeBonus > 1;
 
-  // Calculate potential payout for selected bet
-  const selectedOdds = selectedBetType === 'will_sail' ? odds.sailOdds : odds.cancelOdds;
-  const potentialProfit = selectedBetType ? calculateProfit(selectedStake, selectedOdds) : 0;
-
-  const handlePlaceBet = async () => {
-    if (!selectedBetType) return;
+  // Phase 86F: Simplified bet handler - sends intent only
+  const handlePlaceBet = async (betType: BetType) => {
     if (!corridorId) {
       setError('corridorId required for betting');
       return;
@@ -114,13 +107,12 @@ function BetSlipInner({
     setIsPlacing(true);
     setError(null);
 
-    const result = await placeBet(sailingId, corridorId, selectedBetType, selectedStake, likelihood, departureTimestampMs);
+    const result = await placeBet(sailingId, corridorId, betType);
 
     if (!result.success) {
       setError(result.error || 'Failed to place bet');
-    } else {
-      setSelectedBetType(null);
     }
+    // Phase 86F: No need to track selectedBetType - just refresh happens via context
 
     setIsPlacing(false);
   };
@@ -202,7 +194,7 @@ function BetSlipInner({
     );
   }
 
-  // Betting Mode UI
+  // Phase 86F: Simplified Betting Mode UI - thumbs up/down, no stake selection
   if (isBettingMode) {
     return (
       <div className={`bg-secondary/50 border border-border/50 rounded-lg p-4 ${className}`}>
@@ -222,110 +214,44 @@ function BetSlipInner({
           </div>
         </div>
 
-        {/* Odds Display */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          {/* Will Sail */}
+        {/* Error */}
+        {error && (
+          <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-3 mb-4">
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
+
+        {/* Simple Bet Buttons - Phase 86F thumbs up/down */}
+        <div className="grid grid-cols-2 gap-3">
           <button
-            onClick={() => setSelectedBetType('will_sail')}
-            className={`p-3 rounded-lg border-2 transition-all ${
-              selectedBetType === 'will_sail'
-                ? 'border-success bg-success-muted/30'
-                : 'border-border/50 hover:border-success/50'
-            }`}
+            onClick={() => handlePlaceBet('will_sail')}
+            disabled={isPlacing || !canPlaceBet()}
+            className="p-3 rounded-lg border-2 border-success/30 bg-success-muted/30 text-success font-medium hover:bg-success-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Will Sail</p>
-            <p className={`text-2xl font-bold ${selectedBetType === 'will_sail' ? 'text-success' : 'text-foreground'}`}>
-              {formatOdds(odds.sailOdds)}
-            </p>
-            <p className="text-xs text-muted-foreground">{odds.sailImplied}% implied</p>
+            <p className="text-2xl font-bold">{formatOdds(odds.sailOdds)}</p>
+            <p className="text-xs">Will Sail</p>
           </button>
 
-          {/* Will Cancel */}
           <button
-            onClick={() => setSelectedBetType('will_cancel')}
-            className={`p-3 rounded-lg border-2 transition-all ${
-              selectedBetType === 'will_cancel'
-                ? 'border-destructive bg-destructive-muted/30'
-                : 'border-border/50 hover:border-destructive/50'
-            }`}
+            onClick={() => handlePlaceBet('will_cancel')}
+            disabled={isPlacing || !canPlaceBet()}
+            className="p-3 rounded-lg border-2 border-destructive/30 bg-destructive-muted/30 text-destructive font-medium hover:bg-destructive-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Will Cancel</p>
-            <p className={`text-2xl font-bold ${selectedBetType === 'will_cancel' ? 'text-destructive' : 'text-foreground'}`}>
-              {formatOdds(odds.cancelOdds)}
-            </p>
-            <p className="text-xs text-muted-foreground">{odds.cancelImplied}% implied</p>
+            <p className="text-2xl font-bold">{formatOdds(odds.cancelOdds)}</p>
+            <p className="text-xs">Will Cancel</p>
           </button>
         </div>
 
-        {/* Stake Selection (only when bet type selected) */}
-        {selectedBetType && (
-          <>
-            <div className="mb-4">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Stake</p>
-              <div className="flex gap-2">
-                {BET_SIZES.map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => setSelectedStake(size)}
-                    disabled={!canPlaceBet(size)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedStake === size
-                        ? 'bg-accent text-accent-foreground'
-                        : canPlaceBet(size)
-                          ? 'bg-secondary hover:bg-secondary/80 text-foreground'
-                          : 'bg-secondary/50 text-muted-foreground cursor-not-allowed'
-                    }`}
-                  >
-                    {size} pts
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Payout Preview */}
-            <div className="bg-secondary/80 rounded-lg p-3 mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Potential Win</p>
-                  <p className="text-xl font-bold text-accent">
-                    +{Math.round(potentialProfit * timeBonus)} pts
-                  </p>
-                </div>
-                {hasTimeBonus && (
-                  <div className="text-right">
-                    <p className="text-xs text-success">Time Bonus</p>
-                    <p className="text-sm font-medium text-success">+{Math.round((timeBonus - 1) * 100)}%</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-3 mb-4">
-                <p className="text-sm text-destructive">{error}</p>
-              </div>
-            )}
-
-            {/* Place Bet Button */}
-            <button
-              onClick={handlePlaceBet}
-              disabled={isPlacing || !canPlaceBet(selectedStake)}
-              className="w-full py-3 rounded-lg bg-accent text-accent-foreground font-bold text-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isPlacing ? 'Placing...' : `Place ${selectedStake} pt Bet`}
-            </button>
-
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              Balance: {state.bankroll.balance} pts
-            </p>
-          </>
+        {isPlacing && (
+          <p className="text-xs text-muted-foreground text-center mt-3">
+            Placing prediction...
+          </p>
         )}
       </div>
     );
   }
 
-  // Neutral Mode UI (simple prediction buttons)
+  // Neutral Mode UI (simple prediction buttons) - Phase 86F simplified
   return (
     <div className={`bg-secondary/50 border border-border/50 rounded-lg p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
@@ -337,24 +263,25 @@ function BetSlipInner({
         </p>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-3 mb-3">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <button
-          onClick={() => {
-            if (!corridorId) return;
-            setSelectedBetType('will_sail');
-            placeBet(sailingId, corridorId, 'will_sail', 25, likelihood, departureTimestampMs);
-          }}
-          className="py-3 rounded-lg bg-success-muted/30 border border-success/30 text-success font-medium hover:bg-success-muted/50 transition-colors"
+          onClick={() => handlePlaceBet('will_sail')}
+          disabled={isPlacing || !canPlaceBet()}
+          className="py-3 rounded-lg bg-success-muted/30 border border-success/30 text-success font-medium hover:bg-success-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {lang.sailOption}
         </button>
         <button
-          onClick={() => {
-            if (!corridorId) return;
-            setSelectedBetType('will_cancel');
-            placeBet(sailingId, corridorId, 'will_cancel', 25, likelihood, departureTimestampMs);
-          }}
-          className="py-3 rounded-lg bg-destructive-muted/30 border border-destructive/30 text-destructive font-medium hover:bg-destructive-muted/50 transition-colors"
+          onClick={() => handlePlaceBet('will_cancel')}
+          disabled={isPlacing || !canPlaceBet()}
+          className="py-3 rounded-lg bg-destructive-muted/30 border border-destructive/30 text-destructive font-medium hover:bg-destructive-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {lang.cancelOption}
         </button>

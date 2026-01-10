@@ -8,6 +8,7 @@
  *
  * Phase 86E: Removed serverAuthReady gating - betting UI activates
  * as soon as client-side session exists.
+ * Phase 86F: Simplified to thumbs up/down model - no betting math in UI.
  */
 
 import { useState } from 'react';
@@ -22,11 +23,12 @@ import {
 // import { useAuth, useAuthAvailable } from '@/lib/auth';
 // import { SignInWithFacebookButton } from '@/components/auth';
 
+// Phase 86F: Simplified props - no betting math params needed
 interface SailingBetCardProps {
   sailingId: string;
   corridorId: string; // Required - must come from board.corridor.id
-  likelihood: number;
-  departureTimestampMs: number;
+  likelihood: number; // Still needed for odds display
+  departureTimestampMs: number; // Still needed for lock status
   className?: string;
   compact?: boolean;
 }
@@ -85,7 +87,7 @@ function SailingBetCardInner({
   // Get odds
   const odds = getOddsDisplay(likelihood);
 
-  // Quick bet handler (25 pts default)
+  // Phase 86F: Quick bet handler - sends intent only, server computes all math
   const handleQuickBet = async (betType: BetType) => {
     // Defensive runtime check
     if (!corridorId) {
@@ -93,7 +95,7 @@ function SailingBetCardInner({
       return;
     }
     setIsPlacing(true);
-    const result = await placeBet(sailingId, corridorId, betType, 25, likelihood, departureTimestampMs);
+    const result = await placeBet(sailingId, corridorId, betType);
     setIsPlacing(false);
     setShowConfirm(null);
 
@@ -142,7 +144,7 @@ function SailingBetCardInner({
         <div className={`flex items-center gap-1 ${className}`}>
           <button
             onClick={() => setShowConfirm('will_sail')}
-            disabled={isPlacing || !canPlaceBet(25)}
+            disabled={isPlacing || !canPlaceBet()}
             className="text-xs px-2 py-0.5 rounded bg-success-muted/30 border border-success/30 text-success hover:bg-success-muted/50 disabled:opacity-50 transition-colors"
             title={`Bet Will Sail @ ${formatOdds(odds.sailOdds)}`}
           >
@@ -151,7 +153,7 @@ function SailingBetCardInner({
           <span className="text-xs text-muted-foreground">/</span>
           <button
             onClick={() => setShowConfirm('will_cancel')}
-            disabled={isPlacing || !canPlaceBet(25)}
+            disabled={isPlacing || !canPlaceBet()}
             className="text-xs px-2 py-0.5 rounded bg-destructive-muted/30 border border-destructive/30 text-destructive hover:bg-destructive-muted/50 disabled:opacity-50 transition-colors"
             title={`Bet Will Cancel @ ${formatOdds(odds.cancelOdds)}`}
           >
@@ -189,7 +191,7 @@ function SailingBetCardInner({
       <div className={`flex items-center gap-3 ${className}`}>
         <button
           onClick={() => handleQuickBet('will_sail')}
-          disabled={isPlacing || !canPlaceBet(25)}
+          disabled={isPlacing || !canPlaceBet()}
           className="flex-1 py-2 rounded-lg bg-success-muted/30 border border-success/30 text-success font-medium hover:bg-success-muted/50 disabled:opacity-50 transition-colors"
         >
           <span className="text-lg font-bold">{formatOdds(odds.sailOdds)}</span>
@@ -197,7 +199,7 @@ function SailingBetCardInner({
         </button>
         <button
           onClick={() => handleQuickBet('will_cancel')}
-          disabled={isPlacing || !canPlaceBet(25)}
+          disabled={isPlacing || !canPlaceBet()}
           className="flex-1 py-2 rounded-lg bg-destructive-muted/30 border border-destructive/30 text-destructive font-medium hover:bg-destructive-muted/50 disabled:opacity-50 transition-colors"
         >
           <span className="text-lg font-bold">{formatOdds(odds.cancelOdds)}</span>
@@ -212,14 +214,14 @@ function SailingBetCardInner({
     <div className={`flex items-center gap-2 ${className}`}>
       <button
         onClick={() => handleQuickBet('will_sail')}
-        disabled={isPlacing}
+        disabled={isPlacing || !canPlaceBet()}
         className="text-xs px-3 py-1 rounded bg-success-muted/30 border border-success/30 text-success hover:bg-success-muted/50 disabled:opacity-50 transition-colors"
       >
         {lang.sailOption}
       </button>
       <button
         onClick={() => handleQuickBet('will_cancel')}
-        disabled={isPlacing}
+        disabled={isPlacing || !canPlaceBet()}
         className="text-xs px-3 py-1 rounded bg-destructive-muted/30 border border-destructive/30 text-destructive hover:bg-destructive-muted/50 disabled:opacity-50 transition-colors"
       >
         {lang.cancelOption}

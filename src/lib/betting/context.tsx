@@ -10,6 +10,8 @@
  * opt-in via the settings toggle in their account.
  *
  * Phase 86E: Uses Bearer token auth instead of cookies for all betting API calls.
+ * Phase 86F: Simplified to thumbs up/down model - frontend sends intent only,
+ *            server computes all betting math (odds, stake, payout).
  */
 
 import {
@@ -23,7 +25,7 @@ import {
 import type {
   Bet,
   BetType,
-  BetSize,
+  // Phase 86F: BetSize no longer used - server uses default stake
   UserBankroll,
   BettingSettings,
   LanguageMode,
@@ -37,8 +39,10 @@ import {
   NEUTRAL_LANGUAGE,
   BETTING_LANGUAGE,
 } from './types';
-import { getOddsForBetType, calculateProfit } from './odds';
+// Phase 86F: calculateProfit still needed for RESOLVE_BET action (local resolution)
+import { calculateProfit } from './odds';
 import { useAuthSafe } from '@/lib/auth';
+import { mapToApiBetType, type PlaceBetRequest } from '@/types/betting-api';
 
 // ============================================================
 // STATE
@@ -259,17 +263,14 @@ interface BettingContextValue {
   toggleBettingMode: (enabled: boolean) => void;
   updateSettings: (settings: Partial<BettingSettings>) => void;
 
-  // Betting
+  // Betting - Phase 86F: simplified to intent-only
   placeBet: (
     sailingId: string,
     corridorId: string,
-    betType: BetType,
-    stake: BetSize,
-    likelihood: number,
-    departureTimestampMs: number
+    betType: BetType
   ) => Promise<{ success: boolean; error?: string }>;
   getBetForSailing: (sailingId: string) => Bet | undefined;
-  canPlaceBet: (stake: BetSize) => boolean;
+  canPlaceBet: () => boolean;
   getTimeUntilLock: (departureTimestampMs: number) => { minutes: number; locked: boolean };
 
   // Sync
@@ -446,13 +447,15 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     });
   }, [state.settings]);
 
+  /**
+   * Phase 86F: Simplified placeBet - send intent only, server computes all math.
+   * Frontend sends: sailingId, corridorId, betType
+   * Server computes: stake, odds, likelihood, payout, departure time
+   */
   const placeBet = useCallback(async (
     sailingId: string,
     corridorId: string,
-    betType: BetType,
-    stake: BetSize,
-    likelihood: number,
-    departureTimestampMs: number
+    betType: BetType
   ): Promise<{ success: boolean; error?: string }> => {
     // Validate we have an access token
     if (!accessToken) {
@@ -470,45 +473,32 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Must be signed in to place bets' };
     }
 
-    // Validate sufficient balance
-    if (stake > state.bankroll.balance) {
-      return { success: false, error: 'Insufficient balance' };
-    }
-
-    // Validate not already bet on this sailing
+    // Validate not already bet on this sailing (client-side check)
     if (state.bets.has(sailingId)) {
       return { success: false, error: 'Already placed a bet on this sailing' };
     }
 
-    // Validate betting window (60 min before departure)
-    const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
-    if (minutesUntil < 60) {
-      return { success: false, error: 'Betting window has closed' };
-    }
-
-    // Calculate odds for optimistic update
-    const americanOdds = getOddsForBetType(likelihood, betType);
-    const potentialPayout = calculateProfit(stake, americanOdds) + stake;
-
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
 
-    console.log('[BETTING] Placing bet (hasToken: true)');
+    console.log('[BETTING] Placing bet (hasToken: true)', { sailingId, corridorId, betType });
     try {
+      // Phase 86F: Send intent only - server computes everything else
+      // Use shared type and mapping function for type safety
+      const payload: PlaceBetRequest = {
+        sailingId,
+        corridorId,
+        betType: mapToApiBetType(betType),
+      };
+      console.log('[BETTING] Sending payload:', payload);
+
       const response = await fetch('/api/betting/place', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          sailingId,
-          corridorId,
-          betType,
-          stakePoints: stake,
-          likelihood,
-          departureTimestampMs,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -518,20 +508,21 @@ export function BettingProvider({ children }: { children: ReactNode }) {
         return { success: false, error: data.error || 'Failed to place bet' };
       }
 
-      // Create bet from server response
+      // Create bet from server response (all values come from server)
+      // Note: corridorId is not part of Bet type - stored separately in DB
       const bet: Bet = {
         id: data.bet.id,
         userId: userId || '',
-        sailingId,
+        sailingId: data.bet.sailingId,
         betType,
-        stake,
-        likelihoodSnapshot: likelihood,
-        americanOdds: data.bet.oddsSnapshot || americanOdds,
-        potentialPayout: data.bet.payoutPoints || potentialPayout,
-        placedAt: data.bet.placedAt || new Date().toISOString(),
-        lockedAt: null,
+        stake: data.bet.stakePoints,
+        likelihoodSnapshot: data.bet.likelihoodSnapshot,
+        americanOdds: data.bet.oddsSnapshot,
+        potentialPayout: data.bet.payoutPoints,
+        placedAt: data.bet.placedAt,
+        lockedAt: data.bet.lockedAt,
         resolvedAt: null,
-        status: 'pending',
+        status: data.bet.status,
         outcome: null,
         profit: null,
       };
@@ -545,7 +536,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
           payload: {
             ...state.bankroll,
             balance: data.newBalance,
-            spentToday: state.bankroll.spentToday + stake,
+            spentToday: state.bankroll.spentToday + bet.stake,
           },
         });
       }
@@ -564,9 +555,10 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     return state.bets.get(sailingId);
   }, [state.bets]);
 
-  const canPlaceBet = useCallback((stake: BetSize): boolean => {
-    return !!accessToken && state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
-  }, [accessToken, state.settings.enabled, state.bankroll.balance, isAuthenticated]);
+  // Phase 86F: canPlaceBet no longer needs stake - server uses default stake
+  const canPlaceBet = useCallback((): boolean => {
+    return !!accessToken && state.settings.enabled && isAuthenticated;
+  }, [accessToken, state.settings.enabled, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
