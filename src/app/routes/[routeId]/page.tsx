@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getRouteById, getOperatorDisplayName, getPortDisplayName } from '@/lib/config/routes';
+import { SiteFooter } from '@/components/layout';
 import { getRouteSensitivity } from '@/lib/utils/navigation';
 import { isUsingV2Algorithm } from '@/lib/config/exposure';
 import { RiskBar } from '@/components/RiskBar';
@@ -298,20 +299,7 @@ export default function RouteWeatherPage() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="py-8 lg:py-12 bg-secondary border-t border-border/50" role="contentinfo">
-        <div className="container mx-auto px-4 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <WavesIcon className="w-6 h-6 text-accent" aria-hidden="true" />
-              <span className="font-semibold text-foreground">Is the Ferry Running?</span>
-            </div>
-            <p className="text-sm text-muted-foreground text-center">
-              Not affiliated with any ferry operator. Data: NOAA Marine Forecast, NWS Advisories, NOAA CO-OPS Tides
-            </p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

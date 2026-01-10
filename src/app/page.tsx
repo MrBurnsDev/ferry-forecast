@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { SiteFooter } from '@/components/layout';
 
 // Homepage-specific metadata
 export const metadata: Metadata = {
@@ -264,19 +265,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="mt-auto py-8 lg:py-12 bg-secondary border-t border-border/50" role="contentinfo">
-        <div className="container mx-auto px-4 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <WavesIcon className="w-6 h-6 text-accent" aria-hidden="true" />
-              <span className="font-semibold text-foreground">Is the Ferry Running?</span>
-            </div>
-            <p className="text-sm text-muted-foreground text-center">
-              Not affiliated with any ferry operator. Schedule data from operator websites.
-            </p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter className="mt-auto" />
     </div>
   );
 }

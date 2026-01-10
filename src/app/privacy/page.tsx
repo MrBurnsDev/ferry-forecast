@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SiteFooter } from '@/components/layout';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy - IsTheFerryRunning',
@@ -176,20 +177,7 @@ export default function PrivacyPage() {
         </div>
       </main>
 
-      <footer className="py-8 bg-secondary border-t border-border/50">
-        <div className="container mx-auto px-4 lg:px-8">
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex items-center gap-2">
-              <WavesIcon className="w-6 h-6 text-accent" />
-              <span className="font-semibold text-foreground">Is the Ferry Running?</span>
-            </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
-              <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
