@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { SiteFooter } from '@/components/layout';
 
 export const metadata: Metadata = {
-  title: 'About - IsTheFerryRunning',
-  description: 'Learn about IsTheFerryRunning, how ferry predictions work, and our mission to help travelers plan better.',
+  title: 'About - Is the Ferry Running?',
+  description: 'Why IsTheFerryRunning exists and how it helps travelers plan ferry-dependent travel.',
 };
 
 function WavesIcon({ className }: { className?: string }) {
@@ -37,69 +37,87 @@ export default function AboutPage() {
             <h1 className="text-3xl lg:text-4xl font-bold text-foreground mb-8">About Is the Ferry Running?</h1>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-4">What We Do</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-4">Why This Exists</h2>
               <p className="text-muted-foreground mb-4">
-                Is the Ferry Running? helps travelers make informed decisions about ferry travel by providing delay and cancellation forecasts based on weather conditions and historical data.
+                Living on an island means your schedule is only as reliable as the boat.
+              </p>
+              <p className="text-muted-foreground mb-4">
+                For islanders, commuters, and visitors, the question &ldquo;Is the ferry running?&rdquo; affects work, school, medical appointments, family plans, and travel logistics. Yet despite how critical this question is, there has never been a clear, data-driven way to understand the likelihood of a ferry actually sailing when weather conditions are uncertain.
               </p>
               <p className="text-muted-foreground">
-                We analyze real-time weather forecasts&mdash;including wind speed, gusts, and direction&mdash;and compare them against historical sailing outcomes to estimate the likelihood that a ferry will run as scheduled.
+                IsTheFerryRunning was built to help answer that gap.
               </p>
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-4">How It Works</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-4">What This Site Does</h2>
               <p className="text-muted-foreground mb-4">
-                Our prediction model considers multiple factors:
+                IsTheFerryRunning analyzes historical ferry outcomes alongside weather conditions such as wind speed, gusts, wave height, and direction. By looking at how ferries have operated under similar conditions in the past, the site provides a probabilistic forecast of whether sailings are likely to run.
+              </p>
+              <p className="text-muted-foreground mb-4">
+                This is not a schedule and not an official status feed.
+              </p>
+              <p className="text-muted-foreground mb-4">
+                It is a planning tool designed to help travelers form realistic expectations before making decisions.
+              </p>
+              <p className="text-muted-foreground italic">
+                It&apos;s not AI.<br />
+                It&apos;s math.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-4">Who It&apos;s For</h2>
+              <p className="text-muted-foreground mb-4">
+                This site is built for:
               </p>
               <ul className="list-disc list-inside text-muted-foreground mb-4 space-y-2">
-                <li>Current and forecasted wind conditions</li>
-                <li>Historical cancellation patterns for each route</li>
-                <li>Vessel type and route characteristics</li>
-                <li>Time of day and seasonal patterns</li>
+                <li>Islanders planning daily life around ferry access</li>
+                <li>Off-island commuters trying to avoid unnecessary overnight stays</li>
+                <li>Visitors deciding when to arrive or leave</li>
+                <li>Anyone who has ever had to choose between leaving early or &ldquo;chancing it&rdquo;</li>
               </ul>
               <p className="text-muted-foreground">
-                Different routes respond differently to weather. A sheltered harbor route may operate in conditions that would cause cancellations on an exposed ocean crossing.
+                While the site currently emphasizes high-traffic routes such as Martha&apos;s Vineyard and Nantucket, the underlying system is designed to support hundreds of ferry routes and terminals over time.
               </p>
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-4">Important Notice</h2>
-              <div className="bg-warning-muted border border-warning/30 rounded-lg p-4">
-                <p className="text-warning-foreground">
-                  This site is not affiliated with any ferry operator. Predictions are estimates based on weather and historical data&mdash;not official schedules or guarantees. Always verify with your ferry operator before traveling, especially during severe weather.
-                </p>
-              </div>
-            </section>
-
-            <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-4">Coverage</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-4">Independence &amp; Transparency</h2>
               <p className="text-muted-foreground mb-4">
-                We currently cover ferry routes in the Cape Cod &amp; Islands region, including routes between:
+                IsTheFerryRunning is an independent project.
               </p>
-              <ul className="list-disc list-inside text-muted-foreground mb-4 space-y-1">
-                <li>Woods Hole and Martha&apos;s Vineyard</li>
-                <li>Hyannis and Nantucket</li>
-                <li>Woods Hole and Oak Bluffs</li>
-              </ul>
+              <p className="text-muted-foreground mb-4">
+                It is not affiliated with the Steamship Authority or any ferry operator. Operators cannot publish predictions about cancellations for valid operational reasons, and this site does not attempt to override or criticize those decisions.
+              </p>
               <p className="text-muted-foreground">
-                The system is designed to scale to additional regions and operators.
+                Instead, it provides historical context so travelers can make better-informed personal choices.
               </p>
             </section>
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-4">The Prediction Game</h2>
               <p className="text-muted-foreground mb-4">
-                For users who want a more engaging experience, we offer an optional prediction game. Make predictions about whether ferries will sail or be canceled, earn points, and compete on leaderboards.
+                The site also includes an optional, free prediction game.
+              </p>
+              <p className="text-muted-foreground mb-4">
+                Users can choose to make predictions using points on whether sailings will run. These points have no monetary value, cannot be redeemed, and exist purely for engagement and comparison.
               </p>
               <p className="text-muted-foreground">
-                The game is free to play. Points have no monetary value and cannot be exchanged for prizes or compensation.
+                The game is opt-in and separate from the core informational function of the site.
               </p>
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-4">Contact</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-4">The Goal</h2>
+              <p className="text-muted-foreground mb-4">
+                The goal of IsTheFerryRunning is simple:
+              </p>
+              <p className="text-muted-foreground mb-4">
+                To help people plan their lives around ferry-dependent travel with less stress, fewer surprises, and better expectations.
+              </p>
               <p className="text-muted-foreground">
-                For questions or feedback: <a href="mailto:support@istheferryrunning.com" className="text-accent hover:underline">support@istheferryrunning.com</a>
+                This project was built by someone who grew up on an island, is raising a family on an island, and understands how much a single canceled boat can affect an entire day.
               </p>
             </section>
           </article>
