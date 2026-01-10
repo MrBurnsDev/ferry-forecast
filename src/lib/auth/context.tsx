@@ -154,7 +154,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       console.log('[AUTH] Getting session...');
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      // Add timeout to prevent hanging
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Session fetch timeout')), 10000)
+      );
+
+      let session;
+      let sessionError;
+      try {
+        const result = await Promise.race([sessionPromise, timeoutPromise]);
+        session = result.data?.session;
+        sessionError = result.error;
+      } catch (timeoutErr) {
+        console.error('[AUTH] Session timeout:', timeoutErr);
+        setUser(null);
+        setBankroll(null);
+        setIsLoading(false);
+        return;
+      }
 
       if (sessionError) {
         console.error('[AUTH] Session error:', sessionError);
