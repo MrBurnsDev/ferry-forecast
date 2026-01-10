@@ -9,8 +9,7 @@
  * CRITICAL: Betting mode is disabled by default. Users must explicitly
  * opt-in via the settings toggle in their account.
  *
- * Phase 85: Now backed by server-side API for persistent betting state.
- * localStorage is only used for unauthenticated UI preferences.
+ * Phase 86E: Uses Bearer token auth instead of cookies for all betting API calls.
  */
 
 import {
@@ -256,12 +255,6 @@ interface BettingContextValue {
    */
   bettingEnabled: boolean;
 
-  /**
-   * Server-side auth readiness - true when server can confirm auth via cookies.
-   * Betting buttons should be disabled until this is true.
-   */
-  serverAuthReady: boolean;
-
   // Settings
   toggleBettingMode: (enabled: boolean) => void;
   updateSettings: (settings: Partial<BettingSettings>) => void;
@@ -302,7 +295,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const profile = auth?.profile;
   const session = auth?.session;
   const isAuthenticated = auth?.isAuthenticated ?? false;
-  const serverAuthReady = auth?.serverAuthReady ?? false;
+  const accessToken = session?.access_token;
   const userId = session?.user?.id;
 
   /**
@@ -323,20 +316,39 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, profile]);
 
-  // Fetch user's bets from API ONLY when betting is enabled AND server auth is ready
+  /**
+   * Helper to make authenticated betting API calls with Bearer token.
+   * Returns null if no token available.
+   */
+  const getAuthHeaders = useCallback((): HeadersInit | null => {
+    if (!accessToken) {
+      console.log('[BETTING] No access token available');
+      return null;
+    }
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    };
+  }, [accessToken]);
+
+  // Fetch user's bets from API when betting is enabled and we have a token
   const refreshBets = useCallback(async () => {
-    // Only fetch bets if server auth is ready and betting mode is enabled
-    if (!serverAuthReady || !bettingEnabled) {
-      if (!serverAuthReady && bettingEnabled) {
-        console.log('[BETTING] Skipping refreshBets - server auth not ready yet');
+    // Only fetch bets if betting mode is enabled and we have a token
+    if (!bettingEnabled || !accessToken) {
+      if (bettingEnabled && !accessToken) {
+        console.log('[BETTING] Skipping refreshBets - no access token');
       }
       return;
     }
 
+    const headers = getAuthHeaders();
+    if (!headers) return;
+
+    console.log('[BETTING] Fetching bets (hasToken: true)');
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
       const response = await fetch('/api/betting/bets', {
-        credentials: 'include',
+        headers,
       });
       if (response.ok) {
         const data = await response.json();
@@ -375,27 +387,31 @@ export function BettingProvider({ children }: { children: ReactNode }) {
           }));
           dispatch({ type: 'SET_BETS', payload: bets });
         }
+      } else {
+        console.error('[BETTING] Failed to fetch bets:', response.status);
       }
     } catch (err) {
       console.error('[BETTING] Failed to fetch bets:', err);
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [serverAuthReady, bettingEnabled, userId]);
+  }, [bettingEnabled, accessToken, getAuthHeaders, userId]);
 
-  // Fetch bets ONLY when server auth is ready AND betting is enabled
+  // Fetch bets when betting is enabled and we have a token
   useEffect(() => {
-    if (serverAuthReady && bettingEnabled) {
+    if (bettingEnabled && accessToken) {
       refreshBets();
     }
-  }, [serverAuthReady, bettingEnabled, refreshBets]);
+  }, [bettingEnabled, accessToken, refreshBets]);
 
-  // Fetch leaderboard
+  // Fetch leaderboard (public endpoint, but include token if available)
   const refreshLeaderboard = useCallback(async () => {
     try {
-      const response = await fetch('/api/betting/leaderboard', {
-        credentials: 'include',
-      });
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+      const response = await fetch('/api/betting/leaderboard', { headers });
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -412,7 +428,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('[BETTING] Failed to fetch leaderboard:', err);
     }
-  }, []);
+  }, [accessToken]);
 
   // ============================================================
   // ACTIONS
@@ -438,10 +454,10 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     likelihood: number,
     departureTimestampMs: number
   ): Promise<{ success: boolean; error?: string }> => {
-    // Validate server auth is ready - prevents 401 errors during cookie hydration
-    if (!serverAuthReady) {
-      console.warn('[BETTING] Server auth not ready yet');
-      return { success: false, error: 'Finalizing sign-in...' };
+    // Validate we have an access token
+    if (!accessToken) {
+      console.warn('[BETTING] Cannot place bet - no access token');
+      return { success: false, error: 'Not authenticated' };
     }
 
     // Validate betting mode is enabled
@@ -477,11 +493,14 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
 
+    console.log('[BETTING] Placing bet (hasToken: true)');
     try {
       const response = await fetch('/api/betting/place', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           sailingId,
           corridorId,
@@ -539,15 +558,15 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [serverAuthReady, state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
+  }, [accessToken, state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
 
   const getBetForSailing = useCallback((sailingId: string): Bet | undefined => {
     return state.bets.get(sailingId);
   }, [state.bets]);
 
   const canPlaceBet = useCallback((stake: BetSize): boolean => {
-    return serverAuthReady && state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
-  }, [serverAuthReady, state.settings.enabled, state.bankroll.balance, isAuthenticated]);
+    return !!accessToken && state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
+  }, [accessToken, state.settings.enabled, state.bankroll.balance, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
@@ -566,7 +585,6 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const value: BettingContextValue = {
     state,
     bettingEnabled,
-    serverAuthReady,
     toggleBettingMode,
     updateSettings,
     placeBet,

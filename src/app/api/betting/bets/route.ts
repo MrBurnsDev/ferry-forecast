@@ -4,42 +4,56 @@
  * GET /api/betting/bets
  *
  * Returns all bets for the authenticated user.
+ * Phase 86E: Uses Bearer token auth instead of cookies.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteClient } from '@/lib/supabase/serverRouteClient';
+import { createBearerClient } from '@/lib/supabase/serverBearerClient';
 
-// Force dynamic rendering - uses cookies for auth
+// Force dynamic rendering
 export const dynamic = 'force-dynamic';
+
+// Type for user data from users table
+interface UserData {
+  id: string;
+}
+
+// Type for bet data from bets table
+interface BetData {
+  id: string;
+  sailing_id: string;
+  corridor_id: string;
+  bet_type: string;
+  stake_points: number;
+  likelihood_snapshot: number;
+  odds_snapshot: number;
+  payout_points: number;
+  status: string;
+  placed_at: string;
+  locked_at: string | null;
+  resolved_at: string | null;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createRouteClient({ allowNull: true });
-    if (!supabase) {
+    // Authenticate via Bearer token
+    const { supabase, user, error: authError } = await createBearerClient(request);
+
+    if (authError || !supabase || !user) {
       return NextResponse.json(
-        { success: false, error: 'Service not configured' },
-        { status: 500 }
-      );
-    }
-
-    // Verify authentication using getUser() - more reliable than getSession()
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    console.log('[BETTING API] user:', user?.id ?? null);
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: authError || 'Not authenticated' },
         { status: 401 }
       );
     }
+
+    console.log('[BETTING API] user:', user.id);
 
     // Get user ID from authenticated user
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('id')
       .eq('auth_provider_id', user.id)
-      .single();
+      .single<UserData>();
 
     if (userError || !userData) {
       return NextResponse.json(
@@ -65,7 +79,7 @@ export async function GET(request: NextRequest) {
       query = query.eq('status', status);
     }
 
-    const { data: bets, error: betsError } = await query;
+    const { data: bets, error: betsError } = await query.returns<BetData[]>();
 
     if (betsError) {
       console.error('[BETTING] Fetch bets error:', betsError);
@@ -76,7 +90,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform to client format
-    const transformedBets = bets.map(bet => ({
+    const transformedBets = (bets || []).map(bet => ({
       id: bet.id,
       sailingId: bet.sailing_id,
       corridorId: bet.corridor_id,

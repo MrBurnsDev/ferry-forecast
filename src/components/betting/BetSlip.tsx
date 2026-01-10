@@ -8,6 +8,9 @@
  * - Neutral mode: Simple prediction buttons
  *
  * Adapts language based on betting mode setting.
+ *
+ * Phase 86E: Removed serverAuthReady gating - betting UI activates
+ * as soon as client-side session exists.
  */
 
 import { useState } from 'react';
@@ -73,7 +76,7 @@ function BetSlipInner({
   routeDisplay,
   className,
 }: BetSlipProps) {
-  const { state, bettingEnabled, serverAuthReady, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
+  const { state, bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
 
   // Hooks must be called unconditionally
   const [selectedBetType, setSelectedBetType] = useState<BetType | null>(null);
@@ -87,17 +90,6 @@ function BetSlipInner({
   // CRITICAL: Return null if betting is not enabled - component should be completely absent
   if (!bettingEnabled) {
     return null;
-  }
-
-  // Show loading state while server auth is hydrating
-  if (!serverAuthReady) {
-    return (
-      <div className={`bg-secondary/50 border border-border/50 rounded-lg p-4 ${className}`}>
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <span className="text-sm animate-pulse">Finalizing sign-in...</span>
-        </div>
-      </div>
-    );
   }
 
   // Get lock status

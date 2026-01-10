@@ -5,12 +5,13 @@
  *
  * Places a bet for an authenticated user.
  * All validation is done server-side via the place_bet database function.
+ * Phase 86E: Uses Bearer token auth instead of cookies.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteClient } from '@/lib/supabase/serverRouteClient';
+import { createBearerClient } from '@/lib/supabase/serverBearerClient';
 
-// Force dynamic rendering - uses cookies for auth
+// Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 interface PlaceBetRequest {
@@ -24,27 +25,44 @@ interface PlaceBetRequest {
   departureTime: string; // ISO timestamp
 }
 
+// Type for user data from users table
+interface UserData {
+  id: string;
+}
+
+// Type for bet data returned from place_bet RPC
+interface PlaceBetResult {
+  id: string;
+  sailing_id: string;
+  corridor_id: string;
+  bet_type: string;
+  stake_points: number;
+  likelihood_snapshot: number;
+  odds_snapshot: number;
+  payout_points: number;
+  status: string;
+  placed_at: string;
+  locked_at: string | null;
+}
+
+// Type for bankroll data
+interface BankrollData {
+  balance_points: number;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteClient({ allowNull: true });
-    if (!supabase) {
+    // Authenticate via Bearer token
+    const { supabase, user, error: authError } = await createBearerClient(request);
+
+    if (authError || !supabase || !user) {
       return NextResponse.json(
-        { success: false, error: 'Service not configured' },
-        { status: 500 }
-      );
-    }
-
-    // Verify authentication using getUser() - more reliable than getSession()
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    console.log('[BETTING API] user:', user?.id ?? null);
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: authError || 'Not authenticated' },
         { status: 401 }
       );
     }
+
+    console.log('[BETTING API] user:', user.id);
 
     // Parse request body
     const body: PlaceBetRequest = await request.json();
@@ -86,7 +104,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('id')
       .eq('auth_provider_id', user.id)
-      .single();
+      .single<UserData>();
 
     if (userError || !userData) {
       return NextResponse.json(
@@ -96,7 +114,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Place bet via database function (handles all validation + transaction)
-    const { data: bet, error: placeBetError } = await supabase.rpc('place_bet', {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: bet, error: placeBetError } = await (supabase.rpc as any)('place_bet', {
       p_user_id: userData.id,
       p_sailing_id: sailingId,
       p_corridor_id: corridorId,
@@ -106,7 +125,7 @@ export async function POST(request: NextRequest) {
       p_odds: odds,
       p_payout_points: payoutPoints,
       p_departure_time: departureTime,
-    });
+    }) as { data: PlaceBetResult | null; error: Error | null };
 
     if (placeBetError) {
       console.error('[BETTING] Place bet error:', placeBetError);
@@ -146,13 +165,13 @@ export async function POST(request: NextRequest) {
     // Fetch updated bankroll
     const { data: bankroll } = await supabase
       .from('bankrolls')
-      .select('*')
+      .select('balance_points')
       .eq('user_id', userData.id)
-      .single();
+      .single<BankrollData>();
 
     return NextResponse.json({
       success: true,
-      bet: {
+      bet: bet ? {
         id: bet.id,
         sailingId: bet.sailing_id,
         corridorId: bet.corridor_id,
@@ -164,7 +183,7 @@ export async function POST(request: NextRequest) {
         status: bet.status,
         placedAt: bet.placed_at,
         lockedAt: bet.locked_at,
-      },
+      } : null,
       newBalance: bankroll?.balance_points ?? null,
     });
   } catch (error) {
