@@ -62,7 +62,7 @@ function SailingBetCardInner({
   className,
   compact,
 }: SailingBetCardProps) {
-  const { bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet } = useBetting();
+  const { bettingEnabled, serverAuthReady, isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet } = useBetting();
 
   // Hooks must be called unconditionally
   const [isPlacing, setIsPlacing] = useState(false);
@@ -77,6 +77,17 @@ function SailingBetCardInner({
   // CRITICAL: Return null if betting is not enabled - component should be completely absent
   if (!bettingEnabled) {
     return null;
+  }
+
+  // Show loading state while server auth is hydrating
+  if (!serverAuthReady) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <span className="text-xs text-muted-foreground animate-pulse">
+          Finalizing sign-in...
+        </span>
+      </div>
+    );
   }
 
   // Get odds

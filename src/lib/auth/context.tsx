@@ -100,6 +100,9 @@ export interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
 
+  // Server-side auth readiness - true when server can confirm auth via cookies
+  serverAuthReady: boolean;
+
   // Optional app-level profile (may be null even when authenticated)
   profile: UserProfile | null;
   profileLoading: boolean;
@@ -128,9 +131,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Server-side auth readiness - prevents betting API calls until server confirms auth
+  const [serverAuthReady, setServerAuthReady] = useState(false);
+
   // Optional profile state - never blocks auth
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+
+  /**
+   * Check if server can confirm authentication via cookies.
+   * This gates betting API calls to prevent 401 errors during cookie hydration.
+   */
+  const checkServerAuthReady = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/ready', { credentials: 'include' });
+      if (res.ok) {
+        console.log('[AUTH] Server auth ready');
+        setServerAuthReady(true);
+      } else {
+        console.log('[AUTH] Server auth not ready yet');
+        setServerAuthReady(false);
+      }
+    } catch (err) {
+      console.error('[AUTH] Error checking server auth:', err);
+      setServerAuthReady(false);
+    }
+  }, []);
 
   /**
    * Provision user in database - ASYNC, NON-BLOCKING
@@ -320,12 +346,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_IN' && newSession?.user) {
           // Provision user async - NEVER blocks
           provisionUser(newSession.user);
+          // Check server auth readiness after sign in
+          checkServerAuthReady();
         } else if (event === 'SIGNED_OUT') {
           setProfile(null);
+          setServerAuthReady(false);
         } else if (event === 'INITIAL_SESSION') {
           // Initial load - provision if we have a user
           if (newSession?.user) {
             provisionUser(newSession.user);
+            // Check server auth readiness on initial session
+            checkServerAuthReady();
           }
         }
       }
@@ -334,7 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [provisionUser]);
+  }, [provisionUser, checkServerAuthReady]);
 
   // ============================================================
   // CONTEXT VALUE
@@ -344,6 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     isLoading,
     isAuthenticated: !!session, // Session exists = authenticated. Period.
+    serverAuthReady,
     profile,
     profileLoading,
     signInWithGoogle,

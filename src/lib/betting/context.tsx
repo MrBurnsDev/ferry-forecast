@@ -256,6 +256,12 @@ interface BettingContextValue {
    */
   bettingEnabled: boolean;
 
+  /**
+   * Server-side auth readiness - true when server can confirm auth via cookies.
+   * Betting buttons should be disabled until this is true.
+   */
+  serverAuthReady: boolean;
+
   // Settings
   toggleBettingMode: (enabled: boolean) => void;
   updateSettings: (settings: Partial<BettingSettings>) => void;
@@ -296,6 +302,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const profile = auth?.profile;
   const session = auth?.session;
   const isAuthenticated = auth?.isAuthenticated ?? false;
+  const serverAuthReady = auth?.serverAuthReady ?? false;
   const userId = session?.user?.id;
 
   /**
@@ -316,10 +323,15 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, profile]);
 
-  // Fetch user's bets from API ONLY when betting is enabled
+  // Fetch user's bets from API ONLY when betting is enabled AND server auth is ready
   const refreshBets = useCallback(async () => {
-    // Only fetch bets if betting mode is enabled - prevents unnecessary API calls
-    if (!isAuthenticated || !bettingEnabled) return;
+    // Only fetch bets if server auth is ready and betting mode is enabled
+    if (!serverAuthReady || !bettingEnabled) {
+      if (!serverAuthReady && bettingEnabled) {
+        console.log('[BETTING] Skipping refreshBets - server auth not ready yet');
+      }
+      return;
+    }
 
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
@@ -369,14 +381,14 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [isAuthenticated, bettingEnabled, userId]);
+  }, [serverAuthReady, bettingEnabled, userId]);
 
-  // Fetch bets ONLY when betting is enabled
+  // Fetch bets ONLY when server auth is ready AND betting is enabled
   useEffect(() => {
-    if (isAuthenticated && bettingEnabled) {
+    if (serverAuthReady && bettingEnabled) {
       refreshBets();
     }
-  }, [isAuthenticated, bettingEnabled, refreshBets]);
+  }, [serverAuthReady, bettingEnabled, refreshBets]);
 
   // Fetch leaderboard
   const refreshLeaderboard = useCallback(async () => {
@@ -426,6 +438,12 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     likelihood: number,
     departureTimestampMs: number
   ): Promise<{ success: boolean; error?: string }> => {
+    // Validate server auth is ready - prevents 401 errors during cookie hydration
+    if (!serverAuthReady) {
+      console.warn('[BETTING] Server auth not ready yet');
+      return { success: false, error: 'Finalizing sign-in...' };
+    }
+
     // Validate betting mode is enabled
     if (!state.settings.enabled) {
       return { success: false, error: 'Betting mode is not enabled' };
@@ -521,15 +539,15 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
+  }, [serverAuthReady, state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
 
   const getBetForSailing = useCallback((sailingId: string): Bet | undefined => {
     return state.bets.get(sailingId);
   }, [state.bets]);
 
   const canPlaceBet = useCallback((stake: BetSize): boolean => {
-    return state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
-  }, [state.settings.enabled, state.bankroll.balance, isAuthenticated]);
+    return serverAuthReady && state.settings.enabled && isAuthenticated && stake <= state.bankroll.balance;
+  }, [serverAuthReady, state.settings.enabled, state.bankroll.balance, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
@@ -548,6 +566,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const value: BettingContextValue = {
     state,
     bettingEnabled,
+    serverAuthReady,
     toggleBettingMode,
     updateSettings,
     placeBet,
