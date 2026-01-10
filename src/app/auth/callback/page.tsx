@@ -63,7 +63,29 @@ function AuthCallbackContent() {
       try {
         // Supabase handles the code exchange automatically via the URL hash
         // We just need to verify the session was established
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        console.log('[AUTH CALLBACK] Checking session...');
+
+        // Add timeout to prevent hanging forever
+        const getSessionWithTimeout = async () => {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Session check timeout')), 10000)
+          );
+          return Promise.race([supabase.auth.getSession(), timeoutPromise]);
+        };
+
+        let session;
+        let sessionError;
+        try {
+          const result = await getSessionWithTimeout();
+          session = result.data?.session;
+          sessionError = result.error;
+        } catch (timeoutErr) {
+          console.error('[AUTH CALLBACK] Session timeout:', timeoutErr);
+          setError('Sign in is taking too long. Please try again.');
+          return;
+        }
+
+        console.log('[AUTH CALLBACK] Session result:', session ? 'has session' : 'no session');
 
         if (sessionError) {
           console.error('[AUTH CALLBACK] Session error:', sessionError);
@@ -75,10 +97,15 @@ function AuthCallbackContent() {
           // Give Supabase a moment to process the auth
           await new Promise(resolve => setTimeout(resolve, 1000));
 
-          // Check again
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
+          // Check again with timeout
+          try {
+            const retryResult = await getSessionWithTimeout();
+            session = retryResult.data?.session;
+          } catch {
+            console.error('[AUTH CALLBACK] Retry timeout');
+          }
 
-          if (!retrySession) {
+          if (!session) {
             setError('Sign in failed. Please try again.');
             return;
           }
