@@ -17,6 +17,7 @@ import { useAuth } from '@/lib/auth';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { SignInButtons } from '@/components/auth/SignInButtons';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { BettingModeToggle } from '@/components/betting';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -141,9 +142,7 @@ function AccountPageContent() {
                 {/* Settings Card */}
                 <div className="bg-card border border-border/50 rounded-xl p-6 mb-6">
                   <h2 className="text-lg font-semibold text-foreground mb-4">Settings</h2>
-                  <div className="py-4 text-sm text-muted-foreground">
-                    More settings coming soon.
-                  </div>
+                  <BettingModeToggle />
                 </div>
 
                 {/* Sign Out */}
