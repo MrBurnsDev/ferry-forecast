@@ -67,3 +67,11 @@ export function mapToApiBetType(frontendBetType: 'will_sail' | 'will_cancel'): A
 export function isValidApiBetType(value: unknown): value is ApiBetType {
   return value === 'sail' || value === 'cancel';
 }
+
+/**
+ * Maps API BetType back to frontend BetType
+ * Used when fetching bets from the API
+ */
+export function mapFromApiBetType(apiBetType: string): 'will_sail' | 'will_cancel' {
+  return apiBetType === 'sail' ? 'will_sail' : 'will_cancel';
+}

@@ -42,7 +42,7 @@ import {
 // Phase 86F: calculateProfit still needed for RESOLVE_BET action (local resolution)
 import { calculateProfit } from './odds';
 import { useAuthSafe } from '@/lib/auth';
-import { mapToApiBetType, type PlaceBetRequest } from '@/types/betting-api';
+import { mapToApiBetType, mapFromApiBetType, type PlaceBetRequest } from '@/types/betting-api';
 
 // ============================================================
 // STATE
@@ -355,11 +355,12 @@ export function BettingProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         if (data.success && data.bets) {
           // Transform API bets to local format
+          // Note: API stores 'sail'/'cancel', frontend uses 'will_sail'/'will_cancel'
           const bets: Bet[] = data.bets.map((apiBet: {
             id: string;
             sailingId: string;
             corridorId: string;
-            betType: BetType;
+            betType: string; // API format: 'sail' | 'cancel'
             stakePoints: number;
             likelihoodSnapshot: number;
             oddsSnapshot: number;
@@ -373,7 +374,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
             userId: userId || '',
             sailingId: apiBet.sailingId,
             corridorId: apiBet.corridorId,
-            betType: apiBet.betType,
+            betType: mapFromApiBetType(apiBet.betType), // Convert API → frontend format
             stake: apiBet.stakePoints,
             likelihoodSnapshot: apiBet.likelihoodSnapshot,
             americanOdds: apiBet.oddsSnapshot,
