@@ -26,11 +26,11 @@ export function Leaderboard({ className = '' }: LeaderboardProps) {
 }
 
 function LeaderboardInner({ className }: LeaderboardProps) {
-  const { state, isBettingMode } = useBetting();
+  const { state, bettingEnabled } = useBetting();
   const [activeTab, setActiveTab] = useState<'daily' | 'allTime'>('daily');
 
-  // Only show when betting mode is enabled
-  if (!isBettingMode) {
+  // CRITICAL: Only show when betting is enabled from profile
+  if (!bettingEnabled) {
     return null;
   }
 
@@ -196,9 +196,10 @@ export function LeaderboardCompact({ className = '' }: { className?: string }) {
 }
 
 function LeaderboardCompactInner({ className }: { className?: string }) {
-  const { isBettingMode } = useBetting();
+  const { bettingEnabled } = useBetting();
 
-  if (!isBettingMode) {
+  // CRITICAL: Only show when betting is enabled from profile
+  if (!bettingEnabled) {
     return null;
   }
 

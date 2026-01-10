@@ -25,47 +25,52 @@ export function BettingModeToggle({ className = '' }: BettingModeToggleProps) {
 }
 
 function BettingModeToggleInner({ className }: BettingModeToggleProps) {
-  const { state, toggleBettingMode } = useBetting();
-  const enabled = state.settings.enabled;
+  const { state, bettingEnabled, toggleBettingMode } = useBetting();
 
   return (
     <div className={`bg-secondary/50 border border-border/50 rounded-lg p-4 ${className}`}>
+      {/* Section Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <DiceIcon className="w-5 h-5 text-accent" />
+        <h3 className="font-semibold text-foreground">Game Mode</h3>
+      </div>
+
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <label
             htmlFor="betting-mode-toggle"
             className="text-sm font-medium text-foreground cursor-pointer"
           >
-            Enable Betting Mode (Just for Fun)
+            Enable Social Predictions
           </label>
           <p className="text-xs text-muted-foreground mt-1">
-            Turns predictions into a points-based betting game. No money. No prizes.
-            Just bragging rights and a daily crown.
+            Compete with other users on ferry predictions. Earn points, climb leaderboards,
+            and win the daily crown.
           </p>
         </div>
 
         <button
           id="betting-mode-toggle"
           role="switch"
-          aria-checked={enabled}
-          onClick={() => toggleBettingMode(!enabled)}
+          aria-checked={bettingEnabled}
+          onClick={() => toggleBettingMode(!bettingEnabled)}
           className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
-            enabled ? 'bg-accent' : 'bg-secondary'
+            bettingEnabled ? 'bg-accent' : 'bg-secondary'
           }`}
         >
-          <span className="sr-only">Enable betting mode</span>
+          <span className="sr-only">Enable social predictions</span>
           <span
             className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-              enabled ? 'translate-x-5' : 'translate-x-0'
+              bettingEnabled ? 'translate-x-5' : 'translate-x-0'
             }`}
           />
         </button>
       </div>
 
-      {enabled && (
+      {bettingEnabled && (
         <div className="mt-4 pt-4 border-t border-border/50">
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-accent">Betting Mode Active</span>
+            <span className="text-accent font-medium">Game Mode Active</span>
             <span className="text-muted-foreground">•</span>
             <span className="text-muted-foreground">
               {state.bankroll.balance} pts available
@@ -74,11 +79,17 @@ function BettingModeToggleInner({ className }: BettingModeToggleProps) {
 
           <div className="mt-3 bg-accent-muted/20 border border-accent/20 rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
-              <strong>Remember:</strong> This is just for fun. There&apos;s no real money,
-              no prizes, and no gambling. You&apos;re just predicting ferry outcomes
-              for points and glory.
+              <strong>This is just for fun.</strong> No real money, no prizes, no gambling.
+              Just compete for points and bragging rights on the leaderboard.
             </p>
           </div>
+        </div>
+      )}
+
+      {!bettingEnabled && (
+        <div className="mt-3 text-xs text-muted-foreground">
+          When enabled, you&apos;ll see odds, your point balance, and leaderboards
+          throughout the site.
         </div>
       )}
     </div>
@@ -99,21 +110,20 @@ export function BettingModeToggleCompact() {
 }
 
 function BettingModeToggleCompactInner() {
-  const { state, toggleBettingMode } = useBetting();
-  const enabled = state.settings.enabled;
+  const { bettingEnabled, toggleBettingMode } = useBetting();
 
   return (
     <button
-      onClick={() => toggleBettingMode(!enabled)}
+      onClick={() => toggleBettingMode(!bettingEnabled)}
       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-        enabled
+        bettingEnabled
           ? 'bg-accent text-accent-foreground'
           : 'bg-secondary text-muted-foreground hover:text-foreground'
       }`}
-      title={enabled ? 'Disable betting mode' : 'Enable betting mode'}
+      title={bettingEnabled ? 'Disable game mode' : 'Enable game mode'}
     >
       <DiceIcon className="w-4 h-4" />
-      <span>{enabled ? 'Betting Mode' : 'Prediction Mode'}</span>
+      <span>{bettingEnabled ? 'Game Mode' : 'Standard Mode'}</span>
     </button>
   );
 }

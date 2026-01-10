@@ -73,8 +73,9 @@ function BetSlipInner({
   routeDisplay,
   className,
 }: BetSlipProps) {
-  const { state, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
+  const { state, bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, canPlaceBet, getTimeUntilLock } = useBetting();
 
+  // Hooks must be called unconditionally
   const [selectedBetType, setSelectedBetType] = useState<BetType | null>(null);
   const [selectedStake, setSelectedStake] = useState<BetSize>(25);
   const [isPlacing, setIsPlacing] = useState(false);
@@ -82,6 +83,11 @@ function BetSlipInner({
 
   // Get existing bet for this sailing
   const existingBet = getBetForSailing(sailingId);
+
+  // CRITICAL: Return null if betting is not enabled - component should be completely absent
+  if (!bettingEnabled) {
+    return null;
+  }
 
   // Get lock status
   const { minutes: minutesUntilLock, locked } = getTimeUntilLock(departureTimestampMs);

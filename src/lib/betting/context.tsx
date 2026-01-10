@@ -249,6 +249,13 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
 interface BettingContextValue {
   state: BettingState;
 
+  /**
+   * CRITICAL: This is the ONLY gate for betting UI visibility.
+   * Derived from profile?.bettingModeEnabled === true
+   * If false, NO betting UI should render (not disabled, not greyed - absent).
+   */
+  bettingEnabled: boolean;
+
   // Settings
   toggleBettingMode: (enabled: boolean) => void;
   updateSettings: (settings: Partial<BettingSettings>) => void;
@@ -291,6 +298,15 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = auth?.isAuthenticated ?? false;
   const userId = session?.user?.id;
 
+  /**
+   * CRITICAL: Single source of truth for betting UI visibility.
+   * This is derived ONLY from the database-backed profile setting.
+   * - Default is FALSE (betting is opt-in)
+   * - If profile fails to load, this is FALSE
+   * - If user signs out, this becomes FALSE immediately
+   */
+  const bettingEnabled = profile?.bettingModeEnabled === true;
+
   // Sync betting mode from user's profile setting
   useEffect(() => {
     if (isAuthenticated && profile) {
@@ -300,9 +316,10 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, profile]);
 
-  // Fetch user's bets from API on auth
+  // Fetch user's bets from API ONLY when betting is enabled
   const refreshBets = useCallback(async () => {
-    if (!isAuthenticated) return;
+    // Only fetch bets if betting mode is enabled - prevents unnecessary API calls
+    if (!isAuthenticated || !bettingEnabled) return;
 
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
@@ -350,14 +367,14 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [isAuthenticated, userId]);
+  }, [isAuthenticated, bettingEnabled, userId]);
 
-  // Fetch bets on initial auth
+  // Fetch bets ONLY when betting is enabled
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && bettingEnabled) {
       refreshBets();
     }
-  }, [isAuthenticated, refreshBets]);
+  }, [isAuthenticated, bettingEnabled, refreshBets]);
 
   // Fetch leaderboard
   const refreshLeaderboard = useCallback(async () => {
@@ -525,6 +542,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
 
   const value: BettingContextValue = {
     state,
+    bettingEnabled,
     toggleBettingMode,
     updateSettings,
     placeBet,
@@ -533,8 +551,8 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     getTimeUntilLock,
     refreshBets,
     refreshLeaderboard,
-    isBettingMode: state.settings.enabled,
-    lang: state.language,
+    isBettingMode: bettingEnabled,
+    lang: bettingEnabled ? BETTING_LANGUAGE : NEUTRAL_LANGUAGE,
   };
 
   return (

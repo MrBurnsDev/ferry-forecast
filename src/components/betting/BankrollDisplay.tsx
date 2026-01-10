@@ -25,10 +25,10 @@ export function BankrollDisplay({ className = '', compact = false }: BankrollDis
 }
 
 function BankrollDisplayInner({ className, compact }: BankrollDisplayProps) {
-  const { state, isBettingMode } = useBetting();
+  const { state, bettingEnabled } = useBetting();
 
-  // Only show when betting mode is enabled
-  if (!isBettingMode) {
+  // CRITICAL: Only show when betting is enabled from profile
+  if (!bettingEnabled) {
     return null;
   }
 

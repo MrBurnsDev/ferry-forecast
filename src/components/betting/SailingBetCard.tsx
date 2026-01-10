@@ -62,8 +62,9 @@ function SailingBetCardInner({
   className,
   compact,
 }: SailingBetCardProps) {
-  const { isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet } = useBetting();
+  const { bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet } = useBetting();
 
+  // Hooks must be called unconditionally
   const [isPlacing, setIsPlacing] = useState(false);
   const [showConfirm, setShowConfirm] = useState<BetType | null>(null);
 
@@ -72,6 +73,11 @@ function SailingBetCardInner({
 
   // Get lock status
   const { locked } = getTimeUntilLock(departureTimestampMs);
+
+  // CRITICAL: Return null if betting is not enabled - component should be completely absent
+  if (!bettingEnabled) {
+    return null;
+  }
 
   // Get odds
   const odds = getOddsDisplay(likelihood);
@@ -238,10 +244,10 @@ export function OddsDisplay({
 }
 
 function OddsDisplayInner({ likelihood, className }: { likelihood: number; className?: string }) {
-  const { isBettingMode } = useBetting();
+  const { bettingEnabled } = useBetting();
 
-  // Only show in betting mode
-  if (!isBettingMode) {
+  // CRITICAL: Only show when betting is enabled from profile
+  if (!bettingEnabled) {
     return null;
   }
 
