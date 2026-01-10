@@ -30,32 +30,56 @@ import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 export type AuthProvider = 'google' | 'apple';
 
 /**
- * Normalize Supabase provider string to our allowed values.
- * Supabase can return various provider identifiers, but our database
- * CHECK constraint only allows exactly 'google' or 'apple'.
+ * Normalize Supabase user to our allowed provider values.
+ * Checks both app_metadata.provider and identities[].provider.
+ * Returns null for unknown providers (provisioning will be skipped).
+ *
+ * Rules:
+ * - Any value containing "google" → 'google'
+ * - Any value containing "apple" → 'apple'
+ * - Otherwise return null (skip provisioning, don't block auth)
  */
-function normalizeProvider(rawProvider: string | undefined | null): AuthProvider {
-  if (!rawProvider) {
-    console.log('[AUTH] No provider found, defaulting to google');
-    return 'google';
+function normalizeAuthProvider(user: SupabaseUser): AuthProvider | null {
+  // Collect all provider values to check
+  const providersToCheck: string[] = [];
+
+  // Check app_metadata.provider
+  const appMetaProvider = user.app_metadata?.provider;
+  if (typeof appMetaProvider === 'string') {
+    providersToCheck.push(appMetaProvider);
   }
 
-  const lower = rawProvider.toLowerCase();
-  console.log('[AUTH] Normalizing provider:', rawProvider, '→', lower);
-
-  // Google variants: 'google', 'google-oauth2', 'google.com', 'Google'
-  if (lower === 'google' || lower.includes('google')) {
-    return 'google';
+  // Check identities[].provider
+  if (Array.isArray(user.identities)) {
+    for (const identity of user.identities) {
+      if (typeof identity.provider === 'string') {
+        providersToCheck.push(identity.provider);
+      }
+    }
   }
 
-  // Apple variants: 'apple', 'apple.com', 'Apple'
-  if (lower === 'apple' || lower.includes('apple')) {
-    return 'apple';
+  console.log('[AUTH] Checking providers:', providersToCheck);
+
+  // Check each provider value
+  for (const raw of providersToCheck) {
+    const lower = raw.toLowerCase();
+
+    // Google variants: 'google', 'google-oauth2', 'google.com', 'Google'
+    if (lower.includes('google')) {
+      console.log('[AUTH] Normalized provider to google (from:', raw, ')');
+      return 'google';
+    }
+
+    // Apple variants: 'apple', 'apple.com', 'Apple'
+    if (lower.includes('apple')) {
+      console.log('[AUTH] Normalized provider to apple (from:', raw, ')');
+      return 'apple';
+    }
   }
 
-  // Unknown provider - log and default to google
-  console.warn('[AUTH] Unknown provider, defaulting to google:', rawProvider);
-  return 'google';
+  // No recognized provider found - return null to skip provisioning
+  console.warn('[AUTH] No recognized provider found, skipping provisioning. Checked:', providersToCheck);
+  return null;
 }
 
 /**
@@ -121,10 +145,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const metadata = user.user_metadata || {};
-      // CRITICAL: Normalize provider to exactly 'google' or 'apple' for DB constraint
-      const rawProvider = user.app_metadata?.provider as string | undefined;
-      const provider = normalizeProvider(rawProvider);
-      console.log('[AUTH] Provisioning user with provider:', provider, '(raw:', rawProvider, ')');
+
+      // CRITICAL: Normalize provider - if null, skip provisioning (don't block auth)
+      const provider = normalizeAuthProvider(user);
+      if (provider === null) {
+        console.warn('[AUTH] Skipping provisioning - no recognized provider');
+        setProfileLoading(false);
+        return;
+      }
+      console.log('[AUTH] Provisioning user with provider:', provider);
 
       // Generate username from user metadata
       const username =
