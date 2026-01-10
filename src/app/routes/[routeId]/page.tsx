@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getRouteById, getOperatorDisplayName, getPortDisplayName } from '@/lib/config/routes';
-import { SiteFooter } from '@/components/layout';
+import { SiteFooter, MobileMenu } from '@/components/layout';
 import { getRouteSensitivity } from '@/lib/utils/navigation';
 import { isUsingV2Algorithm } from '@/lib/config/exposure';
 import { RiskBar } from '@/components/RiskBar';
@@ -152,10 +152,7 @@ export default function RouteWeatherPage() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="nav-link">Home</Link>
-              <span className="text-sm text-muted-foreground">Cape Cod & Islands</span>
-            </div>
+            <MobileMenu />
           </div>
         </div>
       </nav>

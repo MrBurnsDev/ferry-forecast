@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getCorridorById } from '@/lib/config/corridors';
-import { SiteFooter } from '@/components/layout';
+import { SiteFooter, MobileMenu } from '@/components/layout';
 import { CorridorTabs } from '@/components/CorridorTabs';
 import type { DailyCorridorBoard } from '@/types/corridor';
 
@@ -234,10 +234,7 @@ export default function CorridorPage() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="nav-link">Home</Link>
-              <Link href="/region/cci" className="nav-link">Cape Cod & Islands</Link>
-            </div>
+            <MobileMenu />
           </div>
         </div>
       </nav>

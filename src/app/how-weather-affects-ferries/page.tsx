@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { SiteFooter } from '@/components/layout';
+import { SiteFooter, MobileMenu } from '@/components/layout';
 
 export const metadata: Metadata = {
   title: "How Weather Affects Ferry Operations and Cancellations",
@@ -99,10 +99,7 @@ export default function HowWeatherAffectsFerries() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="nav-link">Home</Link>
-              <Link href="/region/cci" className="nav-link">Cape Cod & Islands</Link>
-            </div>
+            <MobileMenu />
           </div>
         </div>
       </nav>

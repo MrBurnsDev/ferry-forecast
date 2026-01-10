@@ -22,8 +22,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRegion, isValidRegionId, type RegionId } from '@/lib/region';
-import { HeaderRegionSelector } from '@/components/RegionSelector';
-import { SiteFooter } from '@/components/layout';
+import { SiteFooter, MobileMenu } from '@/components/layout';
 
 // ============================================================
 // ICONS
@@ -206,10 +205,7 @@ export default function RegionPage() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="nav-link">Home</Link>
-              <HeaderRegionSelector />
-            </div>
+            <MobileMenu />
           </div>
         </div>
       </nav>
@@ -287,8 +283,8 @@ export default function RegionPage() {
             {/* Authority Notice */}
             <div className="bg-secondary/50 border border-border/50 rounded-lg p-4">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                <strong className="text-foreground">Phase 59:</strong> Operators are the source of schedule truth.
-                Routes and sailings come directly from each operator - never inferred, never mirrored.
+                Operators are the source of schedule truth.
+                Routes and sailings come directly from each operator.
               </p>
             </div>
           </div>

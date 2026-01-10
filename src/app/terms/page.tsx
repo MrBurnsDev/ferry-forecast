@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { SiteFooter } from '@/components/layout';
+import { SiteFooter, MobileMenu } from '@/components/layout';
 
 export const metadata: Metadata = {
   title: 'Terms of Service - IsTheFerryRunning',
@@ -27,6 +27,7 @@ export default function TermsPage() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
+            <MobileMenu />
           </div>
         </div>
       </nav>
