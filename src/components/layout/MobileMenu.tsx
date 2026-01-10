@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/lib/auth';
 
 function MenuIcon({ className }: { className?: string }) {
   return (
@@ -50,8 +51,19 @@ function UserIcon({ className }: { className?: string }) {
   );
 }
 
+function LogOutIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  );
+}
+
 export function MobileMenu() {
   const [isOpen, setIsOpen] = useState(false);
+  const { isAuthenticated, signOut } = useAuth();
 
   return (
     <>
@@ -145,6 +157,25 @@ export function MobileMenu() {
             Terms
           </Link>
         </div>
+
+        {/* Sign Out Button - only shown when authenticated */}
+        {isAuthenticated && (
+          <>
+            <div className="mx-4 border-t border-border/50" />
+            <div className="p-4">
+              <button
+                onClick={() => {
+                  signOut();
+                  setIsOpen(false);
+                }}
+                className="flex items-center gap-3 w-full p-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <LogOutIcon className="w-5 h-5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </>
   );
