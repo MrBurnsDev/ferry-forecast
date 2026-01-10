@@ -1,5 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { createBrowserClient } from '@supabase/ssr';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -7,29 +6,49 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 // Ferry Forecast uses an isolated schema for multi-app Supabase projects
 const SCHEMA_NAME = 'ferry_forecast' as const;
 
-// PRODUCTION GUARD: Never use mock/fallback credentials in production paths
-// Log errors instead of silently using fake data
+// Singleton instance for browser
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let supabaseClient: SupabaseClient<any, typeof SCHEMA_NAME> | null = null;
+let browserClient: SupabaseClient<any, typeof SCHEMA_NAME> | null = null;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[SUPABASE] CRITICAL: Supabase credentials not configured. ' +
-    'Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables. ' +
-    'Database operations will fail.'
-  );
-} else if (typeof window !== 'undefined') {
-  // Browser: use SSR-compatible browser client for proper auth handling
-  const browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-    db: {
-      schema: SCHEMA_NAME,
-    },
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabaseClient = browserClient as SupabaseClient<any, typeof SCHEMA_NAME>;
-} else {
-  // Server: use standard client
-  supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+/**
+ * Get the Supabase client for browser usage
+ * Uses singleton pattern to avoid creating multiple GoTrue instances
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getBrowserClient(): SupabaseClient<any, typeof SCHEMA_NAME> | null {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('[SUPABASE] Browser client not configured');
+    return null;
+  }
+
+  if (!browserClient) {
+    browserClient = createClient(supabaseUrl, supabaseAnonKey, {
+      db: {
+        schema: SCHEMA_NAME,
+      },
+      auth: {
+        flowType: 'pkce',
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  }
+
+  return browserClient;
+}
+
+/**
+ * Get the Supabase client for server usage (non-authenticated)
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getServerClient(): SupabaseClient<any, typeof SCHEMA_NAME> | null {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('[SUPABASE] Server client not configured');
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
     db: {
       schema: SCHEMA_NAME,
     },
@@ -40,9 +59,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
   });
 }
 
-// Export a getter that logs errors when used without configuration
+// Export the appropriate client based on environment
+// The client may be null if credentials aren't configured, but we assert non-null
+// for backwards compatibility - callers should check isSupabaseConfigured() first
+const clientInstance = typeof window !== 'undefined' ? getBrowserClient() : getServerClient();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const supabase = supabaseClient as SupabaseClient<any, typeof SCHEMA_NAME>;
+export const supabase: SupabaseClient<any, typeof SCHEMA_NAME> = clientInstance as SupabaseClient<any, typeof SCHEMA_NAME>;
 
 // Server-side client with service role (for API routes)
 export function createServerClient() {
