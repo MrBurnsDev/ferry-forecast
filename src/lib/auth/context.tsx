@@ -30,6 +30,35 @@ import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 export type AuthProvider = 'google' | 'apple';
 
 /**
+ * Normalize Supabase provider string to our allowed values.
+ * Supabase can return various provider identifiers, but our database
+ * CHECK constraint only allows exactly 'google' or 'apple'.
+ */
+function normalizeProvider(rawProvider: string | undefined | null): AuthProvider {
+  if (!rawProvider) {
+    console.log('[AUTH] No provider found, defaulting to google');
+    return 'google';
+  }
+
+  const lower = rawProvider.toLowerCase();
+  console.log('[AUTH] Normalizing provider:', rawProvider, '→', lower);
+
+  // Google variants: 'google', 'google-oauth2', 'google.com', 'Google'
+  if (lower === 'google' || lower.includes('google')) {
+    return 'google';
+  }
+
+  // Apple variants: 'apple', 'apple.com', 'Apple'
+  if (lower === 'apple' || lower.includes('apple')) {
+    return 'apple';
+  }
+
+  // Unknown provider - log and default to google
+  console.warn('[AUTH] Unknown provider, defaulting to google:', rawProvider);
+  return 'google';
+}
+
+/**
  * App-level user profile (from ferry_forecast.users table)
  * This is OPTIONAL - session alone = authenticated
  */
@@ -55,6 +84,9 @@ export interface AuthContextValue {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
+
+  // Profile updates
+  setBettingMode: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 }
 
 // ============================================================
@@ -89,7 +121,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const metadata = user.user_metadata || {};
-      const provider = (user.app_metadata?.provider as string) || 'google';
+      // CRITICAL: Normalize provider to exactly 'google' or 'apple' for DB constraint
+      const rawProvider = user.app_metadata?.provider as string | undefined;
+      const provider = normalizeProvider(rawProvider);
+      console.log('[AUTH] Provisioning user with provider:', provider, '(raw:', rawProvider, ')');
 
       // Generate username from user metadata
       const username =
@@ -190,6 +225,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // State will be cleared by onAuthStateChange listener
   }, []);
 
+  /**
+   * Set betting mode - persists to database via RPC
+   * Updates local profile state optimistically on success
+   */
+  const setBettingMode = useCallback(async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    if (!session?.user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    console.log('[AUTH] Setting betting mode:', enabled);
+
+    try {
+      const { error } = await supabase.rpc('set_betting_mode', {
+        p_enabled: enabled,
+      });
+
+      if (error) {
+        console.error('[AUTH] Failed to set betting mode:', error.message);
+        return { success: false, error: error.message };
+      }
+
+      // Update local profile state
+      if (profile) {
+        setProfile({
+          ...profile,
+          bettingModeEnabled: enabled,
+        });
+      }
+
+      console.log('[AUTH] Betting mode updated successfully:', enabled);
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[AUTH] Error setting betting mode:', message);
+      return { success: false, error: message };
+    }
+  }, [session, profile]);
+
   // ============================================================
   // EFFECTS
   // ============================================================
@@ -243,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithGoogle,
     signInWithApple,
     signOut,
+    setBettingMode,
   };
 
   return (

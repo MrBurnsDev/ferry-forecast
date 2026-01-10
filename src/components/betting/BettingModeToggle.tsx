@@ -8,7 +8,9 @@
  * When disabled, shows neutral prediction language.
  */
 
+import { useState } from 'react';
 import { useBetting, useBettingAvailable } from '@/lib/betting';
+import { useAuth } from '@/lib/auth';
 
 interface BettingModeToggleProps {
   className?: string;
@@ -25,7 +27,29 @@ export function BettingModeToggle({ className = '' }: BettingModeToggleProps) {
 }
 
 function BettingModeToggleInner({ className }: BettingModeToggleProps) {
-  const { state, bettingEnabled, toggleBettingMode } = useBetting();
+  const { state, bettingEnabled } = useBetting();
+  const { setBettingMode } = useAuth();
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleToggle = async () => {
+    setIsUpdating(true);
+    setError(null);
+
+    const newValue = !bettingEnabled;
+    console.log('[BETTING_TOGGLE] Toggling betting mode to:', newValue);
+
+    const result = await setBettingMode(newValue);
+
+    if (!result.success) {
+      console.error('[BETTING_TOGGLE] Failed to update:', result.error);
+      setError(result.error || 'Failed to update');
+    } else {
+      console.log('[BETTING_TOGGLE] Successfully updated to:', newValue);
+    }
+
+    setIsUpdating(false);
+  };
 
   return (
     <div className={`bg-secondary/50 border border-border/50 rounded-lg p-4 ${className}`}>
@@ -53,8 +77,9 @@ function BettingModeToggleInner({ className }: BettingModeToggleProps) {
           id="betting-mode-toggle"
           role="switch"
           aria-checked={bettingEnabled}
-          onClick={() => toggleBettingMode(!bettingEnabled)}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
+          onClick={handleToggle}
+          disabled={isUpdating}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:opacity-50 ${
             bettingEnabled ? 'bg-accent' : 'bg-secondary'
           }`}
         >
@@ -66,6 +91,13 @@ function BettingModeToggleInner({ className }: BettingModeToggleProps) {
           />
         </button>
       </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="mt-3 bg-destructive-muted border border-destructive/30 rounded-lg p-2">
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
 
       {bettingEnabled && (
         <div className="mt-4 pt-4 border-t border-border/50">
@@ -110,12 +142,21 @@ export function BettingModeToggleCompact() {
 }
 
 function BettingModeToggleCompactInner() {
-  const { bettingEnabled, toggleBettingMode } = useBetting();
+  const { bettingEnabled } = useBetting();
+  const { setBettingMode } = useAuth();
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleToggle = async () => {
+    setIsUpdating(true);
+    await setBettingMode(!bettingEnabled);
+    setIsUpdating(false);
+  };
 
   return (
     <button
-      onClick={() => toggleBettingMode(!bettingEnabled)}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+      onClick={handleToggle}
+      disabled={isUpdating}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
         bettingEnabled
           ? 'bg-accent text-accent-foreground'
           : 'bg-secondary text-muted-foreground hover:text-foreground'
