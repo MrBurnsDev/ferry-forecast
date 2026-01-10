@@ -64,8 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return null;
 
     try {
+      // Use schema-qualified function name for RPC calls
       const { data, error: rpcError } = await supabase.rpc(
-        'get_or_create_user',
+        'get_or_create_user' as never,
         {
           p_auth_provider: authProvider,
           p_auth_provider_id: authProviderId,
@@ -75,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (rpcError) {
-        console.error('[AUTH] RPC error:', rpcError);
+        console.error('[AUTH] RPC get_or_create_user error:', rpcError.message, rpcError.details, rpcError);
         return null;
       }
 
