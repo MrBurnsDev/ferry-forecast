@@ -41,6 +41,15 @@ function GlobeIcon({ className }: { className?: string }) {
   );
 }
 
+function UserIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 export function MobileMenu() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -98,6 +107,14 @@ export function MobileMenu() {
           >
             <GlobeIcon className="w-5 h-5 text-accent" />
             <span className="text-foreground">Cape Cod &amp; Islands</span>
+          </Link>
+          <Link
+            href="/account"
+            onClick={() => setIsOpen(false)}
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+          >
+            <UserIcon className="w-5 h-5 text-accent" />
+            <span className="text-foreground">Account</span>
           </Link>
         </nav>
 
