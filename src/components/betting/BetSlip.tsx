@@ -19,9 +19,6 @@ import { useState } from 'react';
 import {
   useBetting,
   useBettingAvailable,
-  getOddsDisplay,
-  formatOdds,
-  calculateProfit,
   type BetType,
 } from '@/lib/betting';
 // Phase 86F: Removed BET_SIZES, getTimeBonus, BetSize - server uses default stake
@@ -32,7 +29,6 @@ import {
 interface BetSlipProps {
   sailingId: string;
   corridorId: string;           // Required - must come from board.corridor.id
-  likelihood: number;           // Likelihood to sail (0-100)
   departureTimestampMs: number;
   departureTimeDisplay: string; // e.g., "9:30 AM"
   routeDisplay: string;         // e.g., "Woods Hole → Vineyard Haven"
@@ -42,7 +38,6 @@ interface BetSlipProps {
 export function BetSlip({
   sailingId,
   corridorId,
-  likelihood,
   departureTimestampMs,
   departureTimeDisplay,
   routeDisplay,
@@ -58,7 +53,6 @@ export function BetSlip({
     <BetSlipInner
       sailingId={sailingId}
       corridorId={corridorId}
-      likelihood={likelihood}
       departureTimestampMs={departureTimestampMs}
       departureTimeDisplay={departureTimeDisplay}
       routeDisplay={routeDisplay}
@@ -70,7 +64,6 @@ export function BetSlip({
 function BetSlipInner({
   sailingId,
   corridorId,
-  likelihood,
   departureTimestampMs,
   departureTimeDisplay,
   routeDisplay,
@@ -93,9 +86,6 @@ function BetSlipInner({
 
   // Get lock status
   const { minutes: minutesUntilLock, locked } = getTimeUntilLock(departureTimestampMs);
-
-  // Get odds for display only
-  const odds = getOddsDisplay(likelihood);
 
   // Phase 86F: Simplified bet handler - sends intent only
   const handlePlaceBet = async (betType: BetType) => {
@@ -146,7 +136,7 @@ function BetSlipInner({
             </p>
             {isBettingMode && (
               <p className="text-sm text-muted-foreground">
-                {existingBet.stake} pts @ {formatOdds(existingBet.americanOdds)}
+                {existingBet.stake} pts
               </p>
             )}
           </div>
@@ -169,10 +159,7 @@ function BetSlipInner({
 
           {existingBet.status === 'pending' && isBettingMode && (
             <div className="text-right">
-              <p className="text-sm text-muted-foreground">Potential</p>
-              <p className="text-lg font-bold text-accent">
-                +{calculateProfit(existingBet.stake, existingBet.americanOdds)} pts
-              </p>
+              <p className="text-sm text-muted-foreground">Pending</p>
             </div>
           )}
         </div>
@@ -221,14 +208,14 @@ function BetSlipInner({
           </div>
         )}
 
-        {/* Simple Bet Buttons - Phase 86F thumbs up/down */}
+        {/* Simple Bet Buttons - Phase 88: thumbs up/down, no odds display */}
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => handlePlaceBet('will_sail')}
             disabled={isPlacing || !canPlaceBet()}
             className="p-3 rounded-lg border-2 border-success/30 bg-success-muted/30 text-success font-medium hover:bg-success-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <p className="text-2xl font-bold">{formatOdds(odds.sailOdds)}</p>
+            <p className="text-2xl">👍</p>
             <p className="text-xs">Will Sail</p>
           </button>
 
@@ -237,7 +224,7 @@ function BetSlipInner({
             disabled={isPlacing || !canPlaceBet()}
             className="p-3 rounded-lg border-2 border-destructive/30 bg-destructive-muted/30 text-destructive font-medium hover:bg-destructive-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <p className="text-2xl font-bold">{formatOdds(odds.cancelOdds)}</p>
+            <p className="text-2xl">👎</p>
             <p className="text-xs">Will Cancel</p>
           </button>
         </div>
@@ -287,9 +274,6 @@ function BetSlipInner({
         </button>
       </div>
 
-      <p className="text-xs text-muted-foreground text-center mt-3">
-        {likelihood}% likelihood to sail
-      </p>
     </div>
   );
 }

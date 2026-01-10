@@ -15,19 +15,16 @@ import { useState } from 'react';
 import {
   useBetting,
   useBettingAvailable,
-  getOddsDisplay,
-  formatOdds,
   type BetType,
 } from '@/lib/betting';
 // Auth imports available for future integration when betting persistence is added
 // import { useAuth, useAuthAvailable } from '@/lib/auth';
 // import { SignInWithFacebookButton } from '@/components/auth';
 
-// Phase 86F: Simplified props - no betting math params needed
+// Phase 88: Simplified props - no odds display needed
 interface SailingBetCardProps {
   sailingId: string;
   corridorId: string; // Required - must come from board.corridor.id
-  likelihood: number; // Still needed for odds display
   departureTimestampMs: number; // Still needed for lock status
   className?: string;
   compact?: boolean;
@@ -36,7 +33,6 @@ interface SailingBetCardProps {
 export function SailingBetCard({
   sailingId,
   corridorId,
-  likelihood,
   departureTimestampMs,
   className = '',
   compact = false,
@@ -51,7 +47,6 @@ export function SailingBetCard({
     <SailingBetCardInner
       sailingId={sailingId}
       corridorId={corridorId}
-      likelihood={likelihood}
       departureTimestampMs={departureTimestampMs}
       className={className}
       compact={compact}
@@ -62,7 +57,6 @@ export function SailingBetCard({
 function SailingBetCardInner({
   sailingId,
   corridorId,
-  likelihood,
   departureTimestampMs,
   className,
   compact,
@@ -84,14 +78,11 @@ function SailingBetCardInner({
     return null;
   }
 
-  // Get odds
-  const odds = getOddsDisplay(likelihood);
-
   // Phase 86F: Quick bet handler - sends intent only, server computes all math
   const handleQuickBet = async (betType: BetType) => {
     // Defensive runtime check
     if (!corridorId) {
-      console.error('[BETTING] Missing corridorId for bet', { sailingId, likelihood });
+      console.error('[BETTING] Missing corridorId for bet', { sailingId });
       return;
     }
     setIsPlacing(true);
@@ -137,7 +128,7 @@ function SailingBetCardInner({
     return null;
   }
 
-  // Betting mode: show odds and quick bet buttons
+  // Betting mode: show thumbs up/down buttons (Phase 88: no odds display)
   if (isBettingMode) {
     if (compact) {
       return (
@@ -146,25 +137,25 @@ function SailingBetCardInner({
             onClick={() => setShowConfirm('will_sail')}
             disabled={isPlacing || !canPlaceBet()}
             className="text-xs px-2 py-0.5 rounded bg-success-muted/30 border border-success/30 text-success hover:bg-success-muted/50 disabled:opacity-50 transition-colors"
-            title={`Bet Will Sail @ ${formatOdds(odds.sailOdds)}`}
+            title="Predict: Will Sail"
           >
-            {formatOdds(odds.sailOdds)}
+            👍
           </button>
           <span className="text-xs text-muted-foreground">/</span>
           <button
             onClick={() => setShowConfirm('will_cancel')}
             disabled={isPlacing || !canPlaceBet()}
             className="text-xs px-2 py-0.5 rounded bg-destructive-muted/30 border border-destructive/30 text-destructive hover:bg-destructive-muted/50 disabled:opacity-50 transition-colors"
-            title={`Bet Will Cancel @ ${formatOdds(odds.cancelOdds)}`}
+            title="Predict: Will Cancel"
           >
-            {formatOdds(odds.cancelOdds)}
+            👎
           </button>
 
           {/* Quick confirm tooltip */}
           {showConfirm && (
             <div className="absolute z-10 bg-popover border border-border rounded-lg shadow-lg p-2 mt-8 -ml-4">
               <p className="text-xs text-muted-foreground mb-2">
-                Quick bet 25 pts on {showConfirm === 'will_sail' ? 'SAIL' : 'CANCEL'}?
+                Predict {showConfirm === 'will_sail' ? 'SAIL' : 'CANCEL'}?
               </p>
               <div className="flex gap-2">
                 <button
@@ -194,7 +185,7 @@ function SailingBetCardInner({
           disabled={isPlacing || !canPlaceBet()}
           className="flex-1 py-2 rounded-lg bg-success-muted/30 border border-success/30 text-success font-medium hover:bg-success-muted/50 disabled:opacity-50 transition-colors"
         >
-          <span className="text-lg font-bold">{formatOdds(odds.sailOdds)}</span>
+          <span className="text-lg">👍</span>
           <span className="text-xs block">Will Sail</span>
         </button>
         <button
@@ -202,7 +193,7 @@ function SailingBetCardInner({
           disabled={isPlacing || !canPlaceBet()}
           className="flex-1 py-2 rounded-lg bg-destructive-muted/30 border border-destructive/30 text-destructive font-medium hover:bg-destructive-muted/50 disabled:opacity-50 transition-colors"
         >
-          <span className="text-lg font-bold">{formatOdds(odds.cancelOdds)}</span>
+          <span className="text-lg">👎</span>
           <span className="text-xs block">Will Cancel</span>
         </button>
       </div>
@@ -226,48 +217,6 @@ function SailingBetCardInner({
       >
         {lang.cancelOption}
       </button>
-    </div>
-  );
-}
-
-/**
- * Odds-only display (no betting, just shows the implied odds)
- */
-export function OddsDisplay({
-  likelihood,
-  className = '',
-}: {
-  likelihood: number;
-  className?: string;
-}) {
-  const available = useBettingAvailable();
-
-  if (!available) {
-    return null;
-  }
-
-  return <OddsDisplayInner likelihood={likelihood} className={className} />;
-}
-
-function OddsDisplayInner({ likelihood, className }: { likelihood: number; className?: string }) {
-  const { bettingEnabled } = useBetting();
-
-  // CRITICAL: Only show when betting is enabled from profile
-  if (!bettingEnabled) {
-    return null;
-  }
-
-  const odds = getOddsDisplay(likelihood);
-
-  return (
-    <div className={`flex items-center gap-2 text-xs ${className}`}>
-      <span className="text-success" title="Odds for Will Sail">
-        {formatOdds(odds.sailOdds)}
-      </span>
-      <span className="text-muted-foreground">/</span>
-      <span className="text-destructive" title="Odds for Will Cancel">
-        {formatOdds(odds.cancelOdds)}
-      </span>
     </div>
   );
 }

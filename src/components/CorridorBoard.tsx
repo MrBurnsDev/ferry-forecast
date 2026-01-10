@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
-import { SailingBetCard, OddsDisplay } from '@/components/betting';
+import { SailingBetCard, BetHistory } from '@/components/betting';
 
 /**
  * Phase 56: WeatherContext with authority field for three-state display
@@ -680,11 +680,6 @@ function SailingRow({ sailing, corridorId, isExpanded, onToggle }: {
           </span>
         )}
 
-        {/* Betting odds display (only in betting mode, for upcoming sailings) */}
-        {!isDeparted && !isCanceled && sailing.likelihood_to_run_pct != null && (
-          <OddsDisplay likelihood={sailing.likelihood_to_run_pct} />
-        )}
-
         {/* Status badge (operator confirmed) */}
         {statusDisplay.show && (
           <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
@@ -744,12 +739,11 @@ function SailingRow({ sailing, corridorId, isExpanded, onToggle }: {
           )}
 
           {/* Row 4: Betting/Prediction UI (only for upcoming, non-canceled sailings) */}
-          {!isDeparted && !isCanceled && sailing.likelihood_to_run_pct != null && (
+          {!isDeparted && !isCanceled && (
             <div className="mt-3 pt-3 border-t border-border/20">
               <SailingBetCard
                 sailingId={sailing.sailing_id}
                 corridorId={corridorId}
-                likelihood={sailing.likelihood_to_run_pct}
                 departureTimestampMs={sailing.departure_timestamp_ms}
                 compact={false}
               />
@@ -962,6 +956,9 @@ export function CorridorBoard({ board, weatherContext, loading, error }: Corrido
           </div>
         </details>
       )}
+
+      {/* Phase 88: Bet History - only shows when betting is enabled */}
+      <BetHistory className="mt-6" limit={5} />
 
       {/* Footer with provenance */}
       <div className="mt-6 pt-4 border-t border-border/50 flex items-center justify-between">
