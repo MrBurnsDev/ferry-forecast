@@ -323,7 +323,9 @@ export function BettingProvider({ children }: { children: ReactNode }) {
 
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
-      const response = await fetch('/api/betting/bets');
+      const response = await fetch('/api/betting/bets', {
+        credentials: 'include',
+      });
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.bets) {
@@ -379,7 +381,9 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   // Fetch leaderboard
   const refreshLeaderboard = useCallback(async () => {
     try {
-      const response = await fetch('/api/betting/leaderboard');
+      const response = await fetch('/api/betting/leaderboard', {
+        credentials: 'include',
+      });
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -459,6 +463,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       const response = await fetch('/api/betting/place', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           sailingId,
           corridorId,

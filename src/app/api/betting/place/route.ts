@@ -10,6 +10,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteClient } from '@/lib/supabase/serverRouteClient';
 
+// Force dynamic rendering - uses cookies for auth
+export const dynamic = 'force-dynamic';
+
 interface PlaceBetRequest {
   sailingId: string;
   corridorId: string;
@@ -31,10 +34,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify authentication
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
+    // Verify authentication using getUser() - more reliable than getSession()
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (authError || !session) {
+    console.log('[BETTING API] user:', user?.id ?? null);
+
+    if (authError || !user) {
       return NextResponse.json(
         { success: false, error: 'Not authenticated' },
         { status: 401 }
@@ -76,11 +81,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user ID from session
+    // Get user ID from authenticated user
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('id')
-      .eq('auth_provider_id', session.user.id)
+      .eq('auth_provider_id', user.id)
       .single();
 
     if (userError || !userData) {
