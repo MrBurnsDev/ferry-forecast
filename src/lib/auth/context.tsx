@@ -6,7 +6,7 @@
  * React context for Google and Apple OAuth authentication.
  * Handles sign-in, sign-out, session persistence, and betting mode.
  *
- * Facebook has been intentionally removed.
+ * Uses onAuthStateChange as the primary auth detection method.
  */
 
 import {
@@ -15,6 +15,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -35,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [bankroll, setBankroll] = useState<Bankroll | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const initialCheckDone = useRef(false);
 
   /**
    * Convert database user to SessionUser
@@ -64,7 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return null;
 
     try {
-      // Use schema-qualified function name for RPC calls
       const { data, error: rpcError } = await supabase.rpc(
         'get_or_create_user' as never,
         {
@@ -101,7 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (fetchError) {
-        console.error('[AUTH] Bankroll fetch error:', fetchError);
+        // PGRST116 means no rows found - that's okay for bankroll
+        if (fetchError.code !== 'PGRST116') {
+          console.error('[AUTH] Bankroll fetch error:', fetchError);
+        }
         return null;
       }
 
@@ -125,7 +129,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const metadata = authUser.user_metadata || {};
     const appMetadata = authUser.app_metadata || {};
 
-    // Get display name from various provider fields
     const username =
       (metadata.full_name as string) ||
       (metadata.name as string) ||
@@ -133,97 +136,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       'user';
 
     const email = (metadata.email as string) || null;
-
-    // Determine provider from app_metadata
     const provider = (appMetadata.provider as AuthProvider) || 'google';
 
     return { username, email, provider };
   }, []);
 
   /**
-   * Refresh user from current session
+   * Handle authenticated session
    */
-  const refreshUser = useCallback(async () => {
-    console.log('[AUTH] refreshUser called, isSupabaseConfigured:', isSupabaseConfigured(), 'supabase:', !!supabase);
+  const handleSession = useCallback(async (
+    authUser: { id: string; created_at: string; user_metadata?: Record<string, unknown>; app_metadata?: Record<string, unknown> }
+  ) => {
+    const { username, email, provider } = extractUserInfo(authUser);
 
-    if (!isSupabaseConfigured() || !supabase) {
-      console.log('[AUTH] Supabase not configured, skipping auth');
-      setIsLoading(false);
-      return;
-    }
+    // Check if this is a new user (created within last 10 seconds)
+    const createdAt = new Date(authUser.created_at).getTime();
+    const isNewUser = Date.now() - createdAt < 10000;
 
-    try {
-      console.log('[AUTH] Getting session...');
+    const dbUser = await getOrCreateUser(
+      provider,
+      authUser.id,
+      username,
+      email
+    );
 
-      // Add timeout to prevent hanging
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Session fetch timeout')), 10000)
-      );
-
-      let session;
-      let sessionError;
-      try {
-        const result = await Promise.race([sessionPromise, timeoutPromise]);
-        session = result.data?.session;
-        sessionError = result.error;
-      } catch (timeoutErr) {
-        console.error('[AUTH] Session timeout:', timeoutErr);
-        setUser(null);
-        setBankroll(null);
-        setIsLoading(false);
-        return;
-      }
-
-      if (sessionError) {
-        console.error('[AUTH] Session error:', sessionError);
-        setUser(null);
-        setBankroll(null);
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('[AUTH] Session result:', session ? 'has session' : 'no session', session?.user?.id);
-
-      if (!session?.user) {
-        console.log('[AUTH] No session user, clearing state');
-        setUser(null);
-        setBankroll(null);
-        setIsLoading(false);
-        return;
-      }
-
-      const authUser = session.user;
-      const { username, email, provider } = extractUserInfo(authUser);
-
-      // Get or create user profile
-      const dbUser = await getOrCreateUser(
-        provider,
-        authUser.id,
+    if (dbUser) {
+      setUser(toSessionUser(dbUser, isNewUser));
+      const userBankroll = await fetchBankroll(dbUser.id);
+      setBankroll(userBankroll);
+    } else {
+      // Fallback: create session user from auth data only
+      setUser({
+        id: authUser.id,
         username,
-        email
-      );
-
-      if (dbUser) {
-        setUser(toSessionUser(dbUser, false));
-        const userBankroll = await fetchBankroll(dbUser.id);
-        setBankroll(userBankroll);
-      } else {
-        // Fallback: create session user from auth data only
-        setUser({
-          id: authUser.id,
-          username,
-          provider,
-          bettingModeEnabled: false,
-          isNewUser: false,
-        });
-      }
-    } catch (err) {
-      console.error('[AUTH] Refresh failed:', err);
-      setError('Failed to load user session');
-    } finally {
-      setIsLoading(false);
+        provider,
+        bettingModeEnabled: false,
+        isNewUser,
+      });
     }
+    setIsLoading(false);
   }, [extractUserInfo, getOrCreateUser, toSessionUser, fetchBankroll]);
 
   /**
@@ -302,6 +253,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
+   * Refresh user - just triggers re-check via onAuthStateChange
+   */
+  const refreshUser = useCallback(async () => {
+    // The onAuthStateChange listener will handle this
+    // We just need to trigger a refresh of the session
+    if (!supabase) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await handleSession(session.user);
+      } else {
+        setUser(null);
+        setBankroll(null);
+        setIsLoading(false);
+      }
+    } catch {
+      // Silent fail - onAuthStateChange will handle state
+      setIsLoading(false);
+    }
+  }, [handleSession]);
+
+  /**
    * Toggle betting mode
    */
   const toggleBettingMode = useCallback(async (enabled: boolean) => {
@@ -322,7 +296,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Update local state
       setUser(prev => prev ? { ...prev, bettingModeEnabled: enabled } : null);
     } catch (err) {
       console.error('[AUTH] Toggle betting mode failed:', err);
@@ -334,48 +307,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // EFFECTS
   // ============================================================
 
-  // Initial session check
+  // Set up auth state listener - this is the PRIMARY auth detection method
   useEffect(() => {
-    refreshUser();
-  }, [refreshUser]);
+    if (!isSupabaseConfigured() || !supabase) {
+      console.log('[AUTH] Supabase not configured');
+      setIsLoading(false);
+      return;
+    }
 
-  // Listen for auth state changes
-  useEffect(() => {
-    if (!supabase) return;
+    console.log('[AUTH] Setting up auth state listener...');
 
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const authUser = session.user;
-          const { username, email, provider } = extractUserInfo(authUser);
+        console.log('[AUTH] Auth state change:', event, session?.user?.id ? 'has user' : 'no user');
 
-          // Check if this is a new user (created within last 5 seconds)
-          const createdAt = new Date(authUser.created_at).getTime();
-          const isNewUser = Date.now() - createdAt < 5000;
-
-          const dbUser = await getOrCreateUser(
-            provider,
-            authUser.id,
-            username,
-            email
-          );
-
-          if (dbUser) {
-            setUser(toSessionUser(dbUser, isNewUser));
-            const userBankroll = await fetchBankroll(dbUser.id);
-            setBankroll(userBankroll);
+        if (event === 'INITIAL_SESSION') {
+          // This fires when the listener is first set up
+          initialCheckDone.current = true;
+          if (session?.user) {
+            await handleSession(session.user);
+          } else {
+            setUser(null);
+            setBankroll(null);
+            setIsLoading(false);
           }
+        } else if (event === 'SIGNED_IN' && session?.user) {
+          await handleSession(session.user);
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
           setBankroll(null);
+          setIsLoading(false);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          // Token refreshed, user is still logged in
+          console.log('[AUTH] Token refreshed');
         }
       }
     );
 
+    // Fallback: if INITIAL_SESSION doesn't fire within 3 seconds, stop loading
+    const fallbackTimer = setTimeout(() => {
+      if (!initialCheckDone.current) {
+        console.log('[AUTH] Initial check fallback triggered');
+        setIsLoading(false);
+      }
+    }, 3000);
+
     return () => {
       subscription.unsubscribe();
+      clearTimeout(fallbackTimer);
     };
-  }, [extractUserInfo, getOrCreateUser, toSessionUser, fetchBankroll]);
+  }, [handleSession]);
 
   // ============================================================
   // CONTEXT VALUE
@@ -405,10 +387,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // HOOKS
 // ============================================================
 
-/**
- * Use auth context
- * @throws if used outside AuthProvider
- */
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
@@ -417,27 +395,16 @@ export function useAuth(): AuthContextValue {
   return context;
 }
 
-/**
- * Check if auth is available (safe for conditional rendering)
- */
 export function useAuthAvailable(): boolean {
   const context = useContext(AuthContext);
   return context !== null;
 }
 
-/**
- * Get current user (null if not authenticated)
- * Does not throw if outside provider
- */
 export function useUser(): SessionUser | null {
   const context = useContext(AuthContext);
   return context?.user ?? null;
 }
 
-/**
- * Safe auth hook that returns null values if outside provider
- * Use for components that may exist without AuthProvider
- */
 export function useAuthSafe(): AuthContextValue | null {
   return useContext(AuthContext);
 }
