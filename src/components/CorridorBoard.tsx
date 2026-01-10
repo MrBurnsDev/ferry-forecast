@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
+import { SailingBetCard, OddsDisplay } from '@/components/betting';
 
 /**
  * Phase 56: WeatherContext with authority field for three-state display
@@ -678,6 +679,11 @@ function SailingRow({ sailing, isExpanded, onToggle }: {
           </span>
         )}
 
+        {/* Betting odds display (only in betting mode, for upcoming sailings) */}
+        {!isDeparted && !isCanceled && sailing.likelihood_to_run_pct != null && (
+          <OddsDisplay likelihood={sailing.likelihood_to_run_pct} />
+        )}
+
         {/* Status badge (operator confirmed) */}
         {statusDisplay.show && (
           <span className={`px-2 py-0.5 text-xs font-medium rounded border ${statusDisplay.className}`}>
@@ -733,6 +739,18 @@ function SailingRow({ sailing, isExpanded, onToggle }: {
           {riskDisplay.explanation && !isCanceled && (
             <div className="text-xs text-muted-foreground">
               {riskDisplay.explanation}
+            </div>
+          )}
+
+          {/* Row 4: Betting/Prediction UI (only for upcoming, non-canceled sailings) */}
+          {!isDeparted && !isCanceled && sailing.likelihood_to_run_pct != null && (
+            <div className="mt-3 pt-3 border-t border-border/20">
+              <SailingBetCard
+                sailingId={sailing.sailing_id}
+                likelihood={sailing.likelihood_to_run_pct}
+                departureTimestampMs={sailing.departure_timestamp_ms}
+                compact={false}
+              />
             </div>
           )}
         </div>

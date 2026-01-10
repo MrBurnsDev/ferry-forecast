@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { SiteFooter, MobileMenu } from '@/components/layout';
+import { AccountButton } from '@/components/auth/AccountButton';
 
 // Homepage-specific metadata
 export const metadata: Metadata = {
@@ -130,7 +131,10 @@ export default function Home() {
               <WavesIcon className="w-8 h-8 text-accent" />
               <span className="text-xl font-bold text-foreground">Is the Ferry Running?</span>
             </Link>
-            <MobileMenu />
+            <div className="flex items-center gap-4">
+              <AccountButton />
+              <MobileMenu />
+            </div>
           </div>
         </div>
       </nav>
