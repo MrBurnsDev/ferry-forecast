@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -17,18 +18,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
     'Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables. ' +
     'Database operations will fail.'
   );
+} else if (typeof window !== 'undefined') {
+  // Browser: use SSR-compatible browser client for proper auth handling
+  const browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    db: {
+      schema: SCHEMA_NAME,
+    },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabaseClient = browserClient as SupabaseClient<any, typeof SCHEMA_NAME>;
 } else {
-  // Client for browser-side usage - configured to use ferry_forecast schema
-  // Note: Auth operations use the default 'auth' schema automatically
+  // Server: use standard client
   supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     db: {
       schema: SCHEMA_NAME,
     },
     auth: {
-      // Ensure auth works correctly in browser
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
+      persistSession: false,
+      autoRefreshToken: false,
     },
   });
 }
