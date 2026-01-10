@@ -1,8 +1,19 @@
 'use client';
 
+/**
+ * Account Page - FIXED
+ *
+ * Auth rules:
+ * 1. if (isLoading) return <Loading />
+ * 2. if (!isAuthenticated) return <SignIn />
+ * 3. Otherwise, user IS authenticated - show account
+ *
+ * NEVER check DB tables for auth state.
+ */
+
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuthSafe } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { SignInButtons } from '@/components/auth/SignInButtons';
 
@@ -35,11 +46,7 @@ function LogOutIcon({ className }: { className?: string }) {
   );
 }
 
-export default function AccountPage() {
-  return <AccountPageContent />;
-}
-
-function AccountPageLoading() {
+function LoadingState() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
@@ -70,20 +77,25 @@ function AccountPageLoading() {
   );
 }
 
-function AccountPageContent() {
-  const auth = useAuthSafe();
+export default function AccountPage() {
+  const { isLoading, isAuthenticated, session, profile, profileLoading, signOut } = useAuth();
   const router = useRouter();
 
-  // If auth context not ready, show loading
-  if (!auth) {
-    return <AccountPageLoading />;
-  }
-
-  const { user, isAuthenticated, isLoading, signOut, toggleBettingMode } = auth;
-
+  // Rule 1: Show loading while auth state is being determined
   if (isLoading) {
-    return <AccountPageLoading />;
+    return <LoadingState />;
   }
+
+  // Get display name from session or profile
+  const displayName = profile?.displayName ||
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split('@')[0] ||
+    'User';
+
+  const provider = profile?.provider ||
+    session?.user?.app_metadata?.provider ||
+    'google';
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -104,19 +116,22 @@ function AccountPageContent() {
           <div className="max-w-2xl mx-auto">
             <h1 className="text-3xl lg:text-4xl font-bold text-foreground mb-8">Account</h1>
 
-            {isAuthenticated && user ? (
+            {/* Rule 2 & 3: Session exists = show account, otherwise show sign in */}
+            {isAuthenticated ? (
               <>
                 {/* Profile Card */}
                 <div className="bg-card border border-border/50 rounded-xl p-6 mb-6">
                   <h2 className="text-lg font-semibold text-foreground mb-4">Profile</h2>
                   <div className="flex items-center gap-4">
                     <div className="w-16 h-16 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-2xl font-medium">
-                      {user.username.charAt(0).toUpperCase()}
+                      {displayName.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-xl font-medium text-foreground">{user.username}</p>
+                      <p className="text-xl font-medium text-foreground">
+                        {profileLoading ? 'Loading...' : displayName}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        Signed in with {user.provider === 'google' ? 'Google' : 'Apple'}
+                        Signed in with {provider === 'google' ? 'Google' : provider === 'apple' ? 'Apple' : provider}
                       </p>
                     </div>
                   </div>
@@ -125,32 +140,6 @@ function AccountPageContent() {
                 {/* Settings Card */}
                 <div className="bg-card border border-border/50 rounded-xl p-6 mb-6">
                   <h2 className="text-lg font-semibold text-foreground mb-4">Settings</h2>
-
-                  {/* Betting Mode Toggle */}
-                  <div className="flex items-center justify-between py-4 border-b border-border/30">
-                    <div>
-                      <p className="font-medium text-foreground">Betting Mode</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {user.bettingModeEnabled
-                          ? 'Shows odds and stakes on sailings. Make predictions to compete on leaderboards.'
-                          : 'Neutral prediction language. Enable to see betting odds and compete.'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => toggleBettingMode(!user.bettingModeEnabled)}
-                      className={`relative w-14 h-8 rounded-full transition-colors flex-shrink-0 ml-4 ${
-                        user.bettingModeEnabled ? 'bg-accent' : 'bg-secondary'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white transition-transform ${
-                          user.bettingModeEnabled ? 'translate-x-6' : ''
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Additional settings can be added here */}
                   <div className="py-4 text-sm text-muted-foreground">
                     More settings coming soon.
                   </div>
@@ -159,8 +148,8 @@ function AccountPageContent() {
                 {/* Sign Out */}
                 <div className="bg-card border border-border/50 rounded-xl p-6">
                   <button
-                    onClick={() => {
-                      signOut();
+                    onClick={async () => {
+                      await signOut();
                       router.push('/');
                     }}
                     className="flex items-center gap-2 text-foreground hover:text-accent transition-colors"

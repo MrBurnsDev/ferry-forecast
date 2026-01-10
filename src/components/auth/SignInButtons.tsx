@@ -40,7 +40,7 @@ function SignInButtonsInner({
   variant,
   onSignInStart,
 }: SignInButtonsProps) {
-  const { signInWithGoogle, signInWithApple, isLoading, error } = useAuth();
+  const { signInWithGoogle, signInWithApple, isLoading } = useAuth();
 
   const handleGoogleClick = () => {
     onSignInStart?.();
@@ -102,12 +102,6 @@ function SignInButtonsInner({
         <AppleIcon className="w-5 h-5" />
         <span>{isLoading ? 'Connecting...' : 'Continue with Apple'}</span>
       </button>
-
-      {error && (
-        <p className="mt-2 text-sm text-destructive text-center">
-          {error}
-        </p>
-      )}
 
       <p className="mt-3 text-xs text-muted-foreground text-center">
         We only access your name and email to create your account.

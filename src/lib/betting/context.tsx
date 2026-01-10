@@ -286,34 +286,19 @@ export function BettingProvider({ children }: { children: ReactNode }) {
 
   // Use safe auth hook that returns null if outside AuthProvider
   const auth = useAuthSafe();
-  const user = auth?.user;
+  const profile = auth?.profile;
+  const session = auth?.session;
   const isAuthenticated = auth?.isAuthenticated ?? false;
-  const bankroll = auth?.bankroll;
+  const userId = session?.user?.id;
 
-  // Sync betting mode from user's server-side setting
+  // Sync betting mode from user's profile setting
   useEffect(() => {
-    if (isAuthenticated && user) {
-      dispatch({ type: 'TOGGLE_BETTING_MODE', payload: user.bettingModeEnabled });
-    } else {
+    if (isAuthenticated && profile) {
+      dispatch({ type: 'TOGGLE_BETTING_MODE', payload: profile.bettingModeEnabled });
+    } else if (!isAuthenticated) {
       dispatch({ type: 'RESET_STATE' });
     }
-  }, [isAuthenticated, user]);
-
-  // Sync bankroll from auth context
-  useEffect(() => {
-    if (bankroll) {
-      dispatch({
-        type: 'SET_BANKROLL',
-        payload: {
-          userId: bankroll.userId,
-          balance: bankroll.balancePoints,
-          dailyLimit: bankroll.dailyLimit,
-          spentToday: bankroll.spentToday,
-          lastReplenishDate: bankroll.lastResetAt,
-        },
-      });
-    }
-  }, [bankroll]);
+  }, [isAuthenticated, profile]);
 
   // Fetch user's bets from API on auth
   const refreshBets = useCallback(async () => {
@@ -341,7 +326,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
             resolvedAt: string | null;
           }) => ({
             id: apiBet.id,
-            userId: user?.id || '',
+            userId: userId || '',
             sailingId: apiBet.sailingId,
             corridorId: apiBet.corridorId,
             betType: apiBet.betType,
@@ -365,7 +350,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, userId]);
 
   // Fetch bets on initial auth
   useEffect(() => {
@@ -477,7 +462,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       // Create bet from server response
       const bet: Bet = {
         id: data.bet.id,
-        userId: user?.id || '',
+        userId: userId || '',
         sailingId,
         betType,
         stake,
@@ -514,7 +499,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.settings.enabled, state.bankroll, state.bets, isAuthenticated, user?.id]);
+  }, [state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
 
   const getBetForSailing = useCallback((sailingId: string): Bet | undefined => {
     return state.bets.get(sailingId);

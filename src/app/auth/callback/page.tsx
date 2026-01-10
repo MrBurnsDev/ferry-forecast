@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * OAuth Callback Page
+ * OAuth Callback Page - SIMPLIFIED
  *
- * Handles the redirect from OAuth providers (Google, Apple).
- * Uses PKCE flow - the Supabase client detects and processes the auth tokens
- * from the URL hash automatically via detectSessionInUrl.
+ * Rules:
+ * 1. Let Supabase complete OAuth (detectSessionInUrl handles this)
+ * 2. Redirect ONCE after session is detected
+ * 3. NO timers, NO retries, NO polling
  */
 
 import { useEffect, useState } from 'react';
@@ -14,81 +15,46 @@ import { supabase } from '@/lib/supabase/client';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for error in URL params
+    // Check for OAuth error in URL
     const params = new URLSearchParams(window.location.search);
-    const error = params.get('error');
+    const urlError = params.get('error');
     const errorDescription = params.get('error_description');
 
-    if (error) {
-      console.error('[AUTH CALLBACK] OAuth error:', error, errorDescription);
-      setStatus('error');
-      setErrorMessage(errorDescription || error || 'Sign in failed');
+    if (urlError) {
+      console.error('[AUTH CALLBACK] OAuth error:', urlError, errorDescription);
+      setError(errorDescription || urlError);
       return;
     }
 
-    // Wait for the SIGNED_IN event which confirms the session is established
     if (!supabase) {
-      setStatus('error');
-      setErrorMessage('Authentication not configured');
+      setError('Authentication not configured');
       return;
     }
 
-    let redirected = false;
-
+    // Listen for auth state change - Supabase will fire SIGNED_IN when ready
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('[AUTH CALLBACK] Auth event:', event, session?.user?.id ? 'has user' : 'no user');
+        console.log('[AUTH CALLBACK] Event:', event, session ? 'has session' : 'no session');
 
-        if (redirected) return;
-
-        if (event === 'SIGNED_IN' && session?.user) {
-          redirected = true;
+        if (session) {
+          // We have a session - redirect immediately
           const redirectTo = localStorage.getItem('auth_redirect') || '/';
           localStorage.removeItem('auth_redirect');
-
           console.log('[AUTH CALLBACK] Session confirmed, redirecting to:', redirectTo);
-          setStatus('success');
-
-          // Small delay to ensure session is persisted to storage
-          setTimeout(() => {
-            router.replace(redirectTo);
-          }, 500);
+          router.replace(redirectTo);
         }
       }
     );
 
-    // Fallback: if no SIGNED_IN event after 5 seconds, check session and redirect anyway
-    const fallbackTimer = setTimeout(async () => {
-      if (redirected) return;
-
-      console.log('[AUTH CALLBACK] Fallback triggered, checking session...');
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        redirected = true;
-        const redirectTo = localStorage.getItem('auth_redirect') || '/';
-        localStorage.removeItem('auth_redirect');
-        console.log('[AUTH CALLBACK] Fallback: session found, redirecting to:', redirectTo);
-        setStatus('success');
-        router.replace(redirectTo);
-      } else {
-        console.error('[AUTH CALLBACK] Fallback: no session found');
-        setStatus('error');
-        setErrorMessage('Sign in failed. Please try again.');
-      }
-    }, 5000);
-
     return () => {
       subscription.unsubscribe();
-      clearTimeout(fallbackTimer);
     };
   }, [router]);
 
-  if (status === 'error') {
+  if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="max-w-md mx-auto p-6 text-center">
@@ -98,9 +64,7 @@ export default function AuthCallbackPage() {
           <h1 className="text-xl font-semibold text-foreground mb-2">
             Sign In Problem
           </h1>
-          <p className="text-muted-foreground mb-6">
-            {errorMessage}
-          </p>
+          <p className="text-muted-foreground mb-6">{error}</p>
           <button
             onClick={() => router.push('/')}
             className="px-6 py-2 bg-accent text-accent-foreground rounded-lg font-medium hover:bg-accent/90 transition-colors"
@@ -119,10 +83,10 @@ export default function AuthCallbackPage() {
           <LoadingIcon className="w-8 h-8 text-accent" />
         </div>
         <h1 className="text-xl font-semibold text-foreground mb-2">
-          {status === 'success' ? 'Signed In!' : 'Completing Sign In...'}
+          Completing Sign In...
         </h1>
         <p className="text-muted-foreground">
-          {status === 'success' ? 'Redirecting you now.' : 'Just a moment while we set up your account.'}
+          Just a moment.
         </p>
       </div>
     </div>
@@ -131,13 +95,7 @@ export default function AuthCallbackPage() {
 
 function LoadingIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={`${className} animate-spin`}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
+    <svg className={`${className} animate-spin`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <circle cx="12" cy="12" r="10" strokeOpacity={0.25} />
       <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
     </svg>
@@ -146,13 +104,7 @@ function LoadingIcon({ className }: { className?: string }) {
 
 function AlertIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />

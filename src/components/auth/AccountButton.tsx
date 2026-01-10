@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * Account Button Component
+ * Account Button Component - SIMPLIFIED
  *
  * Shows "My Account" button in the navigation bar.
  * Opens a dropdown with sign-in options or user menu.
  *
- * Supports Google and Apple sign-in only.
+ * Uses session-based auth (session exists = authenticated).
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -24,7 +24,7 @@ export function AccountButton() {
 }
 
 function AccountButtonInner() {
-  const { user, isAuthenticated, isLoading, signOut, toggleBettingMode } = useAuth();
+  const { session, profile, isAuthenticated, isLoading, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +39,17 @@ function AccountButtonInner() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Get display name from profile or session
+  const displayName = profile?.displayName ||
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split('@')[0] ||
+    'User';
+
+  const provider = profile?.provider ||
+    session?.user?.app_metadata?.provider ||
+    'google';
 
   // Loading state
   if (isLoading) {
@@ -56,10 +67,10 @@ function AccountButtonInner() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/50 hover:bg-secondary text-foreground text-sm font-medium transition-colors"
       >
-        {isAuthenticated && user ? (
+        {isAuthenticated ? (
           <>
             <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
-              {user.username.charAt(0).toUpperCase()}
+              {displayName.charAt(0).toUpperCase()}
             </div>
             <span className="hidden sm:inline">My Account</span>
             <span className="sm:hidden">Account</span>
@@ -77,46 +88,22 @@ function AccountButtonInner() {
       {/* Dropdown menu */}
       {isOpen && (
         <div className="absolute right-0 mt-2 w-72 bg-popover border border-border rounded-lg shadow-lg overflow-hidden z-50">
-          {isAuthenticated && user ? (
+          {isAuthenticated ? (
             <>
               {/* Signed in state */}
               <div className="px-4 py-3 border-b border-border/50">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-lg font-medium">
-                    {user.username.charAt(0).toUpperCase()}
+                    {displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground truncate">
-                      {user.username}
+                      {displayName}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Signed in with {user.provider === 'google' ? 'Google' : 'Apple'}
+                      Signed in with {provider === 'google' ? 'Google' : provider === 'apple' ? 'Apple' : provider}
                     </p>
                   </div>
-                </div>
-              </div>
-
-              {/* Betting Mode Toggle */}
-              <div className="px-4 py-3 border-b border-border/50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Betting Mode</p>
-                    <p className="text-xs text-muted-foreground">
-                      {user.bettingModeEnabled ? 'Odds & stakes shown' : 'Neutral predictions'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => toggleBettingMode(!user.bettingModeEnabled)}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${
-                      user.bettingModeEnabled ? 'bg-accent' : 'bg-secondary'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                        user.bettingModeEnabled ? 'translate-x-5' : ''
-                      }`}
-                    />
-                  </button>
                 </div>
               </div>
 

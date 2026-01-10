@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * User Menu Component
+ * User Menu Component - SIMPLIFIED
  *
  * Shows user avatar + dropdown menu when signed in.
  * Shows sign-in button when not authenticated.
  *
- * Phase 85: Updated for Google/Apple OAuth (Facebook removed).
+ * Uses session-based auth (session exists = authenticated).
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -28,9 +28,20 @@ export function UserMenu({ className = '' }: UserMenuProps) {
 }
 
 function UserMenuInner({ className }: UserMenuProps) {
-  const { user, isAuthenticated, isLoading, signOut } = useAuth();
+  const { session, profile, isAuthenticated, isLoading, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Get display name from profile or session
+  const displayName = profile?.displayName ||
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split('@')[0] ||
+    'User';
+
+  const provider = profile?.provider ||
+    session?.user?.app_metadata?.provider ||
+    'google';
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -52,7 +63,7 @@ function UserMenuInner({ className }: UserMenuProps) {
   }
 
   // Not authenticated - show sign-in buttons
-  if (!isAuthenticated || !user) {
+  if (!isAuthenticated) {
     return (
       <SignInButtons variant="compact" className={className} />
     );
@@ -67,7 +78,7 @@ function UserMenuInner({ className }: UserMenuProps) {
         className="flex items-center gap-2 rounded-full hover:ring-2 hover:ring-accent/30 transition-all"
       >
         <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-sm font-medium">
-          {user.username.charAt(0).toUpperCase()}
+          {displayName.charAt(0).toUpperCase()}
         </div>
       </button>
 
@@ -77,10 +88,10 @@ function UserMenuInner({ className }: UserMenuProps) {
           {/* User info */}
           <div className="px-4 py-3 border-b border-border/50">
             <p className="font-medium text-foreground truncate">
-              {user.username}
+              {displayName}
             </p>
             <p className="text-xs text-muted-foreground">
-              Signed in with {user.provider === 'google' ? 'Google' : 'Apple'}
+              Signed in with {provider === 'google' ? 'Google' : provider === 'apple' ? 'Apple' : provider}
             </p>
           </div>
 
@@ -116,19 +127,26 @@ export function UserAvatar({ className = '' }: { className?: string }) {
 }
 
 function UserAvatarInner({ className }: { className?: string }) {
-  const { user, isAuthenticated } = useAuth();
+  const { session, profile, isAuthenticated } = useAuth();
 
-  if (!isAuthenticated || !user) {
+  if (!isAuthenticated) {
     return null;
   }
+
+  // Get display name from profile or session
+  const displayName = profile?.displayName ||
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split('@')[0] ||
+    'User';
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-medium">
-        {user.username.charAt(0).toUpperCase()}
+        {displayName.charAt(0).toUpperCase()}
       </div>
       <span className="text-sm font-medium text-foreground truncate max-w-[100px]">
-        {user.username}
+        {displayName}
       </span>
     </div>
   );

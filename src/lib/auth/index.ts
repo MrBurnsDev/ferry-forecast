@@ -1,27 +1,27 @@
 /**
- * Auth Module
+ * Auth Module - SIMPLIFIED
  *
  * Google and Apple OAuth authentication.
- * Facebook has been intentionally removed.
+ * Session exists = authenticated. Profile is optional.
  */
 
-// Types
+// Types from new context
 export type {
   AuthProvider as AuthProviderType,
-  User,
-  SessionUser,
-  Bankroll,
-  AuthState,
-  AuthActions,
+  UserProfile,
   AuthContextValue,
-  OAuthCallbackResult,
-} from './types';
+} from './context';
 
 // Context and hooks
 export {
   AuthProvider,
   useAuth,
-  useAuthAvailable,
-  useUser,
   useAuthSafe,
+  useIsAuthenticated,
 } from './context';
+
+// Helper to check if auth is available
+export function useAuthAvailable(): boolean {
+  // Auth is always "available" - just may not be configured
+  return true;
+}
