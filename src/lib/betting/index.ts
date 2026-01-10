@@ -5,6 +5,14 @@
  * Points-based, zero-stakes social competition.
  */
 
+// Constants (shared between client and server)
+export {
+  BETTING_LOCKOUT_MINUTES,
+  DEFAULT_STAKE_POINTS,
+  INITIAL_BANKROLL_POINTS,
+  DAILY_LIMIT_POINTS,
+} from './constants';
+
 // Types
 export type {
   Bet,

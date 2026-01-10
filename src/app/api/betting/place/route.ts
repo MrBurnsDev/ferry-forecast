@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createBearerClient } from '@/lib/supabase/serverBearerClient';
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
 import { isValidApiBetType, type PlaceBetRequest } from '@/types/betting-api';
+import { BETTING_LOCKOUT_MINUTES, DEFAULT_STAKE_POINTS } from '@/lib/betting/constants';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -46,16 +47,6 @@ interface PlaceBetResult {
 interface BankrollData {
   balance_points: number;
 }
-
-/**
- * Default stake for all bets (simplified prediction model)
- */
-const DEFAULT_STAKE = 100;
-
-/**
- * Betting window - must be at least this many minutes before departure
- */
-const BETTING_WINDOW_MINUTES = 60;
 
 /**
  * Convert likelihood percentage to American odds
@@ -169,17 +160,17 @@ export async function POST(request: NextRequest) {
     const departureTimestampMs = new Date(departureTimeIso).getTime();
     const likelihood = sailing.likelihood_to_run_pct ?? 90; // Default to 90% if not computed
 
-    // Validate betting window (must be 60+ minutes before departure)
+    // Validate betting window (must be BETTING_LOCKOUT_MINUTES+ before departure)
     const minutesUntilDeparture = (departureTimestampMs - Date.now()) / (1000 * 60);
-    if (minutesUntilDeparture < BETTING_WINDOW_MINUTES) {
+    if (minutesUntilDeparture < BETTING_LOCKOUT_MINUTES) {
       return NextResponse.json(
-        { success: false, error: 'Betting window has closed - predictions must be made at least 60 minutes before departure' },
+        { success: false, error: `Betting window has closed - predictions must be made at least ${BETTING_LOCKOUT_MINUTES} minutes before departure` },
         { status: 400 }
       );
     }
 
     // Compute betting math server-side
-    const stakePoints = DEFAULT_STAKE;
+    const stakePoints = DEFAULT_STAKE_POINTS;
 
     // Get odds for the specific bet type
     const sailLikelihood = likelihood;

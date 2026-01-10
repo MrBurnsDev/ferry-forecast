@@ -5,19 +5,22 @@
 -- Safe to run multiple times (idempotent).
 --
 -- This migration:
--- 1. Adds unique index on (user_id, sailing_id) if not exists
--- 2. Adds points_awarded column for settlement if not exists
+-- 1. Verifies unique constraint on (user_id, sailing_id) exists (from 012)
+-- 2. Adds points_awarded column for settlement tracking
 
 SET search_path TO ferry_forecast, public;
 
 -- ============================================
--- 1. UNIQUE INDEX: ONE BET PER SAILING PER USER
+-- 1. UNIQUE CONSTRAINT VERIFICATION
 -- ============================================
--- Note: unique_user_sailing constraint already exists from migration 012.
--- This creates an explicit index for query performance if it doesn't exist.
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_unique_user_sailing
-  ON ferry_forecast.bets (user_id, sailing_id);
+-- The unique_user_sailing constraint already exists from migration 012.
+-- That constraint implicitly creates an index, so no additional index needed.
+--
+-- Reference (from 012):
+--   CONSTRAINT unique_user_sailing UNIQUE (user_id, sailing_id)
+--
+-- If you need to verify it exists, run:
+--   SELECT conname FROM pg_constraint WHERE conname = 'unique_user_sailing';
 
 -- ============================================
 -- 2. SETTLEMENT COLUMNS
@@ -27,3 +30,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_unique_user_sailing
 
 ALTER TABLE ferry_forecast.bets
   ADD COLUMN IF NOT EXISTS points_awarded INTEGER;
+
+-- ============================================
+-- 3. INDEX FOR SETTLEMENT QUERIES
+-- ============================================
+-- Index for finding pending bets that are ready for settlement
+-- (locked_at < now AND status = 'pending')
+
+CREATE INDEX IF NOT EXISTS idx_bets_settlement_ready
+  ON ferry_forecast.bets (locked_at, status)
+  WHERE status = 'pending';

@@ -4,8 +4,9 @@
  * POST /api/betting/settle
  *
  * Phase 90: Automated bet settlement based on sailing outcomes.
+ * Phase 91: Standardized on CRON_SECRET only, added X-Cron-Secret fallback.
  *
- * This endpoint is designed to be called by a cron job (e.g., Vercel Cron).
+ * This endpoint is designed to be called by a cron job (Vercel Cron).
  * It finds pending bets for sailings that have departed and resolves them
  * based on the observed outcome from sailing_events.
  *
@@ -24,7 +25,9 @@
  * - Running twice will NOT double-award points
  *
  * SECURITY:
- * - Requires CRON_SECRET or BET_RESOLUTION_SECRET_KEY for authorization
+ * - Requires CRON_SECRET for authorization
+ * - Accepts: Authorization: Bearer <CRON_SECRET>
+ * - Accepts: X-Cron-Secret: <CRON_SECRET> (fallback for manual testing)
  * - Uses service role client to bypass RLS
  */
 
@@ -65,43 +68,39 @@ interface SettlementResult {
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  console.log('[SETTLE] Starting bet settlement cron job');
+  console.log('[BET SETTLE] Starting bet settlement cron job');
 
   try {
     // ============================================================
     // 1. AUTHORIZATION
     // ============================================================
-    // Accept either CRON_SECRET (Vercel Cron) or BET_RESOLUTION_SECRET_KEY
+    // Standardized on CRON_SECRET only (Phase 91)
     const authHeader = request.headers.get('authorization');
+    const xCronSecret = request.headers.get('x-cron-secret');
     const cronSecret = process.env.CRON_SECRET;
-    const betSecret = process.env.BET_RESOLUTION_SECRET_KEY;
 
     let authorized = false;
 
-    // Check Authorization header (Bearer token)
-    if (authHeader) {
+    // Check Authorization header (Bearer token) - Vercel Cron uses this
+    if (authHeader && cronSecret) {
       const token = authHeader.replace('Bearer ', '');
-      if ((cronSecret && token === cronSecret) || (betSecret && token === betSecret)) {
+      if (token === cronSecret) {
         authorized = true;
       }
     }
 
-    // Also check body for secretKey (backwards compat with resolve endpoint)
-    if (!authorized) {
-      try {
-        const body = await request.clone().json();
-        if (body.secretKey && (body.secretKey === cronSecret || body.secretKey === betSecret)) {
-          authorized = true;
-        }
-      } catch {
-        // No body or invalid JSON - that's fine
+    // Check X-Cron-Secret header (for manual testing via curl)
+    if (!authorized && xCronSecret && cronSecret) {
+      if (xCronSecret === cronSecret) {
+        authorized = true;
       }
     }
 
     // In development, allow without auth for testing
     if (!authorized && process.env.NODE_ENV !== 'development') {
-      if (!cronSecret && !betSecret) {
-        console.warn('[SETTLE] No CRON_SECRET or BET_RESOLUTION_SECRET_KEY configured');
+      console.log('[BET SETTLE] authorized: false');
+      if (!cronSecret) {
+        console.warn('[BET SETTLE] No CRON_SECRET configured in environment');
       }
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -109,12 +108,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('[BET SETTLE] authorized: true');
+
     // ============================================================
     // 2. INITIALIZE SUPABASE CLIENT
     // ============================================================
     const supabase = createServiceRoleClient({ allowNull: true });
     if (!supabase) {
-      console.error('[SETTLE] Supabase service client not configured');
+      console.error('[BET SETTLE] Supabase service client not configured');
       return NextResponse.json(
         { success: false, error: 'Service not configured' },
         { status: 500 }
@@ -137,7 +138,7 @@ export async function POST(request: NextRequest) {
       .limit(100); // Process in batches to avoid timeouts
 
     if (fetchError) {
-      console.error('[SETTLE] Failed to fetch pending bets:', fetchError);
+      console.error('[BET SETTLE] Failed to fetch pending bets:', fetchError);
       return NextResponse.json(
         { success: false, error: 'Failed to fetch pending bets', details: fetchError.message },
         { status: 500 }
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!pendingBets || pendingBets.length === 0) {
-      console.log('[SETTLE] No pending bets to settle');
+      console.log('[BET SETTLE] No pending bets to settle');
       return NextResponse.json({
         success: true,
         message: 'No pending bets to settle',
@@ -160,7 +161,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log(`[SETTLE] Found ${pendingBets.length} pending bets to process`);
+    console.log(`[BET SETTLE] Found ${pendingBets.length} pending bets to process`);
 
     // ============================================================
     // 4. GET SAILING OUTCOMES
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest) {
 
     // Collect unique sailing identifiers
     const sailingIds = [...new Set(pendingBets.map(b => b.sailing_id))];
-    console.log(`[SETTLE] Unique sailings to look up: ${sailingIds.length}`);
+    console.log(`[BET SETTLE] Unique sailings to look up: ${sailingIds.length}`);
 
     // Sailing ID format assumption: We need to derive the lookup key from sailing_id
     // Looking at the codebase, sailing_id appears to be constructed as:
@@ -189,7 +190,7 @@ export async function POST(request: NextRequest) {
       // Example: "woods-hole-vineyard-haven_woods-hole_vineyard-haven_2025-01-10_8:30am"
       const parts = bet.sailing_id.split('_');
       if (parts.length < 5) {
-        console.warn(`[SETTLE] Invalid sailing_id format: ${bet.sailing_id}`);
+        console.warn(`[BET SETTLE] Invalid sailing_id format: ${bet.sailing_id}`);
         continue;
       }
 
@@ -215,7 +216,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (eventError) {
-        console.warn(`[SETTLE] Error fetching sailing event for ${bet.sailing_id}:`, eventError.message);
+        console.warn(`[BET SETTLE] Error fetching sailing event for ${bet.sailing_id}:`, eventError.message);
         continue;
       }
 
@@ -239,7 +240,7 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
 
         if (altError || !altEvent) {
-          console.warn(`[SETTLE] No sailing event found for ${bet.sailing_id}`);
+          console.warn(`[BET SETTLE] No sailing event found for ${bet.sailing_id}`);
           continue;
         }
 
@@ -257,7 +258,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[SETTLE] Found outcomes for ${outcomeMap.size}/${sailingIds.length} sailings`);
+    console.log(`[BET SETTLE] Found outcomes for ${outcomeMap.size}/${sailingIds.length} sailings`);
 
     // ============================================================
     // 5. SETTLE EACH BET
@@ -301,7 +302,7 @@ export async function POST(request: NextRequest) {
       );
 
       if (resolveError) {
-        console.error(`[SETTLE] Error resolving bet ${bet.id}:`, resolveError.message);
+        console.error(`[BET SETTLE] Error resolving bet ${bet.id}:`, resolveError.message);
         results.push({
           betId: bet.id,
           userId: bet.user_id,
@@ -323,7 +324,7 @@ export async function POST(request: NextRequest) {
         .eq('id', bet.id);
 
       if (updateError) {
-        console.warn(`[SETTLE] Failed to update points_awarded for bet ${bet.id}:`, updateError.message);
+        console.warn(`[BET SETTLE] Failed to update points_awarded for bet ${bet.id}:`, updateError.message);
       }
 
       if (won) {
@@ -349,7 +350,7 @@ export async function POST(request: NextRequest) {
     const durationMs = Date.now() - startTime;
 
     console.log(
-      `[SETTLE] Settlement complete: processed=${results.length} won=${wonCount} lost=${lostCount} ` +
+      `[BET SETTLE] Settlement complete: processed=${results.length} won=${wonCount} lost=${lostCount} ` +
       `skipped=${skippedCount} errors=${errorCount} duration=${durationMs}ms`
     );
 
@@ -367,7 +368,7 @@ export async function POST(request: NextRequest) {
       results: results.slice(0, 20), // Only return first 20 for response size
     });
   } catch (error) {
-    console.error('[SETTLE] Unexpected error:', error);
+    console.error('[BET SETTLE] Unexpected error:', error);
     return NextResponse.json(
       {
         success: false,

@@ -9,17 +9,16 @@
  * Phase 86E: Removed serverAuthReady gating - betting UI activates
  * as soon as client-side session exists.
  * Phase 86F: Simplified to thumbs up/down model - no betting math in UI.
+ * Phase 91: Added lockout window explanation for disabled controls.
  */
 
 import { useState } from 'react';
 import {
   useBetting,
   useBettingAvailable,
+  BETTING_LOCKOUT_MINUTES,
   type BetType,
 } from '@/lib/betting';
-// Auth imports available for future integration when betting persistence is added
-// import { useAuth, useAuthAvailable } from '@/lib/auth';
-// import { SignInWithFacebookButton } from '@/components/auth';
 
 // Phase 88: Simplified props - no odds display needed
 interface SailingBetCardProps {
@@ -61,11 +60,13 @@ function SailingBetCardInner({
   className,
   compact,
 }: SailingBetCardProps) {
-  const { bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet } = useBetting();
+  const { bettingEnabled, isBettingMode, lang, placeBet, getBetForSailing, getTimeUntilLock, canPlaceBet, refreshBets } = useBetting();
 
   // Hooks must be called unconditionally
   const [isPlacing, setIsPlacing] = useState(false);
   const [showConfirm, setShowConfirm] = useState<BetType | null>(null);
+  const [justPlaced, setJustPlaced] = useState<BetType | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Get existing bet
   const existingBet = getBetForSailing(sailingId);
@@ -79,6 +80,7 @@ function SailingBetCardInner({
   }
 
   // Phase 86F: Quick bet handler - sends intent only, server computes all math
+  // Phase 91: Added immediate feedback with toast and refreshBets reconciliation
   const handleQuickBet = async (betType: BetType) => {
     // Defensive runtime check
     if (!corridorId) {
@@ -86,15 +88,45 @@ function SailingBetCardInner({
       return;
     }
     setIsPlacing(true);
+    setError(null);
     const result = await placeBet(sailingId, corridorId, betType);
     setIsPlacing(false);
     setShowConfirm(null);
 
-    if (!result.success) {
-      // Could show error toast here
-      console.error('Bet failed:', result.error);
+    if (result.success) {
+      // Show success confirmation briefly
+      setJustPlaced(betType);
+      setTimeout(() => setJustPlaced(null), 2000);
+      // Trigger background sync to reconcile
+      refreshBets();
+    } else {
+      // Show user-friendly error
+      setError(result.error || 'Failed to place prediction');
+      setTimeout(() => setError(null), 3000);
     }
   };
+
+  // Show success confirmation toast (briefly after placing bet)
+  if (justPlaced) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <span className="text-xs px-2 py-0.5 rounded bg-success-muted text-success animate-pulse">
+          {justPlaced === 'will_sail' ? '👍' : '👎'} {isBettingMode ? 'Bet placed!' : 'Prediction placed!'}
+        </span>
+      </div>
+    );
+  }
+
+  // Show error message (briefly after failed bet)
+  if (error) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <span className="text-xs px-2 py-0.5 rounded bg-destructive-muted text-destructive">
+          {error}
+        </span>
+      </div>
+    );
+  }
 
   // If there's an existing bet, show it
   if (existingBet) {
@@ -123,9 +155,32 @@ function SailingBetCardInner({
     );
   }
 
-  // If locked, show nothing or locked indicator
+  // If locked, show disabled indicator with explanation
   if (locked) {
-    return null;
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <div className="flex items-center gap-1 opacity-50">
+          <button
+            disabled
+            className="text-xs px-2 py-0.5 rounded bg-secondary/30 border border-border/30 text-muted-foreground cursor-not-allowed"
+            title={`Predictions close ${BETTING_LOCKOUT_MINUTES} minutes before departure`}
+          >
+            👍
+          </button>
+          <span className="text-xs text-muted-foreground">/</span>
+          <button
+            disabled
+            className="text-xs px-2 py-0.5 rounded bg-secondary/30 border border-border/30 text-muted-foreground cursor-not-allowed"
+            title={`Predictions close ${BETTING_LOCKOUT_MINUTES} minutes before departure`}
+          >
+            👎
+          </button>
+        </div>
+        <span className="text-xs text-muted-foreground italic">
+          Closed
+        </span>
+      </div>
+    );
   }
 
   // Betting mode: show thumbs up/down buttons (Phase 88: no odds display)

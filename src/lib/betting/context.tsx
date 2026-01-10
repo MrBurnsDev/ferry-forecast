@@ -39,6 +39,7 @@ import {
   NEUTRAL_LANGUAGE,
   BETTING_LANGUAGE,
 } from './types';
+import { BETTING_LOCKOUT_MINUTES } from './constants';
 // Phase 86F: calculateProfit still needed for RESOLVE_BET action (local resolution)
 import { calculateProfit } from './odds';
 import { useAuthSafe } from '@/lib/auth';
@@ -563,7 +564,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
-    const lockMinutes = minutesUntil - 60; // Lock 60 min before departure
+    const lockMinutes = minutesUntil - BETTING_LOCKOUT_MINUTES;
 
     return {
       minutes: Math.max(0, Math.floor(lockMinutes)),
