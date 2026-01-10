@@ -19,9 +19,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 } else {
   // Client for browser-side usage - configured to use ferry_forecast schema
+  // Note: Auth operations use the default 'auth' schema automatically
   supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     db: {
       schema: SCHEMA_NAME,
+    },
+    auth: {
+      // Ensure auth works correctly in browser
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
     },
   });
 }
