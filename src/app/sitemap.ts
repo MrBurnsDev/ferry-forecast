@@ -23,7 +23,7 @@ import { CORRIDORS } from '@/lib/config/corridors';
 import { TERMINALS } from '@/lib/config/terminals';
 import { VALID_REGION_IDS } from '@/lib/region/state';
 
-const BASE_URL = 'https://istheferryrunning.com';
+const BASE_URL = 'https://www.istheferryrunning.com';
 
 // Operator URL slugs (used in URL paths)
 const OPERATORS = [

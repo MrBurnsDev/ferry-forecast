@@ -12,6 +12,23 @@ export const metadata: Metadata = {
   },
 };
 
+// WebSite Schema for structured data (enables potential SearchBox)
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Is the Ferry Running?",
+  "url": "https://www.istheferryrunning.com",
+  "description": "Ferry delay and cancellation forecasts for Martha's Vineyard, Nantucket, and Cape Cod ferry routes",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "https://www.istheferryrunning.com/region/cci"
+    },
+    "query-input": "required name=search_term_string"
+  }
+};
+
 // FAQ Schema for structured data
 const faqSchema = {
   "@context": "https://schema.org",
@@ -109,6 +126,11 @@ const regions = [
 export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* WebSite Structured Data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+      />
       {/* FAQ Structured Data */}
       <script
         type="application/ld+json"
