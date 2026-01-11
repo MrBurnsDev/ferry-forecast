@@ -4,10 +4,6 @@
     {
       "path": "/api/forecast/ingest",
       "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/betting/settle",
-      "schedule": "0 * * * *"
     }
   ]
 }
