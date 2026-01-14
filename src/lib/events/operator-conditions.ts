@@ -170,7 +170,7 @@ export async function upsertOperatorConditions(
   // will reject duplicates automatically
   try {
     const { data, error } = await supabase
-      .from('operator_conditions')
+      .from('cancellation_operator_conditions')
       .insert(rows)
       .select('id');
 
@@ -224,7 +224,7 @@ export async function getLatestOperatorConditions(
 
   try {
     const { data, error } = await supabase
-      .from('operator_conditions')
+      .from('cancellation_operator_conditions')
       .select('*')
       .eq('operator_id', operatorId)
       .eq('terminal_slug', terminalSlug)
@@ -275,7 +275,7 @@ export async function getLatestOperatorConditionsForTerminals(
   try {
     // Get all recent conditions for these terminals
     const { data, error } = await supabase
-      .from('operator_conditions')
+      .from('cancellation_operator_conditions')
       .select('*')
       .eq('operator_id', operatorId)
       .in('terminal_slug', terminalSlugs)
@@ -322,7 +322,7 @@ export async function hasRecentOperatorConditions(
 
   try {
     const { count, error } = await supabase
-      .from('operator_conditions')
+      .from('cancellation_operator_conditions')
       .select('id', { count: 'exact', head: true })
       .eq('operator_id', operatorId)
       .gte('observed_at', cutoff);
@@ -563,7 +563,7 @@ export async function checkDailyConditionsIngestion(operatorId: string): Promise
 
   try {
     const { count, error } = await supabase
-      .from('operator_conditions')
+      .from('cancellation_operator_conditions')
       .select('id', { count: 'exact', head: true })
       .eq('operator_id', operatorId)
       .gte('observed_at', cutoff);
