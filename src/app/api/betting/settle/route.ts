@@ -25,9 +25,9 @@
  * - Running twice will NOT double-award points
  *
  * SECURITY:
- * - Requires CRON_SECRET for authorization
- * - Accepts: Authorization: Bearer <CRON_SECRET>
- * - Accepts: X-Cron-Secret: <CRON_SECRET> (fallback for manual testing)
+ * - Requires CRON_SECRET or CRON_PREDICTION_SECRET for authorization
+ * - Accepts: Authorization: Bearer <SECRET>
+ * - Accepts: X-Cron-Secret: <SECRET> (fallback for manual testing)
  * - Uses service role client to bypass RLS
  */
 
@@ -74,24 +74,29 @@ export async function POST(request: NextRequest) {
     // ============================================================
     // 1. AUTHORIZATION
     // ============================================================
-    // Standardized on CRON_SECRET only (Phase 91)
+    // Accepts CRON_SECRET or CRON_PREDICTION_SECRET
     const authHeader = request.headers.get('authorization');
     const xCronSecret = request.headers.get('x-cron-secret');
-    const cronSecret = process.env.CRON_SECRET;
+
+    // Accept either secret
+    const validSecrets = [
+      process.env.CRON_SECRET,
+      process.env.CRON_PREDICTION_SECRET,
+    ].filter(Boolean);
 
     let authorized = false;
 
-    // Check Authorization header (Bearer token) - Vercel Cron uses this
-    if (authHeader && cronSecret) {
+    // Check Authorization header (Bearer token)
+    if (authHeader && validSecrets.length > 0) {
       const token = authHeader.replace('Bearer ', '');
-      if (token === cronSecret) {
+      if (validSecrets.includes(token)) {
         authorized = true;
       }
     }
 
     // Check X-Cron-Secret header (for manual testing via curl)
-    if (!authorized && xCronSecret && cronSecret) {
-      if (xCronSecret === cronSecret) {
+    if (!authorized && xCronSecret && validSecrets.length > 0) {
+      if (validSecrets.includes(xCronSecret)) {
         authorized = true;
       }
     }
@@ -99,8 +104,8 @@ export async function POST(request: NextRequest) {
     // In development, allow without auth for testing
     if (!authorized && process.env.NODE_ENV !== 'development') {
       console.log('[BET SETTLE] authorized: false');
-      if (!cronSecret) {
-        console.warn('[BET SETTLE] No CRON_SECRET configured in environment');
+      if (validSecrets.length === 0) {
+        console.warn('[BET SETTLE] No CRON_SECRET or CRON_PREDICTION_SECRET configured');
       }
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
