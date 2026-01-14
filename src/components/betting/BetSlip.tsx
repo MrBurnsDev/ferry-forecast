@@ -113,7 +113,7 @@ function BetSlipInner({
       <div className={`bg-accent-muted/20 border border-accent/30 rounded-lg p-4 ${className}`}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-foreground">
-            {isBettingMode ? 'Your Bet' : 'Your Prediction'}
+            Your Prediction
           </span>
           <span className={`text-xs px-2 py-0.5 rounded ${
             existingBet.status === 'won'
@@ -124,8 +124,8 @@ function BetSlipInner({
           }`}>
             {existingBet.status === 'pending' && (locked ? 'Locked' : 'Active')}
             {existingBet.status === 'locked' && 'Locked'}
-            {existingBet.status === 'won' && (isBettingMode ? 'Won!' : 'Correct!')}
-            {existingBet.status === 'lost' && (isBettingMode ? 'Lost' : 'Incorrect')}
+            {existingBet.status === 'won' && 'Correct!'}
+            {existingBet.status === 'lost' && 'Incorrect'}
           </span>
         </div>
 
@@ -174,7 +174,7 @@ function BetSlipInner({
         <div className="flex items-center gap-2 text-muted-foreground">
           <LockIcon className="w-4 h-4" />
           <span className="text-sm">
-            {isBettingMode ? 'Betting closed' : 'Predictions closed'} for this sailing
+            Predictions closed for this sailing
           </span>
         </div>
       </div>

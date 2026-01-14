@@ -140,7 +140,7 @@ function PredictionsLoading() {
 }
 
 function PredictionsContent() {
-  const { bettingEnabled, state, isBettingMode, refreshBets } = useBetting();
+  const { bettingEnabled, state, refreshBets } = useBetting();
   const { isAuthenticated, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'resolved'>('all');
 
@@ -437,25 +437,15 @@ function PredictionsContent() {
                                   {isWon && (
                                     <div>
                                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-muted text-success">
-                                        {isBettingMode ? 'Won' : 'Correct'}
+                                        Correct
                                       </span>
-                                      {bet.profit !== null && isBettingMode && (
-                                        <p className="text-xs font-medium text-success mt-1">
-                                          +{bet.profit} pts
-                                        </p>
-                                      )}
                                     </div>
                                   )}
                                   {isLost && (
                                     <div>
                                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive-muted text-destructive">
-                                        {isBettingMode ? 'Lost' : 'Wrong'}
+                                        Wrong
                                       </span>
-                                      {isBettingMode && (
-                                        <p className="text-xs font-medium text-destructive mt-1">
-                                          -{bet.stake} pts
-                                        </p>
-                                      )}
                                     </div>
                                   )}
                                 </div>

@@ -49,7 +49,7 @@ export function BetHistory({ className = '', limit = 10 }: BetHistoryProps) {
 }
 
 function BetHistoryInner({ className, limit }: BetHistoryProps) {
-  const { state, bettingEnabled, isBettingMode } = useBetting();
+  const { state, bettingEnabled } = useBetting();
 
   // Don't render if betting is not enabled
   if (!bettingEnabled) {
@@ -68,12 +68,10 @@ function BetHistoryInner({ className, limit }: BetHistoryProps) {
         <div className="text-center">
           <HistoryIcon className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
           <h3 className="text-sm font-medium text-foreground mb-1">
-            No {isBettingMode ? 'bets' : 'predictions'} yet
+            No predictions yet
           </h3>
           <p className="text-xs text-muted-foreground">
-            {isBettingMode
-              ? 'Place your first bet on an upcoming sailing'
-              : 'Make your first prediction on an upcoming sailing'}
+            Make your first prediction on an upcoming sailing
           </p>
         </div>
       </div>
@@ -85,7 +83,7 @@ function BetHistoryInner({ className, limit }: BetHistoryProps) {
       {/* Header */}
       <div className="px-4 py-3 border-b border-border/50">
         <h3 className="text-sm font-medium text-foreground">
-          {isBettingMode ? 'Bet History' : 'Prediction History'}
+          Prediction History
         </h3>
       </div>
 
@@ -127,25 +125,15 @@ function BetHistoryInner({ className, limit }: BetHistoryProps) {
                   {isWon && (
                     <div>
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-muted text-success">
-                        {isBettingMode ? 'Won' : 'Correct'}
+                        Correct
                       </span>
-                      {bet.profit !== null && isBettingMode && (
-                        <p className="text-xs font-medium text-success mt-1">
-                          +{bet.profit} pts
-                        </p>
-                      )}
                     </div>
                   )}
                   {isLost && (
                     <div>
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive-muted text-destructive">
-                        {isBettingMode ? 'Lost' : 'Wrong'}
+                        Wrong
                       </span>
-                      {isBettingMode && (
-                        <p className="text-xs font-medium text-destructive mt-1">
-                          -{bet.stake} pts
-                        </p>
-                      )}
                     </div>
                   )}
                 </div>
@@ -159,7 +147,7 @@ function BetHistoryInner({ className, limit }: BetHistoryProps) {
       {state.bets.size > (limit ?? 10) && (
         <div className="px-4 py-2 border-t border-border/50 bg-secondary/30">
           <p className="text-xs text-muted-foreground text-center">
-            Showing {limit} of {state.bets.size} {isBettingMode ? 'bets' : 'predictions'}
+            Showing {limit} of {state.bets.size} predictions
           </p>
         </div>
       )}

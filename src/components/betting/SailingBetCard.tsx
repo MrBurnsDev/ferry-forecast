@@ -111,7 +111,7 @@ function SailingBetCardInner({
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <span className="text-xs px-2 py-0.5 rounded bg-success-muted text-success animate-pulse">
-          {justPlaced === 'will_sail' ? '👍' : '👎'} {isBettingMode ? 'Bet placed!' : 'Prediction placed!'}
+          {justPlaced === 'will_sail' ? '👍' : '👎'} Prediction placed!
         </span>
       </div>
     );
@@ -139,11 +139,7 @@ function SailingBetCardInner({
               ? 'bg-destructive-muted text-destructive'
               : 'bg-accent-muted text-accent'
         }`}>
-          {isBettingMode ? (
-            existingBet.betType === 'will_sail' ? 'Bet: Sail' : 'Bet: Cancel'
-          ) : (
-            existingBet.betType === 'will_sail' ? 'Predicted: Sail' : 'Predicted: Cancel'
-          )}
+          {existingBet.betType === 'will_sail' ? 'Predicted: Sail' : 'Predicted: Cancel'}
         </span>
         {existingBet.status === 'won' && existingBet.profit !== null && (
           <span className="text-xs font-medium text-success">+{existingBet.profit}</span>
