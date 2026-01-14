@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('[BETTING API] user:', user.id);
+    console.log('[BETTING API] auth user id:', user.id, 'email:', user.email);
 
     // Get user ID from authenticated user
     const { data: userData, error: userError } = await supabase
@@ -56,11 +56,14 @@ export async function GET(request: NextRequest) {
       .single<UserData>();
 
     if (userError || !userData) {
+      console.log('[BETTING API] User not found for auth_provider_id:', user.id);
       return NextResponse.json(
-        { success: false, error: 'User not found' },
+        { success: false, error: 'User not found', authId: user.id },
         { status: 404 }
       );
     }
+
+    console.log('[BETTING API] Found ferry_forecast.users.id:', userData.id);
 
     // Get query params for filtering
     const { searchParams } = new URL(request.url);
@@ -88,6 +91,8 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    console.log('[BETTING API] Found', bets?.length || 0, 'bets for user_id:', userData.id);
 
     // Transform to client format
     const transformedBets = (bets || []).map(bet => ({
