@@ -10,8 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createBearerClient } from '@/lib/supabase/serverBearerClient';
 
-// Force dynamic rendering
+// Force dynamic rendering - no caching
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 // Type for user data from users table
 interface UserData {
