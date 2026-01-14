@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('[BETTING API] auth user id:', user.id, 'email:', user.email);
+    console.log('[BETTING API] auth user id:', user.id);
 
     // Get user ID from authenticated user
     const { data: userData, error: userError } = await supabase
