@@ -38,6 +38,20 @@ import { createServiceRoleClient } from '@/lib/supabase/serverServiceClient';
 export const dynamic = 'force-dynamic';
 
 /**
+ * Map bet operator IDs to sailing_events operator IDs
+ * Bets use full names like "steamship-authority" but sailing_events uses short slugs like "ssa"
+ */
+const OPERATOR_ID_MAP: Record<string, string> = {
+  'steamship-authority': 'ssa',
+  'hy-line-cruises': 'hy-line',
+  // Add more mappings as needed
+};
+
+function mapOperatorId(betOperatorId: string): string {
+  return OPERATOR_ID_MAP[betOperatorId] || betOperatorId;
+}
+
+/**
  * Convert compact time format to 24-hour format for DB lookup
  * Examples: "600am" -> "06:00:00", "1230pm" -> "12:30:00", "945am" -> "09:45:00"
  */
@@ -239,8 +253,9 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Extract components
-      const operatorId = parts[0];
+      // Extract components and map operator ID to DB format
+      const betOperatorId = parts[0];
+      const operatorId = mapOperatorId(betOperatorId); // Map "steamship-authority" -> "ssa"
       const fromPort = parts[1];
       const toPort = parts[2];
       const rawDepartureTime = parts[3]; // e.g., "600am", "1230pm"
@@ -263,7 +278,7 @@ export async function POST(request: NextRequest) {
       // DB stores as 24-hour format like "06:00:00"
       const normalizedTime = normalizeTimeFor24Hour(rawDepartureTime);
 
-      console.log(`[BET SETTLE] Looking up: operator=${operatorId} from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
+      console.log(`[BET SETTLE] Looking up: operator=${operatorId} (was ${betOperatorId}) from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
 
       // Query sailing_events for this sailing
       const { data: sailingEvent, error: eventError } = await supabase
