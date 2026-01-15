@@ -45,6 +45,52 @@ function TrendingUpIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Parse sailing ID to extract route and departure time info
+ * Format: operatorId_originSlug_destSlug_timeNormalized
+ * Example: steamship-authority_woods-hole_vineyard-haven_900am
+ */
+function parseSailingId(sailingId: string): { route: string; departureTime: string } | null {
+  try {
+    const parts = sailingId.split('_');
+    if (parts.length < 4) return null;
+
+    // Last part is the time (e.g., "900am", "1030pm")
+    const timeRaw = parts[parts.length - 1];
+
+    // Parse time: "900am" -> "9:00 AM", "1030pm" -> "10:30 PM"
+    const timeMatch = timeRaw.match(/^(\d{1,2})(\d{2})(am|pm)$/i);
+    let departureTime = timeRaw;
+    if (timeMatch) {
+      const hour = timeMatch[1];
+      const minutes = timeMatch[2];
+      const period = timeMatch[3].toUpperCase();
+      departureTime = `${hour}:${minutes} ${period}`;
+    }
+
+    // Origin and dest are the 2nd and 3rd parts (with possible hyphens)
+    // Need to handle multi-part slugs like "woods-hole" and "vineyard-haven"
+    // The format is: operator_from_to_time, but from/to can have hyphens
+    // So we need to reconstruct by finding known terminal names
+    const origin = parts[1];
+    const dest = parts[2];
+
+    // Format terminal names nicely
+    const formatTerminal = (slug: string): string => {
+      return slug
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    };
+
+    const route = `${formatTerminal(origin)} → ${formatTerminal(dest)}`;
+
+    return { route, departureTime };
+  } catch {
+    return null;
+  }
+}
+
 function TargetIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -53,24 +99,6 @@ function TargetIcon({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="2" />
     </svg>
   );
-}
-
-/**
- * Format relative time (e.g., "2h ago", "3d ago")
- */
-function formatRelativeTime(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
 
 /**
@@ -405,26 +433,57 @@ function PredictionsContent() {
                           const isWon = bet.status === 'won';
                           const isLost = bet.status === 'lost';
                           const isPending = bet.status === 'pending' || bet.status === 'locked';
+                          const sailingInfo = parseSailingId(bet.sailingId);
 
                           return (
                             <div key={bet.id} className="px-4 py-3 hover:bg-secondary/30 transition-colors">
                               <div className="flex items-start justify-between gap-3">
                                 {/* Left side: Bet details */}
                                 <div className="flex-1 min-w-0">
-                                  {/* Bet choice with emoji */}
+                                  {/* Sailing info - departure time and route */}
+                                  {sailingInfo && (
+                                    <div className="mb-1">
+                                      <span className="text-sm font-semibold text-foreground">
+                                        {sailingInfo.departureTime}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground ml-2">
+                                        {sailingInfo.route}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Bet choice with emoji and likelihood */}
                                   <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-lg">
+                                    <span className="text-base">
                                       {bet.betType === 'will_sail' ? '👍' : '👎'}
                                     </span>
-                                    <span className="text-sm font-medium text-foreground truncate">
+                                    <span className="text-sm text-foreground">
                                       {bet.betType === 'will_sail' ? 'Will Sail' : 'Will Cancel'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      @ {bet.likelihoodSnapshot}% likely
                                     </span>
                                   </div>
 
-                                  {/* Time placed */}
-                                  <p className="text-xs text-muted-foreground">
-                                    {formatRelativeTime(bet.placedAt)}
-                                  </p>
+                                  {/* Stake and potential payout */}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <span>Stake: {bet.stake} pts</span>
+                                    {isPending && (
+                                      <span className="text-accent">
+                                        Potential: +{bet.potentialPayout - bet.stake} pts
+                                      </span>
+                                    )}
+                                    {isWon && bet.profit !== null && (
+                                      <span className="text-success">
+                                        Won: +{bet.profit} pts
+                                      </span>
+                                    )}
+                                    {isLost && (
+                                      <span className="text-destructive">
+                                        Lost: -{bet.stake} pts
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
 
                                 {/* Right side: Status */}
