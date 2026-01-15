@@ -63,10 +63,16 @@ export async function createBearerClient(request: NextRequest): Promise<BearerAu
     return { supabase: null, user: null, error: 'No authorization token provided' };
   }
 
-  // Create Supabase client with anon key (NOT service role)
+  // Create Supabase client with the user's access token
+  // This allows RLS policies using auth.uid() to work correctly
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     db: {
       schema: SCHEMA_NAME,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
   });
 
