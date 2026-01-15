@@ -486,12 +486,13 @@ export async function GET() {
     });
   }
 
-  // Debug: query sailing_events to see what's actually there
+  // Debug: query sailing_events to see what's actually there for woods-hole route
   const { data: sampleEvents, error: eventsError } = await supabase
     .from('sailing_events')
     .select('operator_id, from_port, to_port, service_date, departure_time, status')
     .eq('operator_id', 'ssa')
     .eq('service_date', '2026-01-14')
+    .or('from_port.eq.woods-hole,to_port.eq.woods-hole')
     .limit(5);
 
   return NextResponse.json({
