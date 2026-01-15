@@ -104,10 +104,11 @@ export function MobileMenu() {
         <MenuIcon className="w-6 h-6 text-foreground" />
       </button>
 
-      {/* Overlay - uses navy theme color */}
+      {/* Overlay - solid navy to hide content behind */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-[#1a365d]/85 z-[60]"
+          className="fixed inset-0 z-[60]"
+          style={{ backgroundColor: '#1a365d' }}
           onClick={() => setIsOpen(false)}
         />
       )}
