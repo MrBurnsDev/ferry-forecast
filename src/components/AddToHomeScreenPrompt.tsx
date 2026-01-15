@@ -4,12 +4,12 @@
  * AddToHomeScreenPrompt Component
  *
  * A mobile-first bottom sheet prompt encouraging users to install
- * Ferry Forecast as a PWA on their home screen.
+ * "Is The Ferry Running?" as a PWA on their home screen.
  *
  * Features:
  * - Platform-aware: Shows iOS instructions vs Android native prompt
  * - Non-intrusive: Delayed appearance, dismissible
- * - Branded: Uses Ferry Forecast maritime styling
+ * - Branded: Uses maritime styling
  * - Accessible: Proper ARIA labels, keyboard navigation
  */
 
@@ -165,7 +165,7 @@ export function AddToHomeScreenPrompt() {
               <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg flex-shrink-0 bg-[#1a365d]">
                 <img
                   src="/icons/icon-192x192.png"
-                  alt="Ferry Forecast"
+                  alt="Is The Ferry Running?"
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -174,8 +174,9 @@ export function AddToHomeScreenPrompt() {
                   id="pwa-prompt-title"
                   className="text-lg font-semibold text-gray-900"
                 >
-                  Add Ferry Forecast to your Home Screen
+                  Add to Home Screen
                 </h2>
+                <p className="text-sm text-gray-500">Is The Ferry Running?</p>
               </div>
             </div>
 
@@ -185,38 +186,22 @@ export function AddToHomeScreenPrompt() {
               with spotty service at the terminal.
             </p>
 
-            {/* iOS-specific instructions */}
+            {/* iOS-specific instructions - simplified single step */}
             {showIOSInstructions && (
               <div className="bg-blue-50 rounded-xl p-4 mb-6">
-                <p className="text-sm font-medium text-blue-900 mb-3">
-                  To install on iOS:
-                </p>
-                <ol className="space-y-3">
-                  <li className="flex items-center gap-3 text-sm text-blue-800">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-medium flex-shrink-0">
-                      1
+                <div className="flex items-center gap-3 text-sm text-blue-800">
+                  <span className="flex items-center gap-2">
+                    Tap
+                    <span className="inline-flex items-center justify-center w-8 h-8 bg-white rounded-lg shadow-sm border border-blue-200">
+                      <ShareIcon className="w-5 h-5 text-blue-600" />
                     </span>
-                    <span className="flex items-center gap-2">
-                      Tap the
-                      <span className="inline-flex items-center justify-center w-7 h-7 bg-white rounded-lg shadow-sm border border-blue-200">
-                        <ShareIcon className="w-4 h-4 text-blue-600" />
-                      </span>
-                      Share button
+                    below, then
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white rounded-lg shadow-sm border border-blue-200 text-blue-700 text-xs font-medium">
+                      <PlusSquareIcon className="w-4 h-4" />
+                      Add to Home Screen
                     </span>
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-blue-800">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-medium flex-shrink-0">
-                      2
-                    </span>
-                    <span className="flex items-center gap-2">
-                      Select
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg shadow-sm border border-blue-200 text-blue-700 text-xs font-medium">
-                        <PlusSquareIcon className="w-4 h-4" />
-                        Add to Home Screen
-                      </span>
-                    </span>
-                  </li>
-                </ol>
+                  </span>
+                </div>
               </div>
             )}
 

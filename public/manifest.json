@@ -1,7 +1,7 @@
 {
-  "name": "Ferry Forecast",
-  "short_name": "Ferry Forecast",
-  "description": "Ferry delay and cancellation forecasts. Check if your ferry is running before you travel.",
+  "name": "Is The Ferry Running?",
+  "short_name": "Ferry Running?",
+  "description": "Is the ferry running today? Check delay and cancellation forecasts before you travel.",
   "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#1a365d",

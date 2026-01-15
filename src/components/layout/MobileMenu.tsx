@@ -107,7 +107,7 @@ export function MobileMenu() {
       {/* Overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[60]"
+          className="fixed inset-0 bg-black/70 z-[60]"
           onClick={() => setIsOpen(false)}
         />
       )}

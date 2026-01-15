@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Ferry Forecast',
+    title: 'Is The Ferry Running?',
   },
   formatDetection: {
     telephone: false,
@@ -76,7 +76,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Ferry Forecast" />
+        <meta name="apple-mobile-web-app-title" content="Is The Ferry Running?" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         {/* Splash screens for iOS */}
         <link
