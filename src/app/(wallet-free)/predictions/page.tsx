@@ -12,10 +12,11 @@
  */
 
 import Link from 'next/link';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { useBetting, useBettingAvailable } from '@/lib/betting';
 import { useAuth } from '@/lib/auth';
+import type { Outcome } from '@/lib/share';
 
 function WavesIcon({ className }: { className?: string }) {
   return (
@@ -114,22 +115,74 @@ function ShareIcon({ className }: { className?: string }) {
 }
 
 /**
- * Share a prediction on Facebook
+ * Share request parameters for the mystery quote API
  */
-function shareOnFacebook(corridorId: string, sailingInfo: { route: string; departureTime: string } | null, betType: string, likelihood: number) {
-  const baseUrl = 'https://ferry-forecast.vercel.app';
-  const corridorUrl = `${baseUrl}/corridor/${corridorId}`;
+interface ShareRequestParams {
+  corridorId: string;
+  sailingInfo: { route: string; departureTime: string } | null;
+  betType: string;
+  likelihood: number;
+  outcome: Outcome;
+  onToast: (message: string) => void;
+}
 
-  // Build a nice share message
-  const prediction = betType === 'will_sail' ? 'Will Sail' : 'Will Cancel';
-  const routeText = sailingInfo ? `the ${sailingInfo.departureTime} ${sailingInfo.route} ferry` : 'a ferry';
-  const shareText = `I predicted "${prediction}" for ${routeText} (model shows ${likelihood}% likely to sail). Check the live forecast!`;
+/**
+ * Share a prediction on Facebook with a mystery quote
+ * The quote is only generated when this function is called (on share click)
+ */
+async function shareOnFacebook({
+  corridorId,
+  sailingInfo,
+  betType,
+  likelihood,
+  outcome,
+  onToast,
+}: ShareRequestParams): Promise<void> {
+  try {
+    // Call the API to generate a mystery quote
+    const response = await fetch('/api/share/facebook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        corridorId,
+        outcome,
+        modelProbability: likelihood, // API handles 0-100 normalization
+        betType: betType as 'will_sail' | 'will_cancel',
+        departureTime: sailingInfo?.departureTime,
+        route: sailingInfo?.route,
+      }),
+    });
 
-  // Facebook Share Dialog URL
-  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(corridorUrl)}&quote=${encodeURIComponent(shareText)}`;
+    if (!response.ok) {
+      throw new Error('Failed to generate share quote');
+    }
 
-  // Open in new window
-  window.open(facebookUrl, 'facebook-share', 'width=580,height=400');
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to generate share');
+    }
+
+    // Try to copy quote to clipboard as fallback (Facebook often ignores prefilled text)
+    if (navigator.clipboard && data.quoteText) {
+      try {
+        await navigator.clipboard.writeText(data.quoteText);
+        onToast('Caption copied! Paste it into your post.');
+      } catch {
+        // Clipboard failed, continue anyway
+      }
+    }
+
+    // Open Facebook share dialog
+    window.open(data.shareUrl, 'facebook-share', 'width=580,height=400');
+  } catch (error) {
+    console.error('[SHARE] Error:', error);
+    // Fallback to basic share without mystery quote
+    const baseUrl = 'https://ferry-forecast.vercel.app';
+    const corridorUrl = `${baseUrl}/corridor/${corridorId}`;
+    const basicShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(corridorUrl)}`;
+    window.open(basicShareUrl, 'facebook-share', 'width=580,height=400');
+  }
 }
 
 /**
@@ -202,6 +255,13 @@ function PredictionsContent() {
   const { bettingEnabled, state, refreshBets } = useBetting();
   const { isAuthenticated, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'resolved'>('all');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Toast handler with auto-dismiss
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(null), 3000);
+  }, []);
 
   // Refresh bets on mount
   useEffect(() => {
@@ -538,12 +598,14 @@ function PredictionsContent() {
 
                                   {/* Share button */}
                                   <button
-                                    onClick={() => shareOnFacebook(
-                                      bet.corridorId,
+                                    onClick={() => shareOnFacebook({
+                                      corridorId: bet.corridorId,
                                       sailingInfo,
-                                      bet.betType,
-                                      bet.likelihoodSnapshot
-                                    )}
+                                      betType: bet.betType,
+                                      likelihood: bet.likelihoodSnapshot,
+                                      outcome: isWon ? 'correct' : isLost ? 'incorrect' : 'correct',
+                                      onToast: showToast,
+                                    })}
                                     className="inline-flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded transition-colors"
                                     title="Share on Facebook"
                                   >
@@ -571,6 +633,13 @@ function PredictionsContent() {
       </main>
 
       <SiteFooter />
+
+      {/* Toast notification for clipboard */}
+      {toastMessage && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-foreground text-background rounded-lg shadow-lg text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }
