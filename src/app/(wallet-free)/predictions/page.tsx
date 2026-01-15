@@ -163,15 +163,23 @@ async function shareOnFacebook({
       throw new Error(data.error || 'Failed to generate share');
     }
 
-    // Try to copy quote to clipboard as fallback (Facebook often ignores prefilled text)
+    // Copy quote to clipboard - Facebook ignores the quote parameter
+    // so users need to paste manually
     if (navigator.clipboard && data.quoteText) {
       try {
         await navigator.clipboard.writeText(data.quoteText);
-        onToast('Caption copied! Paste it into your post.');
+        // Show toast with Cmd+V / Ctrl+V hint
+        const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+        const pasteKey = isMac ? '⌘V' : 'Ctrl+V';
+        onToast(`Quote copied! Press ${pasteKey} to paste in Facebook`);
       } catch {
-        // Clipboard failed, continue anyway
+        // Clipboard failed, show the quote for manual copy
+        onToast('Copy this: ' + data.quoteText.slice(0, 60) + '...');
       }
     }
+
+    // Small delay so user sees the toast before Facebook opens
+    await new Promise(resolve => setTimeout(resolve, 400));
 
     // Open Facebook share dialog
     window.open(data.shareUrl, 'facebook-share', 'width=580,height=400');
@@ -257,10 +265,10 @@ function PredictionsContent() {
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'resolved'>('all');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Toast handler with auto-dismiss
+  // Toast handler with auto-dismiss (5s for share instructions)
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 5000);
   }, []);
 
   // Refresh bets on mount
