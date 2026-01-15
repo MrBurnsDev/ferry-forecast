@@ -114,28 +114,15 @@ export function MobileMenu() {
 
       {/* Slide-out Menu */}
       <div
-        className={`fixed top-0 right-0 h-full w-72 z-[70] transform transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 right-0 h-full w-72 z-[70] transform transition-transform duration-300 ease-in-out mobile-menu-solid ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{
-          backgroundColor: '#ffffff',
-          background: '#ffffff',
-          opacity: 1,
-        }}
       >
         {/* Solid background layer - must be opaque */}
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundColor: '#ffffff',
-            background: '#ffffff',
-            opacity: 1,
-            zIndex: 0,
-          }}
-        />
+        <div className="absolute inset-0 mobile-menu-solid" />
 
         {/* Content wrapper - relative to sit above background */}
-        <div className="relative h-full flex flex-col" style={{ zIndex: 1 }}>
+        <div className="relative h-full flex flex-col bg-white" style={{ zIndex: 1, backgroundColor: '#ffffff' }}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200" style={{ backgroundColor: '#1a365d' }}>
           <span className="font-semibold text-white">Menu</span>

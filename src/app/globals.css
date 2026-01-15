@@ -138,6 +138,13 @@
     text-wrap: balance;
   }
 
+  /* Mobile menu solid background - override any transparency */
+  .mobile-menu-solid {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    opacity: 1 !important;
+  }
+
   .gradient-text {
     @apply bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent;
   }
