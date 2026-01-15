@@ -389,6 +389,20 @@ export function BettingProvider({ children }: { children: ReactNode }) {
                    apiBet.status === 'lost' ? -apiBet.stakePoints : null,
           }));
           dispatch({ type: 'SET_BETS', payload: bets });
+
+          // Update bankroll from API response
+          if (data.bankroll) {
+            dispatch({
+              type: 'SET_BANKROLL',
+              payload: {
+                userId: userId || '',
+                balance: data.bankroll.balance,
+                dailyLimit: data.bankroll.dailyLimit,
+                spentToday: data.bankroll.spentToday,
+                lastReplenishDate: data.bankroll.lastResetAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+              },
+            });
+          }
         }
       } else {
         console.error('[BETTING] Failed to fetch bets:', response.status);

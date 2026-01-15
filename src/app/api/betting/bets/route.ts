@@ -36,6 +36,14 @@ interface BetData {
   resolved_at: string | null;
 }
 
+// Type for bankroll data
+interface BankrollData {
+  balance_points: number;
+  daily_limit: number;
+  spent_today: number;
+  last_reset_at: string;
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Authenticate via Bearer token
@@ -96,6 +104,17 @@ export async function GET(request: NextRequest) {
 
     console.log('[BETTING API] Found', bets?.length || 0, 'bets for user_id:', userData.id);
 
+    // Fetch bankroll for this user
+    const { data: bankroll, error: bankrollError } = await supabase
+      .from('bankrolls')
+      .select('balance_points, daily_limit, spent_today, last_reset_at')
+      .eq('user_id', userData.id)
+      .single<BankrollData>();
+
+    if (bankrollError) {
+      console.error('[BETTING API] Bankroll fetch error:', bankrollError);
+    }
+
     // Transform to client format
     const transformedBets = (bets || []).map(bet => ({
       id: bet.id,
@@ -115,6 +134,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       bets: transformedBets,
+      bankroll: bankroll ? {
+        balance: bankroll.balance_points,
+        dailyLimit: bankroll.daily_limit,
+        spentToday: bankroll.spent_today,
+        lastResetAt: bankroll.last_reset_at,
+      } : null,
     });
   } catch (error) {
     console.error('[BETTING] Unexpected error:', error);
