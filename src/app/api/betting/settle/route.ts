@@ -280,18 +280,31 @@ export async function POST(request: NextRequest) {
 
       console.log(`[BET SETTLE] Looking up: operator=${operatorId} (was ${betOperatorId}) from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
 
-      // Query sailing_events for this sailing
+      // Query sailing_events for this sailing - first try exact time match
       const { data: sailingEvent, error: eventError } = await supabase
         .from('sailing_events')
-        .select('status, observed_at')
+        .select('status, observed_at, departure_time')
         .eq('operator_id', operatorId)
         .eq('from_port', fromPort)
         .eq('to_port', toPort)
         .eq('service_date', serviceDate)
-        .or(`departure_time.eq.${normalizedTime},departure_time.ilike.%${rawDepartureTime}%`)
+        .eq('departure_time', normalizedTime)
         .order('observed_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      // Debug: if no exact match, query what times ARE available
+      if (!sailingEvent && !eventError) {
+        const { data: availableTimes } = await supabase
+          .from('sailing_events')
+          .select('departure_time')
+          .eq('operator_id', operatorId)
+          .eq('from_port', fromPort)
+          .eq('to_port', toPort)
+          .eq('service_date', serviceDate)
+          .limit(10);
+        console.log(`[BET SETTLE] No exact time match. Available times:`, availableTimes?.map(t => t.departure_time));
+      }
 
       if (eventError) {
         console.warn(`[BET SETTLE] Error fetching sailing event for ${bet.sailing_id}:`, eventError.message);
