@@ -486,6 +486,14 @@ export async function GET() {
     });
   }
 
+  // Debug: query sailing_events to see what's actually there
+  const { data: sampleEvents, error: eventsError } = await supabase
+    .from('sailing_events')
+    .select('operator_id, from_port, to_port, service_date, departure_time, status')
+    .eq('operator_id', 'ssa')
+    .eq('service_date', '2026-01-14')
+    .limit(5);
+
   return NextResponse.json({
     configured: true,
     pendingBetsReadyForSettlement: pendingBets?.length ?? 0,
@@ -497,6 +505,8 @@ export async function GET() {
         sailing_id: b.sailing_id,
         locked_at: b.locked_at,
       })),
+      sailingEventsQuery: eventsError ? eventsError.message : 'success',
+      sampleSailingEvents: sampleEvents?.slice(0, 3),
     },
   });
 }
