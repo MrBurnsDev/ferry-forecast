@@ -432,22 +432,33 @@ export async function GET() {
   // Get count of pending bets that are ready for settlement
   const now = new Date().toISOString();
 
-  const { count, error } = await supabase
+  // First get raw data to debug
+  const { data: pendingBets, error: listError } = await supabase
     .from('bets')
-    .select('*', { count: 'exact', head: true })
+    .select('id, sailing_id, status, locked_at')
     .eq('status', 'pending')
-    .lt('locked_at', now);
+    .lt('locked_at', now)
+    .limit(10);
 
-  if (error) {
+  if (listError) {
     return NextResponse.json({
       configured: true,
-      error: error.message,
+      error: listError.message,
+      debug: 'list query failed',
     });
   }
 
   return NextResponse.json({
     configured: true,
-    pendingBetsReadyForSettlement: count ?? 0,
+    pendingBetsReadyForSettlement: pendingBets?.length ?? 0,
     timestamp: now,
+    debug: {
+      betsFound: pendingBets?.length ?? 0,
+      sampleBets: pendingBets?.slice(0, 3).map(b => ({
+        id: b.id.substring(0, 8),
+        sailing_id: b.sailing_id,
+        locked_at: b.locked_at,
+      })),
+    },
   });
 }
