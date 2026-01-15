@@ -281,7 +281,7 @@ export async function POST(request: NextRequest) {
       console.log(`[BET SETTLE] Looking up: operator=${operatorId} (was ${betOperatorId}) from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
 
       // Query sailing_events for this sailing - first try exact time match
-      let { data: sailingEvent, error: eventError } = await supabase
+      const { data: initialSailingEvent, error: eventError } = await supabase
         .from('sailing_events')
         .select('status, observed_at, departure_time')
         .eq('operator_id', operatorId)
@@ -292,6 +292,8 @@ export async function POST(request: NextRequest) {
         .order('observed_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      let sailingEvent = initialSailingEvent;
 
       // If no exact match, try to find closest sailing within 30 min
       if (!sailingEvent && !eventError) {
