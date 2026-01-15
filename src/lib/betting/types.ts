@@ -22,6 +22,7 @@ export interface Bet {
   id: string;
   userId: string;
   sailingId: string;
+  corridorId: string;              // Corridor for linking (e.g., 'woods-hole-vineyard-haven')
   betType: BetType;
   stake: number;                    // Points wagered
   likelihoodSnapshot: number;       // Likelihood at bet time (0-100)

@@ -101,6 +101,37 @@ function TargetIcon({ className }: { className?: string }) {
   );
 }
 
+function ShareIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  );
+}
+
+/**
+ * Share a prediction on Facebook
+ */
+function shareOnFacebook(corridorId: string, sailingInfo: { route: string; departureTime: string } | null, betType: string, likelihood: number) {
+  const baseUrl = 'https://ferry-forecast.vercel.app';
+  const corridorUrl = `${baseUrl}/corridor/${corridorId}`;
+
+  // Build a nice share message
+  const prediction = betType === 'will_sail' ? 'Will Sail' : 'Will Cancel';
+  const routeText = sailingInfo ? `the ${sailingInfo.departureTime} ${sailingInfo.route} ferry` : 'a ferry';
+  const shareText = `I predicted "${prediction}" for ${routeText} (model shows ${likelihood}% likely to sail). Check the live forecast!`;
+
+  // Facebook Share Dialog URL
+  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(corridorUrl)}&quote=${encodeURIComponent(shareText)}`;
+
+  // Open in new window
+  window.open(facebookUrl, 'facebook-share', 'width=580,height=400');
+}
+
 /**
  * Get date string for grouping (e.g., "Today", "Yesterday", "Jan 5")
  */
@@ -486,27 +517,39 @@ function PredictionsContent() {
                                   </div>
                                 </div>
 
-                                {/* Right side: Status */}
-                                <div className="text-right flex-shrink-0">
+                                {/* Right side: Status and Share */}
+                                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                                  {/* Status badge */}
                                   {isPending && (
                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-muted text-accent">
                                       Pending
                                     </span>
                                   )}
                                   {isWon && (
-                                    <div>
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-muted text-success">
-                                        Correct
-                                      </span>
-                                    </div>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success-muted text-success">
+                                      Correct
+                                    </span>
                                   )}
                                   {isLost && (
-                                    <div>
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive-muted text-destructive">
-                                        Wrong
-                                      </span>
-                                    </div>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive-muted text-destructive">
+                                      Wrong
+                                    </span>
                                   )}
+
+                                  {/* Share button */}
+                                  <button
+                                    onClick={() => shareOnFacebook(
+                                      bet.corridorId,
+                                      sailingInfo,
+                                      bet.betType,
+                                      bet.likelihoodSnapshot
+                                    )}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded transition-colors"
+                                    title="Share on Facebook"
+                                  >
+                                    <ShareIcon className="w-3.5 h-3.5" />
+                                    <span>Share</span>
+                                  </button>
                                 </div>
                               </div>
                             </div>

@@ -525,11 +525,11 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       }
 
       // Create bet from server response (all values come from server)
-      // Note: corridorId is not part of Bet type - stored separately in DB
       const bet: Bet = {
         id: data.bet.id,
         userId: userId || '',
         sailingId: data.bet.sailingId,
+        corridorId, // From function parameter
         betType,
         stake: data.bet.stakePoints,
         likelihoodSnapshot: data.bet.likelihoodSnapshot,
