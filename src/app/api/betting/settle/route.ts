@@ -37,6 +37,48 @@ import { createServiceRoleClient } from '@/lib/supabase/serverServiceClient';
 // Force dynamic rendering - this is a server action
 export const dynamic = 'force-dynamic';
 
+/**
+ * Convert compact time format to 24-hour format for DB lookup
+ * Examples: "600am" -> "06:00:00", "1230pm" -> "12:30:00", "945am" -> "09:45:00"
+ */
+function normalizeTimeFor24Hour(rawTime: string): string {
+  // Parse the compact format: "600am", "1230pm", etc.
+  const match = rawTime.match(/^(\d{1,4})(am|pm)$/i);
+  if (!match) {
+    return rawTime; // Return as-is if doesn't match expected format
+  }
+
+  const timeDigits = match[1];
+  const period = match[2].toLowerCase();
+
+  let hours: number;
+  let minutes: number;
+
+  if (timeDigits.length <= 2) {
+    // "6am" -> 6:00, "12pm" -> 12:00
+    hours = parseInt(timeDigits, 10);
+    minutes = 0;
+  } else if (timeDigits.length === 3) {
+    // "600am" -> 6:00, "945am" -> 9:45
+    hours = parseInt(timeDigits[0], 10);
+    minutes = parseInt(timeDigits.slice(1), 10);
+  } else {
+    // "1230pm" -> 12:30
+    hours = parseInt(timeDigits.slice(0, 2), 10);
+    minutes = parseInt(timeDigits.slice(2), 10);
+  }
+
+  // Convert to 24-hour
+  if (period === 'pm' && hours !== 12) {
+    hours += 12;
+  } else if (period === 'am' && hours === 12) {
+    hours = 0;
+  }
+
+  // Format as HH:MM:SS
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+}
+
 interface PendingBet {
   id: string;
   user_id: string;
@@ -178,10 +220,9 @@ export async function POST(request: NextRequest) {
     const sailingIds = [...new Set(pendingBets.map(b => b.sailing_id))];
     console.log(`[BET SETTLE] Unique sailings to look up: ${sailingIds.length}`);
 
-    // Sailing ID format assumption: We need to derive the lookup key from sailing_id
-    // Looking at the codebase, sailing_id appears to be constructed as:
-    // `${corridorId}_${fromPort}_${toPort}_${serviceDate}_${departureTime}`
-    // We'll need to parse this and query sailing_events
+    // Sailing ID format: operatorId_fromPort_toPort_departureTime
+    // Example: "steamship-authority_woods-hole_vineyard-haven_600am"
+    // The date is NOT in the sailing_id - we derive it from locked_at (60 min before departure)
 
     // Build outcome map by querying sailing_events for each sailing
     const outcomeMap = new Map<string, SailingOutcome>();
@@ -191,31 +232,48 @@ export async function POST(request: NextRequest) {
       if (outcomeMap.has(bet.sailing_id)) continue;
 
       // Parse sailing_id to extract components
-      // Expected format: corridorId_fromPort_toPort_date_time
-      // Example: "woods-hole-vineyard-haven_woods-hole_vineyard-haven_2025-01-10_8:30am"
+      // Format: operatorId_fromPort_toPort_departureTime
       const parts = bet.sailing_id.split('_');
-      if (parts.length < 5) {
+      if (parts.length < 4) {
         console.warn(`[BET SETTLE] Invalid sailing_id format: ${bet.sailing_id}`);
         continue;
       }
 
-      // Extract components (handle underscore in port names)
-      const corridorId = parts[0];
+      // Extract components
+      const operatorId = parts[0];
       const fromPort = parts[1];
       const toPort = parts[2];
-      const serviceDate = parts[3];
-      // Departure time is everything after the date
-      const departureTime = parts.slice(4).join('_');
+      const rawDepartureTime = parts[3]; // e.g., "600am", "1230pm"
+
+      // Derive service_date from locked_at (departure time - 60 min = locked_at)
+      // So departure date = locked_at date (for most cases)
+      // locked_at is stored in UTC, we need to get the local date
+      let serviceDate: string;
+      if (bet.locked_at) {
+        // locked_at is 60 min before departure, so add 60 min to get departure time
+        const departureTime = new Date(new Date(bet.locked_at).getTime() + 60 * 60 * 1000);
+        // Use Eastern time for service date (ferries are on US East Coast)
+        serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      } else {
+        // Fallback: use placed_at date
+        serviceDate = new Date(bet.placed_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      }
+
+      // Convert time format: "600am" -> "06:00:00" or similar DB format
+      // DB stores as 24-hour format like "06:00:00"
+      const normalizedTime = normalizeTimeFor24Hour(rawDepartureTime);
+
+      console.log(`[BET SETTLE] Looking up: operator=${operatorId} from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
 
       // Query sailing_events for this sailing
       const { data: sailingEvent, error: eventError } = await supabase
         .from('sailing_events')
         .select('status, observed_at')
-        .eq('corridor_id', corridorId)
+        .eq('operator_id', operatorId)
         .eq('from_port', fromPort)
         .eq('to_port', toPort)
         .eq('service_date', serviceDate)
-        .ilike('departure_time', `%${departureTime.replace('am', ' AM').replace('pm', ' PM').replace(':', ':%')}%`)
+        .or(`departure_time.eq.${normalizedTime},departure_time.ilike.%${rawDepartureTime}%`)
         .order('observed_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -226,41 +284,16 @@ export async function POST(request: NextRequest) {
       }
 
       if (!sailingEvent) {
-        // Try alternative query with normalized time
-        const normalizedTime = departureTime
-          .replace('am', ' AM')
-          .replace('pm', ' PM')
-          .replace(/^(\d):/, '0$1:'); // Add leading zero if needed
-
-        const { data: altEvent, error: altError } = await supabase
-          .from('sailing_events')
-          .select('status, observed_at')
-          .eq('corridor_id', corridorId)
-          .eq('from_port', fromPort)
-          .eq('to_port', toPort)
-          .eq('service_date', serviceDate)
-          .or(`departure_time.eq.${normalizedTime},departure_time.ilike.%${departureTime}%`)
-          .order('observed_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (altError || !altEvent) {
-          console.warn(`[BET SETTLE] No sailing event found for ${bet.sailing_id}`);
-          continue;
-        }
-
-        outcomeMap.set(bet.sailing_id, {
-          sailing_id: bet.sailing_id,
-          status: altEvent.status as 'on_time' | 'delayed' | 'canceled',
-          departure_timestamp: altEvent.observed_at,
-        });
-      } else {
-        outcomeMap.set(bet.sailing_id, {
-          sailing_id: bet.sailing_id,
-          status: sailingEvent.status as 'on_time' | 'delayed' | 'canceled',
-          departure_timestamp: sailingEvent.observed_at,
-        });
+        console.warn(`[BET SETTLE] No sailing event found for ${bet.sailing_id} (date=${serviceDate}, time=${normalizedTime})`);
+        continue;
       }
+
+      console.log(`[BET SETTLE] Found outcome: ${bet.sailing_id} -> ${sailingEvent.status}`);
+      outcomeMap.set(bet.sailing_id, {
+        sailing_id: bet.sailing_id,
+        status: sailingEvent.status as 'on_time' | 'delayed' | 'canceled',
+        departure_timestamp: sailingEvent.observed_at,
+      });
     }
 
     console.log(`[BET SETTLE] Found outcomes for ${outcomeMap.size}/${sailingIds.length} sailings`);
@@ -399,9 +432,9 @@ export async function GET() {
   // Get count of pending bets that are ready for settlement
   const now = new Date().toISOString();
 
-  const { data: pendingCount, error } = await supabase
+  const { count, error } = await supabase
     .from('bets')
-    .select('id', { count: 'exact', head: true })
+    .select('*', { count: 'exact', head: true })
     .eq('status', 'pending')
     .lt('locked_at', now);
 
@@ -414,7 +447,7 @@ export async function GET() {
 
   return NextResponse.json({
     configured: true,
-    pendingBetsReadyForSettlement: pendingCount,
+    pendingBetsReadyForSettlement: count ?? 0,
     timestamp: now,
   });
 }
