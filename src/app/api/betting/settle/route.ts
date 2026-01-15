@@ -281,7 +281,7 @@ export async function POST(request: NextRequest) {
       console.log(`[BET SETTLE] Looking up: operator=${operatorId} (was ${betOperatorId}) from=${fromPort} to=${toPort} date=${serviceDate} time=${normalizedTime} (raw: ${rawDepartureTime})`);
 
       // Query sailing_events for this sailing - first try exact time match
-      const { data: sailingEvent, error: eventError } = await supabase
+      let { data: sailingEvent, error: eventError } = await supabase
         .from('sailing_events')
         .select('status, observed_at, departure_time')
         .eq('operator_id', operatorId)
@@ -293,17 +293,47 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle();
 
-      // Debug: if no exact match, query what times ARE available
+      // If no exact match, try to find closest sailing within 30 min
       if (!sailingEvent && !eventError) {
-        const { data: availableTimes } = await supabase
+        console.log(`[BET SETTLE] No exact time match for ${normalizedTime}. Looking for closest...`);
+
+        // Get all sailings for this route/date and find closest time
+        const { data: allSailings } = await supabase
           .from('sailing_events')
-          .select('departure_time')
+          .select('status, observed_at, departure_time')
           .eq('operator_id', operatorId)
           .eq('from_port', fromPort)
           .eq('to_port', toPort)
           .eq('service_date', serviceDate)
-          .limit(10);
-        console.log(`[BET SETTLE] No exact time match. Available times:`, availableTimes?.map(t => t.departure_time));
+          .order('departure_time', { ascending: true });
+
+        if (allSailings && allSailings.length > 0) {
+          console.log(`[BET SETTLE] Found ${allSailings.length} sailings. Available times:`, allSailings.map(s => s.departure_time));
+
+          // Parse target time to minutes since midnight
+          const [targetHours, targetMins] = normalizedTime.split(':').map(Number);
+          const targetMinutes = targetHours * 60 + targetMins;
+
+          // Find closest sailing within 30 minute window
+          let closestSailing = null;
+          let closestDiff = Infinity;
+
+          for (const s of allSailings) {
+            const [h, m] = s.departure_time.split(':').map(Number);
+            const sailingMinutes = h * 60 + m;
+            const diff = Math.abs(sailingMinutes - targetMinutes);
+
+            if (diff < closestDiff && diff <= 30) {
+              closestDiff = diff;
+              closestSailing = s;
+            }
+          }
+
+          if (closestSailing) {
+            console.log(`[BET SETTLE] Using closest match: ${closestSailing.departure_time} (${closestDiff} min from ${normalizedTime})`);
+            sailingEvent = closestSailing;
+          }
+        }
       }
 
       if (eventError) {
