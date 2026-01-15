@@ -114,19 +114,20 @@ export function MobileMenu() {
 
       {/* Slide-out Menu */}
       <div
-        className={`fixed top-0 right-0 h-full w-72 bg-[#1a1f2e] border-l border-border/50 z-[70] transform transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 right-0 h-full w-72 z-[70] transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
+        style={{ backgroundColor: '#ffffff' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border/50">
-          <span className="font-semibold text-foreground">Menu</span>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200" style={{ backgroundColor: '#1a365d' }}>
+          <span className="font-semibold text-white">Menu</span>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-2 rounded-lg hover:bg-secondary/50 transition-colors"
+            className="p-2 rounded-lg hover:bg-white/20 transition-colors"
             aria-label="Close menu"
           >
-            <CloseIcon className="w-5 h-5 text-foreground" />
+            <CloseIcon className="w-5 h-5 text-white" />
           </button>
         </div>
 
@@ -135,26 +136,26 @@ export function MobileMenu() {
           <Link
             href="/"
             onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <HomeIcon className="w-5 h-5 text-accent" />
-            <span className="text-foreground">Home</span>
+            <HomeIcon className="w-5 h-5 text-[#1a365d]" />
+            <span className="text-gray-900">Home</span>
           </Link>
           <Link
             href="/region/cci"
             onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <GlobeIcon className="w-5 h-5 text-accent" />
-            <span className="text-foreground">Cape Cod &amp; Islands</span>
+            <GlobeIcon className="w-5 h-5 text-[#1a365d]" />
+            <span className="text-gray-900">Cape Cod &amp; Islands</span>
           </Link>
           <Link
             href="/account"
             onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <UserIcon className="w-5 h-5 text-accent" />
-            <span className="text-foreground">Account</span>
+            <UserIcon className="w-5 h-5 text-[#1a365d]" />
+            <span className="text-gray-900">Account</span>
           </Link>
           {/* Leaderboard - only shown when betting/predictions is enabled */}
           {bettingAvailable && (
@@ -167,28 +168,28 @@ export function MobileMenu() {
         </nav>
 
         {/* Divider */}
-        <div className="mx-4 border-t border-border/50" />
+        <div className="mx-4 border-t border-gray-200" />
 
         {/* Footer Links */}
         <div className="p-4 space-y-2">
           <Link
             href="/about"
             onClick={() => setIsOpen(false)}
-            className="block p-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="block p-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
             About
           </Link>
           <Link
             href="/privacy"
             onClick={() => setIsOpen(false)}
-            className="block p-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="block p-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
             Privacy
           </Link>
           <Link
             href="/terms"
             onClick={() => setIsOpen(false)}
-            className="block p-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="block p-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
             Terms
           </Link>
@@ -197,14 +198,14 @@ export function MobileMenu() {
         {/* Sign Out Button - only shown when authenticated */}
         {isAuthenticated && (
           <>
-            <div className="mx-4 border-t border-border/50" />
+            <div className="mx-4 border-t border-gray-200" />
             <div className="p-4">
               <button
                 onClick={() => {
                   signOut();
                   setIsOpen(false);
                 }}
-                className="flex items-center gap-3 w-full p-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+                className="flex items-center gap-3 w-full p-3 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
               >
                 <LogOutIcon className="w-5 h-5" />
                 <span>Sign Out</span>
@@ -232,10 +233,10 @@ function LeaderboardLink({ onClose }: { onClose: () => void }) {
     <Link
       href="/leaderboard"
       onClick={onClose}
-      className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+      className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors"
     >
-      <TrophyIcon className="w-5 h-5 text-accent" />
-      <span className="text-foreground">Leaderboard</span>
+      <TrophyIcon className="w-5 h-5 text-[#1a365d]" />
+      <span className="text-gray-900">Leaderboard</span>
     </Link>
   );
 }
@@ -255,10 +256,10 @@ function MyPredictionsLink({ onClose }: { onClose: () => void }) {
     <Link
       href="/predictions"
       onClick={onClose}
-      className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors"
+      className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition-colors"
     >
-      <ClipboardListIcon className="w-5 h-5 text-accent" />
-      <span className="text-foreground">My Predictions</span>
+      <ClipboardListIcon className="w-5 h-5 text-[#1a365d]" />
+      <span className="text-gray-900">My Predictions</span>
     </Link>
   );
 }
