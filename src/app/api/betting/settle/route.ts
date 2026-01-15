@@ -487,13 +487,15 @@ export async function GET() {
   }
 
   // Debug: query sailing_events to see what's actually there for woods-hole route
+  // Query for 8:45 AM sailing specifically
   const { data: sampleEvents, error: eventsError } = await supabase
     .from('sailing_events')
     .select('operator_id, from_port, to_port, service_date, departure_time, status')
     .eq('operator_id', 'ssa')
     .eq('service_date', '2026-01-14')
     .eq('from_port', 'woods-hole')
-    .limit(5);
+    .eq('to_port', 'vineyard-haven')
+    .limit(20);  // Get more to see all times
 
   return NextResponse.json({
     configured: true,
