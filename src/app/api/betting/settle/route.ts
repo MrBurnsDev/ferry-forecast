@@ -492,7 +492,7 @@ export async function GET() {
     .select('operator_id, from_port, to_port, service_date, departure_time, status')
     .eq('operator_id', 'ssa')
     .eq('service_date', '2026-01-14')
-    .or('from_port.eq.woods-hole,to_port.eq.woods-hole')
+    .eq('from_port', 'woods-hole')
     .limit(5);
 
   return NextResponse.json({
