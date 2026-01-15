@@ -407,6 +407,28 @@ export async function POST(request: NextRequest) {
       `skipped=${skippedCount} errors=${errorCount} duration=${durationMs}ms`
     );
 
+    // Debug: show what sailings we tried to look up
+    const debugLookups = pendingBets.slice(0, 5).map((bet) => {
+      const parts = bet.sailing_id.split('_');
+      if (parts.length < 4) return { sailing_id: bet.sailing_id, error: 'invalid format' };
+      const betOperatorId = parts[0];
+      const operatorId = mapOperatorId(betOperatorId);
+      const fromPort = parts[1];
+      const toPort = parts[2];
+      const rawTime = parts[3];
+      const normalizedTime = normalizeTimeFor24Hour(rawTime);
+      let serviceDate = 'unknown';
+      if (bet.locked_at) {
+        const departureTime = new Date(new Date(bet.locked_at).getTime() + 60 * 60 * 1000);
+        serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      }
+      return {
+        sailing_id: bet.sailing_id,
+        query: { operator_id: operatorId, from_port: fromPort, to_port: toPort, service_date: serviceDate, time: normalizedTime },
+        found: outcomeMap.has(bet.sailing_id),
+      };
+    });
+
     return NextResponse.json({
       success: true,
       message: `Settled ${results.length} bets`,
@@ -419,6 +441,7 @@ export async function POST(request: NextRequest) {
         durationMs,
       },
       results: results.slice(0, 20), // Only return first 20 for response size
+      debug: { lookups: debugLookups },
     });
   } catch (error) {
     console.error('[BET SETTLE] Unexpected error:', error);
