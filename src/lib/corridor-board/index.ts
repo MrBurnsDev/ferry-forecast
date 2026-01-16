@@ -612,10 +612,12 @@ export async function getDailyCorridorBoard(
 
     // Convert sailings to board format
     // PHASE 73: Do NOT pass overlay yet - we'll apply it after authority decision
+    // PHASE 93: Pass serviceDateLocal for date-qualified sailing IDs
     const boardSailings = convertSailingsToBoard(
       scheduleResult,
       operatorId,
       routeId,
+      serviceDateLocal,
       weather,
       forecastContext,
       undefined // NO overlay at this stage - Phase 73 will apply it selectively
@@ -1177,11 +1179,13 @@ function findForecastForSailing(
  * Convert schedule sailings to corridor board format
  * Phase 32: Enhanced to use Open-Meteo forecasts when available
  * Phase 48: Force-merge Supabase status overlay (cancellations are authoritative)
+ * Phase 93: Added serviceDate for date-qualified sailing IDs
  */
 function convertSailingsToBoard(
   scheduleResult: ScheduleFetchResult,
   operatorId: string,
   routeId: string,
+  serviceDate: string,
   weather?: WeatherContext | null,
   forecastContext?: ForecastContext | null,
   statusOverlay?: Map<string, PersistedStatus>
@@ -1294,11 +1298,12 @@ function convertSailingsToBoard(
       }
     }
 
-    // Generate sailing ID
+    // Generate sailing ID - Phase 93: Now includes serviceDate
     const sailingId = generateSailingId(
       operatorId,
       sailing.direction.fromSlug,
       sailing.direction.toSlug,
+      serviceDate,
       sailing.departureTimeDisplay
     );
 
@@ -1530,8 +1535,8 @@ function createSyntheticSailing(
     const departureTimestampMs = departureDate.getTime();
     const departureUTC = departureDate.toISOString();
 
-    // Generate sailing ID
-    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, departureTimeDisplay);
+    // Generate sailing ID - Phase 93: Now includes serviceDate
+    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, serviceDate, departureTimeDisplay);
 
     // Build the synthetic sailing
     const sailing: TerminalBoardSailing = {
@@ -1583,19 +1588,42 @@ function createSyntheticSailing(
 
 /**
  * Generate a unique sailing ID
+ *
+ * PHASE 93: Date-Qualified Sailing Identity
+ *
+ * A sailing is an EVENT, not a template. Events require a date.
+ * This ensures predictions can ONLY match the exact sailing they were placed on.
+ *
+ * Format: {operator}_{origin}_{destination}_{serviceDate}_{time}
+ * Example: steamship-authority_woods-hole_vineyard-haven_2026-01-16_700am
+ *
+ * @param operatorId - Operator identifier (e.g., "steamship-authority")
+ * @param originSlug - Origin port slug (e.g., "woods-hole")
+ * @param destSlug - Destination port slug (e.g., "vineyard-haven")
+ * @param serviceDate - Service date in YYYY-MM-DD format (REQUIRED)
+ * @param departureTime - Departure time display (e.g., "7:00 AM")
+ * @throws Error if serviceDate is missing or invalid
  */
 function generateSailingId(
   operatorId: string,
   originSlug: string,
   destSlug: string,
+  serviceDate: string,
   departureTime: string
 ): string {
+  // HARD GUARD: serviceDate is REQUIRED - no silent fallbacks
+  if (!serviceDate || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    throw new Error(
+      `[PHASE93] generateSailingId requires valid serviceDate (YYYY-MM-DD), got: "${serviceDate}"`
+    );
+  }
+
   const timeNormalized = departureTime
     .toLowerCase()
     .replace(/\s+/g, '')
     .replace(':', '');
 
-  return `${operatorId}_${originSlug}_${destSlug}_${timeNormalized}`;
+  return `${operatorId}_${originSlug}_${destSlug}_${serviceDate}_${timeNormalized}`;
 }
 
 // ============================================================
@@ -1640,8 +1668,8 @@ function createBoardSailingFromDB(
     const departureTimestampMs = parsedTime.timestampMs;
     const departureUTC = parsedTime.utc;
 
-    // Generate sailing ID
-    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, departureTimeDisplay);
+    // Generate sailing ID - Phase 93: Now includes serviceDate
+    const sailingId = generateSailingId(operatorId, fromSlug, toSlug, serviceDate, departureTimeDisplay);
 
     // Map DB status to operator_status
     let operatorStatus: 'on_time' | 'delayed' | 'canceled' | null = null;

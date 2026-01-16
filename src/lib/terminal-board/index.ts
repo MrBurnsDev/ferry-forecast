@@ -87,10 +87,12 @@ export async function getDailyTerminalBoard(
       }
 
       // Convert sailings to terminal board format
+      // PHASE 93: Pass serviceDateLocal for date-qualified sailing IDs
       const boardSailings = convertSailingsToBoard(
         scheduleResult,
         operator.id,
         routeId,
+        serviceDateLocal,
         weather
       );
       allSailings.push(...boardSailings);
@@ -172,11 +174,13 @@ export async function getDailyTerminalBoard(
 
 /**
  * Convert schedule sailings to terminal board format
+ * Phase 93: Added serviceDate for date-qualified sailing IDs
  */
 function convertSailingsToBoard(
   scheduleResult: ScheduleFetchResult,
   operatorId: string,
   routeId: string,
+  serviceDate: string,
   weather?: WeatherContext | null
 ): TerminalBoardSailing[] {
   return scheduleResult.sailings.map((sailing) => {
@@ -194,11 +198,12 @@ function convertSailingsToBoard(
     // Map operator status
     const operatorStatus = mapSailingStatus(sailing.status);
 
-    // Generate sailing ID
+    // Generate sailing ID - Phase 93: Now includes serviceDate
     const sailingId = generateSailingId(
       operatorId,
       sailing.direction.fromSlug,
       sailing.direction.toSlug,
+      serviceDate,
       sailing.departureTimeDisplay
     );
 
@@ -280,20 +285,43 @@ function mapWindRelation(
 
 /**
  * Generate a unique sailing ID
+ *
+ * PHASE 93: Date-Qualified Sailing Identity
+ *
+ * A sailing is an EVENT, not a template. Events require a date.
+ * This ensures predictions can ONLY match the exact sailing they were placed on.
+ *
+ * Format: {operator}_{origin}_{destination}_{serviceDate}_{time}
+ * Example: steamship-authority_woods-hole_vineyard-haven_2026-01-16_700am
+ *
+ * @param operatorId - Operator identifier (e.g., "steamship-authority")
+ * @param originSlug - Origin port slug (e.g., "woods-hole")
+ * @param destSlug - Destination port slug (e.g., "vineyard-haven")
+ * @param serviceDate - Service date in YYYY-MM-DD format (REQUIRED)
+ * @param departureTime - Departure time display (e.g., "7:00 AM")
+ * @throws Error if serviceDate is missing or invalid
  */
 function generateSailingId(
   operatorId: string,
   originSlug: string,
   destSlug: string,
+  serviceDate: string,
   departureTime: string
 ): string {
+  // HARD GUARD: serviceDate is REQUIRED - no silent fallbacks
+  if (!serviceDate || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    throw new Error(
+      `[PHASE93] generateSailingId requires valid serviceDate (YYYY-MM-DD), got: "${serviceDate}"`
+    );
+  }
+
   // Normalize time for ID
   const timeNormalized = departureTime
     .toLowerCase()
     .replace(/\s+/g, '')
     .replace(':', '');
 
-  return `${operatorId}_${originSlug}_${destSlug}_${timeNormalized}`;
+  return `${operatorId}_${originSlug}_${destSlug}_${serviceDate}_${timeNormalized}`;
 }
 
 // ============================================================
