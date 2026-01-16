@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { DailyCorridorBoard } from '@/types/corridor';
 import type { TerminalBoardSailing, BoardAdvisory } from '@/types/terminal-board';
-import { SailingBetCard, BetHistory } from '@/components/betting';
+import { SailingBetCard, BetHistory, CommunityPredictions } from '@/components/betting';
 
 /**
  * Phase 56: WeatherContext with authority field for three-state display
@@ -738,9 +738,12 @@ function SailingRow({ sailing, corridorId, isExpanded, onToggle }: {
             </div>
           )}
 
-          {/* Row 4: Betting/Prediction UI (only for upcoming, non-canceled sailings) */}
+          {/* Row 4: Community predictions + Betting/Prediction UI */}
           {!isDeparted && !isCanceled && (
-            <div className="mt-3 pt-3 border-t border-border/20">
+            <div className="mt-3 pt-3 border-t border-border/20 space-y-2">
+              {/* Phase 98: Community prediction counts */}
+              <CommunityPredictions sailingId={sailing.sailing_id} />
+              {/* User prediction controls */}
               <SailingBetCard
                 sailingId={sailing.sailing_id}
                 corridorId={corridorId}

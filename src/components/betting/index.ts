@@ -10,3 +10,4 @@ export { BetSlip } from './BetSlip';
 export { BetHistory } from './BetHistory';
 export { Leaderboard, LeaderboardCompact } from './Leaderboard';
 export { SailingBetCard } from './SailingBetCard';
+export { CommunityPredictions, useCommunityPredictions } from './CommunityPredictions';
