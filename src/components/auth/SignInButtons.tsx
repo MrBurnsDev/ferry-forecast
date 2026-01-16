@@ -6,9 +6,15 @@
  * Google OAuth sign-in button.
  * Apple sign-in temporarily disabled (backend not implemented).
  * Facebook has been intentionally removed.
+ *
+ * Phase 96: Includes OAuth safety detection to block sign-in attempts
+ * from iOS PWAs and in-app browsers where Google OAuth is blocked.
  */
 
+import { useState } from 'react';
 import { useAuth, useAuthAvailable } from '@/lib/auth';
+import { useOAuthSafety } from '@/lib/auth/oauth-safety';
+import { OAuthBlockedModal } from './OAuthBlockedModal';
 
 interface SignInButtonsProps {
   className?: string;
@@ -42,8 +48,22 @@ function SignInButtonsInner({
   onSignInStart,
 }: SignInButtonsProps) {
   const { signInWithGoogle, isLoading } = useAuth();
+  const oauthSafety = useOAuthSafety();
+  const [showBlockedModal, setShowBlockedModal] = useState(false);
 
   const handleGoogleClick = () => {
+    // Phase 96: Check if OAuth is safe before proceeding
+    if (!oauthSafety.isSafe) {
+      console.log('[AUTH_DIAG] OAuth blocked:', {
+        reason: oauthSafety.blockReason,
+        isStandalone: oauthSafety.isStandalone,
+        isInAppBrowser: oauthSafety.isInAppBrowser,
+        inAppBrowserName: oauthSafety.inAppBrowserName,
+      });
+      setShowBlockedModal(true);
+      return;
+    }
+
     onSignInStart?.();
     // DIAGNOSTIC: Log sign-in button click
     const origin = window.location.origin;
@@ -66,35 +86,55 @@ function SignInButtonsInner({
 
   if (variant === 'compact') {
     return (
-      <div className={`flex gap-2 ${className}`}>
-        <button
-          onClick={handleGoogleClick}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-        >
-          <GoogleIcon className="w-4 h-4" />
-          <span>Google</span>
-        </button>
-      </div>
+      <>
+        <div className={`flex gap-2 ${className}`}>
+          <button
+            onClick={handleGoogleClick}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            <GoogleIcon className="w-4 h-4" />
+            <span>Google</span>
+          </button>
+        </div>
+        <OAuthBlockedModal
+          isOpen={showBlockedModal}
+          onClose={() => setShowBlockedModal(false)}
+          blockReason={oauthSafety.blockReason || ''}
+          isStandalone={oauthSafety.isStandalone}
+          isInAppBrowser={oauthSafety.isInAppBrowser}
+          inAppBrowserName={oauthSafety.inAppBrowserName}
+        />
+      </>
     );
   }
 
   // Default variant
   return (
-    <div className={`space-y-3 ${className}`}>
-      <button
-        onClick={handleGoogleClick}
-        disabled={isLoading}
-        className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-lg bg-white text-gray-700 border border-gray-300 font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
-      >
-        <GoogleIcon className="w-5 h-5" />
-        <span>{isLoading ? 'Connecting...' : 'Continue with Google'}</span>
-      </button>
+    <>
+      <div className={`space-y-3 ${className}`}>
+        <button
+          onClick={handleGoogleClick}
+          disabled={isLoading}
+          className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-lg bg-white text-gray-700 border border-gray-300 font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <GoogleIcon className="w-5 h-5" />
+          <span>{isLoading ? 'Connecting...' : 'Continue with Google'}</span>
+        </button>
 
-      <p className="mt-3 text-xs text-muted-foreground text-center">
-        We only access your name and email to create your account.
-      </p>
-    </div>
+        <p className="mt-3 text-xs text-muted-foreground text-center">
+          We only access your name and email to create your account.
+        </p>
+      </div>
+      <OAuthBlockedModal
+        isOpen={showBlockedModal}
+        onClose={() => setShowBlockedModal(false)}
+        blockReason={oauthSafety.blockReason || ''}
+        isStandalone={oauthSafety.isStandalone}
+        isInAppBrowser={oauthSafety.isInAppBrowser}
+        inAppBrowserName={oauthSafety.inAppBrowserName}
+      />
+    </>
   );
 }
 
