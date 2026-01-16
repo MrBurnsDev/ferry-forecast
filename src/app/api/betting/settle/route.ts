@@ -250,7 +250,8 @@ export async function POST(request: NextRequest) {
       if (outcomeMap.has(prediction.sailing_id)) continue;
 
       // Parse sailing_id to extract components
-      // Format: operatorId_fromPort_toPort_departureTime
+      // Phase 93 format (5 parts): operatorId_fromPort_toPort_date_departureTime
+      // Legacy format (4 parts): operatorId_fromPort_toPort_departureTime
       const parts = prediction.sailing_id.split('_');
       if (parts.length < 4) {
         console.warn(`[PREDICTION SETTLE] Invalid sailing_id format: ${prediction.sailing_id}`);
@@ -262,20 +263,29 @@ export async function POST(request: NextRequest) {
       const operatorId = mapOperatorId(predictionOperatorId); // Map "steamship-authority" -> "ssa"
       const fromPort = parts[1];
       const toPort = parts[2];
-      const rawDepartureTime = parts[3]; // e.g., "600am", "1230pm"
 
-      // Derive service_date from locked_at (departure time - 60 min = locked_at)
-      // So departure date = locked_at date (for most cases)
-      // locked_at is stored in UTC, we need to get the local date
+      // Detect format: 5-part (date-qualified) vs 4-part (legacy)
       let serviceDate: string;
-      if (prediction.locked_at) {
-        // locked_at is 60 min before departure, so add 60 min to get departure time
-        const departureTime = new Date(new Date(prediction.locked_at).getTime() + 60 * 60 * 1000);
-        // Use Eastern time for service date (ferries are on US East Coast)
-        serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      let rawDepartureTime: string;
+
+      if (parts.length >= 5 && /^\d{4}-\d{2}-\d{2}$/.test(parts[3])) {
+        // Phase 93 format: date is in parts[3], time is in parts[4]
+        serviceDate = parts[3];
+        rawDepartureTime = parts[4];
+        console.log(`[PREDICTION SETTLE] Using date-qualified format: date=${serviceDate} time=${rawDepartureTime}`);
       } else {
-        // Fallback: use placed_at date
-        serviceDate = new Date(prediction.placed_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        // Legacy format: time is in parts[3], derive date from locked_at
+        rawDepartureTime = parts[3];
+        if (prediction.locked_at) {
+          // locked_at is 60 min before departure, so add 60 min to get departure time
+          const departureTime = new Date(new Date(prediction.locked_at).getTime() + 60 * 60 * 1000);
+          // Use Eastern time for service date (ferries are on US East Coast)
+          serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        } else {
+          // Fallback: use placed_at date
+          serviceDate = new Date(prediction.placed_at).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        }
+        console.log(`[PREDICTION SETTLE] Using legacy format: derived date=${serviceDate} time=${rawDepartureTime}`);
       }
 
       // Convert time format: "600am" -> "06:00:00" or similar DB format
@@ -465,13 +475,24 @@ export async function POST(request: NextRequest) {
       const operatorId = mapOperatorId(predictionOperatorId);
       const fromPort = parts[1];
       const toPort = parts[2];
-      const rawTime = parts[3];
-      const normalizedTime = normalizeTimeFor24Hour(rawTime);
-      let serviceDate = 'unknown';
-      if (prediction.locked_at) {
-        const departureTime = new Date(new Date(prediction.locked_at).getTime() + 60 * 60 * 1000);
-        serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+      // Detect format: 5-part (date-qualified) vs 4-part (legacy)
+      let serviceDate: string;
+      let rawTime: string;
+      if (parts.length >= 5 && /^\d{4}-\d{2}-\d{2}$/.test(parts[3])) {
+        serviceDate = parts[3];
+        rawTime = parts[4];
+      } else {
+        rawTime = parts[3];
+        if (prediction.locked_at) {
+          const departureTime = new Date(new Date(prediction.locked_at).getTime() + 60 * 60 * 1000);
+          serviceDate = departureTime.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        } else {
+          serviceDate = 'unknown';
+        }
       }
+
+      const normalizedTime = normalizeTimeFor24Hour(rawTime);
       return {
         sailing_id: prediction.sailing_id,
         query: { operator_id: operatorId, from_port: fromPort, to_port: toPort, service_date: serviceDate, time: normalizedTime },
