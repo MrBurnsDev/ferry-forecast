@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
         // Get all bets with status breakdown (service role bypasses RLS)
         const { data: allBets, error: betsError } = await adminClient
           .from('bets')
-          .select('user_id, status, placed_at, resolved_at, amount, payout');
+          .select('user_id, status, placed_at, resolved_at, stake_points, payout_points');
 
         if (betsError) {
           console.error('[PREDICTION LEADERBOARD] Debug bets query error:', betsError);
