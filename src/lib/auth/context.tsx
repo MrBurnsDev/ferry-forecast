@@ -282,14 +282,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Sign in with Apple OAuth
+   * TEMPORARILY DISABLED - Apple OAuth backend not implemented
+   * To re-enable: uncomment the OAuth call below and restore the Apple button in SignInButtons.tsx
    */
   const signInWithApple = useCallback(async () => {
+    // TEMPORARILY DISABLED - Apple OAuth backend not implemented
+    console.warn('[AUTH] Apple sign-in is temporarily disabled. Use Google sign-in instead.');
+    return;
+
+    /* RE-ENABLE WHEN APPLE OAUTH BACKEND IS READY:
     if (!isSupabaseConfigured() || !supabase) {
       console.error('[AUTH] Supabase not configured');
       return;
     }
 
-    // DIAGNOSTIC: Log OAuth initiation details
     const origin = window.location.origin;
     const redirectTo = `${origin}/auth/callback`;
     const isWww = origin.includes('www.');
@@ -318,6 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         redirectTo,
       });
     }
+    */
   }, []);
 
   /**

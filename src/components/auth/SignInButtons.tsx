@@ -3,7 +3,8 @@
 /**
  * Sign In Buttons
  *
- * Google and Apple OAuth sign-in buttons.
+ * Google OAuth sign-in button.
+ * Apple sign-in temporarily disabled (backend not implemented).
  * Facebook has been intentionally removed.
  */
 
@@ -40,7 +41,7 @@ function SignInButtonsInner({
   variant,
   onSignInStart,
 }: SignInButtonsProps) {
-  const { signInWithGoogle, signInWithApple, isLoading } = useAuth();
+  const { signInWithGoogle, isLoading } = useAuth();
 
   const handleGoogleClick = () => {
     onSignInStart?.();
@@ -61,23 +62,7 @@ function SignInButtonsInner({
     signInWithGoogle();
   };
 
-  const handleAppleClick = () => {
-    onSignInStart?.();
-    // DIAGNOSTIC: Log sign-in button click
-    const origin = window.location.origin;
-    const pathname = window.location.pathname;
-    console.log('[AUTH_DIAG] Sign-In Button Clicked:', {
-      provider: 'apple',
-      origin,
-      isWww: origin.includes('www.'),
-      pathname,
-      timestamp: new Date().toISOString(),
-    });
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_redirect', pathname);
-    }
-    signInWithApple();
-  };
+  // NOTE: Apple sign-in temporarily disabled - see signInWithApple in context.tsx to re-enable
 
   if (variant === 'compact') {
     return (
@@ -89,14 +74,6 @@ function SignInButtonsInner({
         >
           <GoogleIcon className="w-4 h-4" />
           <span>Google</span>
-        </button>
-        <button
-          onClick={handleAppleClick}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
-        >
-          <AppleIcon className="w-4 h-4" />
-          <span>Apple</span>
         </button>
       </div>
     );
@@ -112,15 +89,6 @@ function SignInButtonsInner({
       >
         <GoogleIcon className="w-5 h-5" />
         <span>{isLoading ? 'Connecting...' : 'Continue with Google'}</span>
-      </button>
-
-      <button
-        onClick={handleAppleClick}
-        disabled={isLoading}
-        className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-lg bg-black text-white font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
-      >
-        <AppleIcon className="w-5 h-5" />
-        <span>{isLoading ? 'Connecting...' : 'Continue with Apple'}</span>
       </button>
 
       <p className="mt-3 text-xs text-muted-foreground text-center">
@@ -153,6 +121,7 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+// AppleIcon kept for future use when Apple sign-in is enabled
 function AppleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
