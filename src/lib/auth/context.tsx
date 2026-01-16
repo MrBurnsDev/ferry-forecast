@@ -92,7 +92,7 @@ export interface UserProfile {
   username: string;
   authProvider: AuthProvider;
   email: string | null;
-  bettingModeEnabled: boolean;
+  gameModeEnabled: boolean;
 }
 
 export interface AuthContextValue {
@@ -111,6 +111,8 @@ export interface AuthContextValue {
   signOut: () => Promise<void>;
 
   // Profile updates
+  setGameMode: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+  /** @deprecated Use setGameMode instead */
   setBettingMode: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -189,7 +191,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username: data.username,
           authProvider: data.auth_provider as AuthProvider,
           email: data.email,
-          bettingModeEnabled: data.betting_mode_enabled || false,
+          // Map from DB column name to new frontend property name
+          gameModeEnabled: data.betting_mode_enabled || false,
         });
       }
     } catch (err) {
@@ -256,10 +259,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Set betting mode - persists to database via RPC
+   * Set game mode - persists to database via RPC
    * Updates local profile state optimistically on success
+   * Note: DB function is still named 'set_betting_mode' for backward compatibility
    */
-  const setBettingMode = useCallback(async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
+  const setGameMode = useCallback(async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
     if (!supabase) {
       return { success: false, error: 'Supabase not configured' };
     }
@@ -268,15 +272,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    console.log('[AUTH] Setting betting mode:', enabled);
+    console.log('[AUTH] Setting game mode:', enabled);
 
     try {
+      // Note: DB function retains old name for backward compatibility
       const { error } = await supabase.rpc('set_betting_mode', {
         p_enabled: enabled,
       });
 
       if (error) {
-        console.error('[AUTH] Failed to set betting mode:', error.message);
+        console.error('[AUTH] Failed to set game mode:', error.message);
         return { success: false, error: error.message };
       }
 
@@ -284,15 +289,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profile) {
         setProfile({
           ...profile,
-          bettingModeEnabled: enabled,
+          gameModeEnabled: enabled,
         });
       }
 
-      console.log('[AUTH] Betting mode updated successfully:', enabled);
+      console.log('[AUTH] Game mode updated successfully:', enabled);
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[AUTH] Error setting betting mode:', message);
+      console.error('[AUTH] Error setting game mode:', message);
       return { success: false, error: message };
     }
   }, [session, profile]);
@@ -350,7 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithGoogle,
     signInWithApple,
     signOut,
-    setBettingMode,
+    setGameMode,
+    setBettingMode: setGameMode, // deprecated alias
   };
 
   return (

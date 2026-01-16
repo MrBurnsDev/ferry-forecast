@@ -38,19 +38,19 @@ function LeaderboardInner({ className }: LeaderboardProps) {
 
   // Mock data for demonstration (replace with real data from API)
   const mockDaily: LeaderboardEntry[] = daily.length > 0 ? daily : [
-    { userId: '1', displayName: 'FerryFanatic42', avatarUrl: null, dailyProfit: 245, allTimeProfit: 1250, roi: 34.2, winRate: 72, totalBets: 18, biggestWin: 180, hasCrown: true },
-    { userId: '2', displayName: 'IslandHopper', avatarUrl: null, dailyProfit: 180, allTimeProfit: 890, roi: 28.5, winRate: 68, totalBets: 24, biggestWin: 150, hasCrown: false },
-    { userId: '3', displayName: 'VineyardVibes', avatarUrl: null, dailyProfit: 95, allTimeProfit: 420, roi: 19.8, winRate: 61, totalBets: 12, biggestWin: 90, hasCrown: false },
-    { userId: '4', displayName: 'CapeCodder', avatarUrl: null, dailyProfit: 45, allTimeProfit: 310, roi: 15.2, winRate: 58, totalBets: 31, biggestWin: 75, hasCrown: false },
-    { userId: '5', displayName: 'NantucketNate', avatarUrl: null, dailyProfit: -20, allTimeProfit: 180, roi: 8.4, winRate: 52, totalBets: 45, biggestWin: 120, hasCrown: false },
+    { userId: '1', displayName: 'FerryFanatic42', avatarUrl: null, dailyProfit: 245, allTimeProfit: 1250, roi: 34.2, winRate: 72, totalPredictions: 18, biggestWin: 180, hasCrown: true },
+    { userId: '2', displayName: 'IslandHopper', avatarUrl: null, dailyProfit: 180, allTimeProfit: 890, roi: 28.5, winRate: 68, totalPredictions: 24, biggestWin: 150, hasCrown: false },
+    { userId: '3', displayName: 'VineyardVibes', avatarUrl: null, dailyProfit: 95, allTimeProfit: 420, roi: 19.8, winRate: 61, totalPredictions: 12, biggestWin: 90, hasCrown: false },
+    { userId: '4', displayName: 'CapeCodder', avatarUrl: null, dailyProfit: 45, allTimeProfit: 310, roi: 15.2, winRate: 58, totalPredictions: 31, biggestWin: 75, hasCrown: false },
+    { userId: '5', displayName: 'NantucketNate', avatarUrl: null, dailyProfit: -20, allTimeProfit: 180, roi: 8.4, winRate: 52, totalPredictions: 45, biggestWin: 120, hasCrown: false },
   ];
 
   const mockAllTime: LeaderboardEntry[] = allTime.length > 0 ? allTime : [
-    { userId: '1', displayName: 'FerryFanatic42', avatarUrl: null, dailyProfit: 245, allTimeProfit: 1250, roi: 34.2, winRate: 72, totalBets: 18, biggestWin: 180, hasCrown: true },
-    { userId: '6', displayName: 'WoodsHoleWiz', avatarUrl: null, dailyProfit: 30, allTimeProfit: 980, roi: 31.5, winRate: 70, totalBets: 52, biggestWin: 220, hasCrown: false },
-    { userId: '2', displayName: 'IslandHopper', avatarUrl: null, dailyProfit: 180, allTimeProfit: 890, roi: 28.5, winRate: 68, totalBets: 24, biggestWin: 150, hasCrown: false },
-    { userId: '7', displayName: 'BuzzardsBayBoss', avatarUrl: null, dailyProfit: -15, allTimeProfit: 720, roi: 22.1, winRate: 64, totalBets: 38, biggestWin: 200, hasCrown: false },
-    { userId: '8', displayName: 'SeafoamSam', avatarUrl: null, dailyProfit: 55, allTimeProfit: 580, roi: 18.9, winRate: 60, totalBets: 29, biggestWin: 140, hasCrown: false },
+    { userId: '1', displayName: 'FerryFanatic42', avatarUrl: null, dailyProfit: 245, allTimeProfit: 1250, roi: 34.2, winRate: 72, totalPredictions: 18, biggestWin: 180, hasCrown: true },
+    { userId: '6', displayName: 'WoodsHoleWiz', avatarUrl: null, dailyProfit: 30, allTimeProfit: 980, roi: 31.5, winRate: 70, totalPredictions: 52, biggestWin: 220, hasCrown: false },
+    { userId: '2', displayName: 'IslandHopper', avatarUrl: null, dailyProfit: 180, allTimeProfit: 890, roi: 28.5, winRate: 68, totalPredictions: 24, biggestWin: 150, hasCrown: false },
+    { userId: '7', displayName: 'BuzzardsBayBoss', avatarUrl: null, dailyProfit: -15, allTimeProfit: 720, roi: 22.1, winRate: 64, totalPredictions: 38, biggestWin: 200, hasCrown: false },
+    { userId: '8', displayName: 'SeafoamSam', avatarUrl: null, dailyProfit: 55, allTimeProfit: 580, roi: 18.9, winRate: 60, totalPredictions: 29, biggestWin: 140, hasCrown: false },
   ];
 
   const mockCrown: DailyCrown | null = crown || {
@@ -167,7 +167,7 @@ function LeaderboardRow({ entry, rank, showDailyProfit }: LeaderboardRowProps) {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {entry.winRate}% win rate • {entry.totalBets} bets
+          {entry.winRate}% win rate • {entry.totalPredictions} predictions
         </p>
       </div>
 

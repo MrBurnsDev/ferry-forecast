@@ -3,8 +3,11 @@
  *
  * GET /api/betting/leaderboard
  *
- * Returns daily and all-time leaderboards.
+ * Returns daily and all-time prediction game leaderboards.
  * Public endpoint - no authentication required.
+ *
+ * NOTE: API path retained for backward compatibility.
+ * TERMINOLOGY: All log messages use "prediction" terminology.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,7 +37,7 @@ export async function GET(request: NextRequest) {
         userId: string;
         username: string;
         dailyProfit: number;
-        betsToday: number;
+        predictionsToday: number;
         winsToday: number;
         winRateToday: number;
       }>;
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
         userId: string;
         username: string;
         allTimeProfit: number;
-        totalBets: number;
+        totalPredictions: number;
         totalWins: number;
         winRate: number;
         roi: number;
@@ -58,14 +61,14 @@ export async function GET(request: NextRequest) {
         .limit(limit);
 
       if (dailyError) {
-        console.error('[LEADERBOARD] Daily fetch error:', dailyError);
+        console.error('[PREDICTION LEADERBOARD] Daily fetch error:', dailyError);
       } else {
         result.daily = daily.map((entry, index) => ({
           rank: index + 1,
           userId: entry.user_id,
           username: entry.username,
           dailyProfit: entry.daily_profit,
-          betsToday: entry.bets_today,
+          predictionsToday: entry.bets_today, // Keep DB field name, rename for clarity
           winsToday: entry.wins_today,
           winRateToday: entry.win_rate_today,
         }));
@@ -80,14 +83,14 @@ export async function GET(request: NextRequest) {
         .limit(limit);
 
       if (allTimeError) {
-        console.error('[LEADERBOARD] All-time fetch error:', allTimeError);
+        console.error('[PREDICTION LEADERBOARD] All-time fetch error:', allTimeError);
       } else {
         result.allTime = allTime.map((entry, index) => ({
           rank: index + 1,
           userId: entry.user_id,
           username: entry.username,
           allTimeProfit: entry.all_time_profit,
-          totalBets: entry.total_bets,
+          totalPredictions: entry.total_bets, // Keep DB field name, rename for clarity
           totalWins: entry.total_wins,
           winRate: entry.win_rate,
           roi: entry.roi,
@@ -100,7 +103,7 @@ export async function GET(request: NextRequest) {
       ...result,
     });
   } catch (error) {
-    console.error('[LEADERBOARD] Unexpected error:', error);
+    console.error('[PREDICTION LEADERBOARD] Unexpected error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

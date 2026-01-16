@@ -1,11 +1,14 @@
 /**
  * Odds Conversion Utilities
  *
- * Converts likelihood percentages to American odds format for betting UI.
+ * Converts likelihood percentages to American odds format for prediction game UI.
  * These are visual odds only - no real money involved.
+ *
+ * TERMINOLOGY: All "bet/betting" terminology has been replaced with
+ * "prediction/game" terminology. Backward compatibility aliases provided.
  */
 
-import type { OddsDisplay, BetType } from './types';
+import type { OddsDisplay, PredictionChoice } from './types';
 
 /**
  * Convert likelihood percentage to American odds
@@ -100,11 +103,16 @@ export function formatOdds(odds: number): string {
 }
 
 /**
- * Get the odds for a specific bet type
+ * Get the odds for a specific prediction choice
  */
-export function getOddsForBetType(likelihood: number, betType: BetType): number {
+export function getOddsForChoice(likelihood: number, choice: PredictionChoice): number {
   const display = getOddsDisplay(likelihood);
-  return betType === 'will_sail' ? display.sailOdds : display.cancelOdds;
+  return choice === 'will_sail' ? display.sailOdds : display.cancelOdds;
+}
+
+/** @deprecated Use getOddsForChoice instead */
+export function getOddsForBetType(likelihood: number, betType: PredictionChoice): number {
+  return getOddsForChoice(likelihood, betType);
 }
 
 /**
@@ -131,9 +139,9 @@ export function getOddsRiskLevel(odds: number): 'safe' | 'moderate' | 'risky' | 
 }
 
 /**
- * Calculate the "value" of a bet
+ * Calculate the "value" of a prediction
  * Compares implied odds to actual likelihood
- * Positive value = good bet, negative = bad bet
+ * Positive value = good prediction, negative = bad prediction
  *
  * Note: Since we use the actual likelihood to set odds,
  * value is always 0 (fair odds). This is intentional for
@@ -142,16 +150,22 @@ export function getOddsRiskLevel(odds: number): 'safe' | 'moderate' | 'risky' | 
  * @returns 0 for fair odds (no edge in this game)
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function calculateBetValue(likelihood: number, betType: BetType): number {
+export function calculatePredictionValue(likelihood: number, choice: PredictionChoice): number {
   // Since our odds are derived directly from likelihood,
   // there's no edge - this is a fair game
   // Returns 0 to indicate fair odds
   return 0;
 }
 
+/** @deprecated Use calculatePredictionValue instead */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function calculateBetValue(likelihood: number, betType: PredictionChoice): number {
+  return calculatePredictionValue(likelihood, betType);
+}
+
 /**
  * Get time bonus multiplier
- * Earlier bets get a small bonus (locked in before conditions change)
+ * Earlier predictions get a small bonus (locked in before conditions change)
  *
  * Bonus schedule:
  * - >24h before: 1.1x (10% bonus)

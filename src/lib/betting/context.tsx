@@ -1,17 +1,17 @@
 'use client';
 
 /**
- * Betting Context
+ * Prediction Game Context
  *
- * React context for managing betting mode state across the app.
- * Handles user settings, bankroll, and active bets.
+ * React context for managing prediction game state across the app.
+ * Handles user settings, bankroll (points), and active predictions.
  *
- * CRITICAL: Betting mode is disabled by default. Users must explicitly
+ * CRITICAL: Game mode is disabled by default. Users must explicitly
  * opt-in via the settings toggle in their account.
  *
- * Phase 86E: Uses Bearer token auth instead of cookies for all betting API calls.
+ * Phase 86E: Uses Bearer token auth instead of cookies for all prediction API calls.
  * Phase 86F: Simplified to thumbs up/down model - frontend sends intent only,
- *            server computes all betting math (odds, stake, payout).
+ *            server computes all prediction math (odds, stake, payout).
  */
 
 import {
@@ -23,43 +23,47 @@ import {
   type ReactNode,
 } from 'react';
 import type {
-  Bet,
-  BetType,
-  // Phase 86F: BetSize no longer used - server uses default stake
+  Prediction,
+  PredictionChoice,
   UserBankroll,
-  BettingSettings,
+  GameSettings,
   LanguageMode,
   LanguageStrings,
   LeaderboardEntry,
   DailyCrown,
+  // Backward compatibility aliases
+  Bet,
+  BetType,
+  BettingSettings,
 } from './types';
 import {
-  DEFAULT_BETTING_SETTINGS,
+  DEFAULT_GAME_SETTINGS,
   DEFAULT_BANKROLL,
   NEUTRAL_LANGUAGE,
-  BETTING_LANGUAGE,
+  GAME_LANGUAGE,
 } from './types';
-import { BETTING_LOCKOUT_MINUTES } from './constants';
-// Phase 86F: calculateProfit still needed for RESOLVE_BET action (local resolution)
+import { PREDICTION_LOCKOUT_MINUTES } from './constants';
 import { calculateProfit } from './odds';
 import { useAuthSafe } from '@/lib/auth';
-import { mapToApiBetType, mapFromApiBetType, type PlaceBetRequest } from '@/types/betting-api';
+import { mapToApiChoice, mapFromApiChoice, type PlaceBetRequest } from '@/types/betting-api';
 
 // ============================================================
 // STATE
 // ============================================================
 
-interface BettingState {
+interface PredictionGameState {
   // Settings
-  settings: BettingSettings;
+  settings: GameSettings;
   languageMode: LanguageMode;
   language: LanguageStrings;
 
-  // Bankroll
+  // Bankroll (Points)
   bankroll: UserBankroll;
 
-  // Active bets
-  bets: Map<string, Bet>; // keyed by sailingId
+  // Active predictions
+  predictions: Map<string, Prediction>; // keyed by sailingId
+  /** @deprecated Use predictions instead */
+  bets: Map<string, Prediction>; // deprecated alias
 
   // Leaderboard cache
   leaderboard: {
@@ -75,8 +79,9 @@ interface BettingState {
   error: string | null;
 }
 
-const initialState: BettingState = {
-  settings: DEFAULT_BETTING_SETTINGS,
+const emptyPredictionsMap = new Map<string, Prediction>();
+const initialState: PredictionGameState = {
+  settings: DEFAULT_GAME_SETTINGS,
   languageMode: 'neutral',
   language: NEUTRAL_LANGUAGE,
   bankroll: {
@@ -86,7 +91,8 @@ const initialState: BettingState = {
     spentToday: DEFAULT_BANKROLL.spentToday,
     lastReplenishDate: new Date().toISOString().split('T')[0],
   },
-  bets: new Map(),
+  predictions: emptyPredictionsMap,
+  bets: emptyPredictionsMap, // deprecated alias pointing to same map
   leaderboard: {
     daily: [],
     allTime: [],
@@ -102,37 +108,37 @@ const initialState: BettingState = {
 // ACTIONS
 // ============================================================
 
-type BettingAction =
-  | { type: 'SET_SETTINGS'; payload: BettingSettings }
-  | { type: 'TOGGLE_BETTING_MODE'; payload: boolean }
+type PredictionGameAction =
+  | { type: 'SET_SETTINGS'; payload: GameSettings }
+  | { type: 'TOGGLE_GAME_MODE'; payload: boolean }
   | { type: 'SET_BANKROLL'; payload: UserBankroll }
-  | { type: 'PLACE_BET'; payload: Bet }
-  | { type: 'SET_BETS'; payload: Bet[] }
-  | { type: 'UPDATE_BET'; payload: { sailingId: string; updates: Partial<Bet> } }
-  | { type: 'RESOLVE_BET'; payload: { sailingId: string; outcome: 'sailed' | 'canceled' } }
+  | { type: 'ADD_PREDICTION'; payload: Prediction }
+  | { type: 'SET_PREDICTIONS'; payload: Prediction[] }
+  | { type: 'UPDATE_PREDICTION'; payload: { sailingId: string; updates: Partial<Prediction> } }
+  | { type: 'RESOLVE_PREDICTION'; payload: { sailingId: string; outcome: 'sailed' | 'canceled' } }
   | { type: 'SET_LEADERBOARD'; payload: { daily: LeaderboardEntry[]; allTime: LeaderboardEntry[]; crown: DailyCrown | null } }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_SYNCING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'RESET_STATE' };
 
-function bettingReducer(state: BettingState, action: BettingAction): BettingState {
+function predictionGameReducer(state: PredictionGameState, action: PredictionGameAction): PredictionGameState {
   switch (action.type) {
     case 'SET_SETTINGS':
       return {
         ...state,
         settings: action.payload,
-        languageMode: action.payload.enabled ? 'betting' : 'neutral',
-        language: action.payload.enabled ? BETTING_LANGUAGE : NEUTRAL_LANGUAGE,
+        languageMode: action.payload.enabled ? 'game' : 'neutral',
+        language: action.payload.enabled ? GAME_LANGUAGE : NEUTRAL_LANGUAGE,
       };
 
-    case 'TOGGLE_BETTING_MODE': {
+    case 'TOGGLE_GAME_MODE': {
       const enabled = action.payload;
       return {
         ...state,
         settings: { ...state.settings, enabled },
-        languageMode: enabled ? 'betting' : 'neutral',
-        language: enabled ? BETTING_LANGUAGE : NEUTRAL_LANGUAGE,
+        languageMode: enabled ? 'game' : 'neutral',
+        language: enabled ? GAME_LANGUAGE : NEUTRAL_LANGUAGE,
       };
     }
 
@@ -142,12 +148,13 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
         bankroll: action.payload,
       };
 
-    case 'PLACE_BET': {
-      const newBets = new Map(state.bets);
-      newBets.set(action.payload.sailingId, action.payload);
+    case 'ADD_PREDICTION': {
+      const newPredictions = new Map(state.predictions);
+      newPredictions.set(action.payload.sailingId, action.payload);
       return {
         ...state,
-        bets: newBets,
+        predictions: newPredictions,
+        bets: newPredictions, // deprecated alias
         bankroll: {
           ...state.bankroll,
           balance: state.bankroll.balance - action.payload.stake,
@@ -156,43 +163,45 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
       };
     }
 
-    case 'SET_BETS': {
-      const newBets = new Map<string, Bet>();
-      action.payload.forEach(bet => {
-        newBets.set(bet.sailingId, bet);
+    case 'SET_PREDICTIONS': {
+      const newPredictions = new Map<string, Prediction>();
+      action.payload.forEach(prediction => {
+        newPredictions.set(prediction.sailingId, prediction);
       });
       return {
         ...state,
-        bets: newBets,
+        predictions: newPredictions,
+        bets: newPredictions, // deprecated alias
       };
     }
 
-    case 'UPDATE_BET': {
-      const existingBet = state.bets.get(action.payload.sailingId);
-      if (!existingBet) return state;
+    case 'UPDATE_PREDICTION': {
+      const existingPrediction = state.predictions.get(action.payload.sailingId);
+      if (!existingPrediction) return state;
 
-      const newBets = new Map(state.bets);
-      newBets.set(action.payload.sailingId, { ...existingBet, ...action.payload.updates });
+      const newPredictions = new Map(state.predictions);
+      newPredictions.set(action.payload.sailingId, { ...existingPrediction, ...action.payload.updates });
       return {
         ...state,
-        bets: newBets,
+        predictions: newPredictions,
+        bets: newPredictions, // deprecated alias
       };
     }
 
-    case 'RESOLVE_BET': {
-      const bet = state.bets.get(action.payload.sailingId);
-      if (!bet) return state;
+    case 'RESOLVE_PREDICTION': {
+      const prediction = state.predictions.get(action.payload.sailingId);
+      if (!prediction) return state;
 
       const outcome = action.payload.outcome;
-      const won = (bet.betType === 'will_sail' && outcome === 'sailed') ||
-                  (bet.betType === 'will_cancel' && outcome === 'canceled');
+      const won = (prediction.choice === 'will_sail' && outcome === 'sailed') ||
+                  (prediction.choice === 'will_cancel' && outcome === 'canceled');
 
-      const profit = won ? calculateProfit(bet.stake, bet.americanOdds) : -bet.stake;
-      const newBalance = state.bankroll.balance + (won ? bet.stake + profit : 0);
+      const profit = won ? calculateProfit(prediction.stake, prediction.americanOdds) : -prediction.stake;
+      const newBalance = state.bankroll.balance + (won ? prediction.stake + profit : 0);
 
-      const newBets = new Map(state.bets);
-      newBets.set(action.payload.sailingId, {
-        ...bet,
+      const newPredictions = new Map(state.predictions);
+      newPredictions.set(action.payload.sailingId, {
+        ...prediction,
         status: won ? 'won' : 'lost',
         outcome,
         profit,
@@ -201,7 +210,8 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
 
       return {
         ...state,
-        bets: newBets,
+        predictions: newPredictions,
+        bets: newPredictions, // deprecated alias
         bankroll: {
           ...state.bankroll,
           balance: newBalance,
@@ -250,47 +260,63 @@ function bettingReducer(state: BettingState, action: BettingAction): BettingStat
 // CONTEXT
 // ============================================================
 
-interface BettingContextValue {
-  state: BettingState;
+interface PredictionGameContextValue {
+  state: PredictionGameState;
 
   /**
-   * CRITICAL: This is the ONLY gate for betting UI visibility.
-   * Derived from profile?.bettingModeEnabled === true
-   * If false, NO betting UI should render (not disabled, not greyed - absent).
+   * CRITICAL: This is the ONLY gate for game UI visibility.
+   * Derived from profile?.gameModeEnabled === true
+   * If false, NO game UI should render (not disabled, not greyed - absent).
    */
+  gameEnabled: boolean;
+  /** @deprecated Use gameEnabled instead */
   bettingEnabled: boolean;
 
   // Settings
-  toggleBettingMode: (enabled: boolean) => void;
-  updateSettings: (settings: Partial<BettingSettings>) => void;
+  toggleGameMode: (enabled: boolean) => void;
+  updateSettings: (settings: Partial<GameSettings>) => void;
 
-  // Betting - Phase 86F: simplified to intent-only
+  // Predictions - Phase 86F: simplified to intent-only
+  submitPrediction: (
+    sailingId: string,
+    corridorId: string,
+    choice: PredictionChoice
+  ) => Promise<{ success: boolean; error?: string }>;
+  /** @deprecated Use submitPrediction instead */
   placeBet: (
     sailingId: string,
     corridorId: string,
-    betType: BetType
+    choice: PredictionChoice
   ) => Promise<{ success: boolean; error?: string }>;
-  getBetForSailing: (sailingId: string) => Bet | undefined;
+  getPredictionForSailing: (sailingId: string) => Prediction | undefined;
+  /** @deprecated Use getPredictionForSailing instead */
+  getBetForSailing: (sailingId: string) => Prediction | undefined;
+  canSubmitPrediction: () => boolean;
+  /** @deprecated Use canSubmitPrediction instead */
   canPlaceBet: () => boolean;
   getTimeUntilLock: (departureTimestampMs: number) => { minutes: number; locked: boolean };
 
   // Sync
+  refreshPredictions: () => Promise<void>;
+  /** @deprecated Use refreshPredictions instead */
   refreshBets: () => Promise<void>;
   refreshLeaderboard: () => Promise<void>;
 
   // Language helpers
+  isGameMode: boolean;
+  /** @deprecated Use isGameMode instead */
   isBettingMode: boolean;
   lang: LanguageStrings;
 }
 
-const BettingContext = createContext<BettingContextValue | null>(null);
+const PredictionGameContext = createContext<PredictionGameContextValue | null>(null);
 
 // ============================================================
 // PROVIDER
 // ============================================================
 
-export function BettingProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(bettingReducer, initialState);
+export function PredictionGameProvider({ children }: { children: ReactNode }) {
+  const [state, dispatch] = useReducer(predictionGameReducer, initialState);
 
   // Use safe auth hook that returns null if outside AuthProvider
   const auth = useAuthSafe();
@@ -301,30 +327,30 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   const userId = session?.user?.id;
 
   /**
-   * CRITICAL: Single source of truth for betting UI visibility.
+   * CRITICAL: Single source of truth for game UI visibility.
    * This is derived ONLY from the database-backed profile setting.
-   * - Default is FALSE (betting is opt-in)
+   * - Default is FALSE (game is opt-in)
    * - If profile fails to load, this is FALSE
    * - If user signs out, this becomes FALSE immediately
    */
-  const bettingEnabled = profile?.bettingModeEnabled === true;
+  const gameEnabled = profile?.gameModeEnabled === true;
 
-  // Sync betting mode from user's profile setting
+  // Sync game mode from user's profile setting
   useEffect(() => {
     if (isAuthenticated && profile) {
-      dispatch({ type: 'TOGGLE_BETTING_MODE', payload: profile.bettingModeEnabled });
+      dispatch({ type: 'TOGGLE_GAME_MODE', payload: profile.gameModeEnabled });
     } else if (!isAuthenticated) {
       dispatch({ type: 'RESET_STATE' });
     }
   }, [isAuthenticated, profile]);
 
   /**
-   * Helper to make authenticated betting API calls with Bearer token.
+   * Helper to make authenticated prediction API calls with Bearer token.
    * Returns null if no token available.
    */
   const getAuthHeaders = useCallback((): HeadersInit | null => {
     if (!accessToken) {
-      console.log('[BETTING] No access token available');
+      console.log('[PREDICTION_GAME] No access token available');
       return null;
     }
     return {
@@ -333,12 +359,12 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     };
   }, [accessToken]);
 
-  // Fetch user's bets from API when betting is enabled and we have a token
-  const refreshBets = useCallback(async () => {
-    // Only fetch bets if betting mode is enabled and we have a token
-    if (!bettingEnabled || !accessToken) {
-      if (bettingEnabled && !accessToken) {
-        console.log('[BETTING] Skipping refreshBets - no access token');
+  // Fetch user's predictions from API when game is enabled and we have a token
+  const refreshPredictions = useCallback(async () => {
+    // Only fetch predictions if game mode is enabled and we have a token
+    if (!gameEnabled || !accessToken) {
+      if (gameEnabled && !accessToken) {
+        console.log('[PREDICTION_GAME] Skipping refreshPredictions - no access token');
       }
       return;
     }
@@ -346,18 +372,19 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     const headers = getAuthHeaders();
     if (!headers) return;
 
-    console.log('[BETTING] Fetching bets (hasToken: true)');
+    console.log('[PREDICTION_GAME] Fetching predictions (hasToken: true)');
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
+      // Note: API endpoint retains old name for backward compatibility
       const response = await fetch('/api/betting/bets', {
         headers,
       });
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.bets) {
-          // Transform API bets to local format
+          // Transform API predictions to local format
           // Note: API stores 'sail'/'cancel', frontend uses 'will_sail'/'will_cancel'
-          const bets: Bet[] = data.bets.map((apiBet: {
+          const predictions: Prediction[] = data.bets.map((apiPrediction: {
             id: string;
             sailingId: string;
             corridorId: string;
@@ -370,25 +397,29 @@ export function BettingProvider({ children }: { children: ReactNode }) {
             placedAt: string;
             lockedAt: string | null;
             resolvedAt: string | null;
-          }) => ({
-            id: apiBet.id,
-            userId: userId || '',
-            sailingId: apiBet.sailingId,
-            corridorId: apiBet.corridorId,
-            betType: mapFromApiBetType(apiBet.betType), // Convert API → frontend format
-            stake: apiBet.stakePoints,
-            likelihoodSnapshot: apiBet.likelihoodSnapshot,
-            americanOdds: apiBet.oddsSnapshot,
-            potentialPayout: apiBet.payoutPoints,
-            placedAt: apiBet.placedAt,
-            lockedAt: apiBet.lockedAt,
-            resolvedAt: apiBet.resolvedAt,
-            status: apiBet.status,
-            outcome: null,
-            profit: apiBet.status === 'won' ? apiBet.payoutPoints - apiBet.stakePoints :
-                   apiBet.status === 'lost' ? -apiBet.stakePoints : null,
-          }));
-          dispatch({ type: 'SET_BETS', payload: bets });
+          }) => {
+            const frontendChoice = mapFromApiChoice(apiPrediction.betType);
+            return {
+              id: apiPrediction.id,
+              userId: userId || '',
+              sailingId: apiPrediction.sailingId,
+              corridorId: apiPrediction.corridorId,
+              choice: frontendChoice, // Convert API → frontend format
+              betType: frontendChoice, // deprecated alias
+              stake: apiPrediction.stakePoints,
+              likelihoodSnapshot: apiPrediction.likelihoodSnapshot,
+              americanOdds: apiPrediction.oddsSnapshot,
+              potentialPayout: apiPrediction.payoutPoints,
+              placedAt: apiPrediction.placedAt,
+              lockedAt: apiPrediction.lockedAt,
+              resolvedAt: apiPrediction.resolvedAt,
+              status: apiPrediction.status,
+              outcome: null,
+              profit: apiPrediction.status === 'won' ? apiPrediction.payoutPoints - apiPrediction.stakePoints :
+                     apiPrediction.status === 'lost' ? -apiPrediction.stakePoints : null,
+            };
+          });
+          dispatch({ type: 'SET_PREDICTIONS', payload: predictions });
 
           // Update bankroll from API response
           if (data.bankroll) {
@@ -405,21 +436,21 @@ export function BettingProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
-        console.error('[BETTING] Failed to fetch bets:', response.status);
+        console.error('[PREDICTION_GAME] Failed to fetch predictions:', response.status);
       }
     } catch (err) {
-      console.error('[BETTING] Failed to fetch bets:', err);
+      console.error('[PREDICTION_GAME] Failed to fetch predictions:', err);
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [bettingEnabled, accessToken, getAuthHeaders, userId]);
+  }, [gameEnabled, accessToken, getAuthHeaders, userId]);
 
-  // Fetch bets when betting is enabled and we have a token
+  // Fetch predictions when game is enabled and we have a token
   useEffect(() => {
-    if (bettingEnabled && accessToken) {
-      refreshBets();
+    if (gameEnabled && accessToken) {
+      refreshPredictions();
     }
-  }, [bettingEnabled, accessToken, refreshBets]);
+  }, [gameEnabled, accessToken, refreshPredictions]);
 
   // Fetch leaderboard (public endpoint, but include token if available)
   const refreshLeaderboard = useCallback(async () => {
@@ -428,6 +459,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       if (accessToken) {
         headers['Authorization'] = `Bearer ${accessToken}`;
       }
+      // Note: API endpoint retains old name for backward compatibility
       const response = await fetch('/api/betting/leaderboard', { headers });
       if (response.ok) {
         const data = await response.json();
@@ -437,13 +469,13 @@ export function BettingProvider({ children }: { children: ReactNode }) {
             payload: {
               daily: data.daily || [],
               allTime: data.allTime || [],
-              crown: null, // TODO: Fetch crown data
+              crown: null,
             },
           });
         }
       }
     } catch (err) {
-      console.error('[BETTING] Failed to fetch leaderboard:', err);
+      console.error('[PREDICTION_GAME] Failed to fetch leaderboard:', err);
     }
   }, [accessToken]);
 
@@ -451,12 +483,12 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   // ACTIONS
   // ============================================================
 
-  const toggleBettingMode = useCallback((enabled: boolean) => {
+  const toggleGameMode = useCallback((enabled: boolean) => {
     // Local UI update - actual persistence is handled by auth context
-    dispatch({ type: 'TOGGLE_BETTING_MODE', payload: enabled });
+    dispatch({ type: 'TOGGLE_GAME_MODE', payload: enabled });
   }, []);
 
-  const updateSettings = useCallback((settings: Partial<BettingSettings>) => {
+  const updateSettings = useCallback((settings: Partial<GameSettings>) => {
     dispatch({
       type: 'SET_SETTINGS',
       payload: { ...state.settings, ...settings },
@@ -464,50 +496,51 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   }, [state.settings]);
 
   /**
-   * Phase 86F: Simplified placeBet - send intent only, server computes all math.
-   * Frontend sends: sailingId, corridorId, betType
+   * Phase 86F: Simplified submitPrediction - send intent only, server computes all math.
+   * Frontend sends: sailingId, corridorId, choice
    * Server computes: stake, odds, likelihood, payout, departure time
    */
-  const placeBet = useCallback(async (
+  const submitPrediction = useCallback(async (
     sailingId: string,
     corridorId: string,
-    betType: BetType
+    choice: PredictionChoice
   ): Promise<{ success: boolean; error?: string }> => {
     // Validate we have an access token
     if (!accessToken) {
-      console.warn('[BETTING] Cannot place bet - no access token');
+      console.warn('[PREDICTION_GAME] Cannot submit prediction - no access token');
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Validate betting mode is enabled
+    // Validate game mode is enabled
     if (!state.settings.enabled) {
-      return { success: false, error: 'Betting mode is not enabled' };
+      return { success: false, error: 'Game mode is not enabled' };
     }
 
     // Validate user is authenticated
     if (!isAuthenticated) {
-      return { success: false, error: 'Must be signed in to place bets' };
+      return { success: false, error: 'Must be signed in to make predictions' };
     }
 
-    // Validate not already bet on this sailing (client-side check)
-    if (state.bets.has(sailingId)) {
-      return { success: false, error: 'Already placed a bet on this sailing' };
+    // Validate not already predicted on this sailing (client-side check)
+    if (state.predictions.has(sailingId)) {
+      return { success: false, error: 'Already made a prediction on this sailing' };
     }
 
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
 
-    console.log('[BETTING] Placing bet (hasToken: true)', { sailingId, corridorId, betType });
+    console.log('[PREDICTION_GAME] Submitting prediction (hasToken: true)', { sailingId, corridorId, choice });
     try {
       // Phase 86F: Send intent only - server computes everything else
-      // Use shared type and mapping function for type safety
+      // Note: API still uses old field names for backward compatibility
       const payload: PlaceBetRequest = {
         sailingId,
         corridorId,
-        betType: mapToApiBetType(betType),
+        betType: mapToApiChoice(choice),
       };
-      console.log('[BETTING] Sending payload:', payload);
+      console.log('[PREDICTION_GAME] Sending payload:', payload);
 
+      // Note: API endpoint retains old name for backward compatibility
       const response = await fetch('/api/betting/place', {
         method: 'POST',
         headers: {
@@ -520,17 +553,18 @@ export function BettingProvider({ children }: { children: ReactNode }) {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        dispatch({ type: 'SET_ERROR', payload: data.error || 'Failed to place bet' });
-        return { success: false, error: data.error || 'Failed to place bet' };
+        dispatch({ type: 'SET_ERROR', payload: data.error || 'Failed to submit prediction' });
+        return { success: false, error: data.error || 'Failed to submit prediction' };
       }
 
-      // Create bet from server response (all values come from server)
-      const bet: Bet = {
+      // Create prediction from server response (all values come from server)
+      const prediction: Prediction = {
         id: data.bet.id,
         userId: userId || '',
         sailingId: data.bet.sailingId,
         corridorId, // From function parameter
-        betType,
+        choice,
+        betType: choice, // deprecated alias
         stake: data.bet.stakePoints,
         likelihoodSnapshot: data.bet.likelihoodSnapshot,
         americanOdds: data.bet.oddsSnapshot,
@@ -543,7 +577,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
         profit: null,
       };
 
-      dispatch({ type: 'PLACE_BET', payload: bet });
+      dispatch({ type: 'ADD_PREDICTION', payload: prediction });
 
       // Update bankroll from server
       if (data.newBalance !== undefined) {
@@ -552,7 +586,7 @@ export function BettingProvider({ children }: { children: ReactNode }) {
           payload: {
             ...state.bankroll,
             balance: data.newBalance,
-            spentToday: state.bankroll.spentToday + bet.stake,
+            spentToday: state.bankroll.spentToday + prediction.stake,
           },
         });
       }
@@ -565,20 +599,19 @@ export function BettingProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [accessToken, state.settings.enabled, state.bankroll, state.bets, isAuthenticated, userId]);
+  }, [accessToken, state.settings.enabled, state.bankroll, state.predictions, isAuthenticated, userId]);
 
-  const getBetForSailing = useCallback((sailingId: string): Bet | undefined => {
-    return state.bets.get(sailingId);
-  }, [state.bets]);
+  const getPredictionForSailing = useCallback((sailingId: string): Prediction | undefined => {
+    return state.predictions.get(sailingId);
+  }, [state.predictions]);
 
-  // Phase 86F: canPlaceBet no longer needs stake - server uses default stake
-  const canPlaceBet = useCallback((): boolean => {
+  const canSubmitPrediction = useCallback((): boolean => {
     return !!accessToken && state.settings.enabled && isAuthenticated;
   }, [accessToken, state.settings.enabled, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
-    const lockMinutes = minutesUntil - BETTING_LOCKOUT_MINUTES;
+    const lockMinutes = minutesUntil - PREDICTION_LOCKOUT_MINUTES;
 
     return {
       minutes: Math.max(0, Math.floor(lockMinutes)),
@@ -590,45 +623,72 @@ export function BettingProvider({ children }: { children: ReactNode }) {
   // CONTEXT VALUE
   // ============================================================
 
-  const value: BettingContextValue = {
+  const value: PredictionGameContextValue = {
     state,
-    bettingEnabled,
-    toggleBettingMode,
+    gameEnabled,
+    bettingEnabled: gameEnabled, // deprecated alias
+    toggleGameMode,
     updateSettings,
-    placeBet,
-    getBetForSailing,
-    canPlaceBet,
+    submitPrediction,
+    placeBet: submitPrediction, // deprecated alias
+    getPredictionForSailing,
+    getBetForSailing: getPredictionForSailing, // deprecated alias
+    canSubmitPrediction,
+    canPlaceBet: canSubmitPrediction, // deprecated alias
     getTimeUntilLock,
-    refreshBets,
+    refreshPredictions,
+    refreshBets: refreshPredictions, // deprecated alias
     refreshLeaderboard,
-    isBettingMode: bettingEnabled,
-    lang: bettingEnabled ? BETTING_LANGUAGE : NEUTRAL_LANGUAGE,
+    isGameMode: gameEnabled,
+    isBettingMode: gameEnabled, // deprecated alias
+    lang: gameEnabled ? GAME_LANGUAGE : NEUTRAL_LANGUAGE,
   };
 
   return (
-    <BettingContext.Provider value={value}>
+    <PredictionGameContext.Provider value={value}>
       {children}
-    </BettingContext.Provider>
+    </PredictionGameContext.Provider>
   );
 }
 
 // ============================================================
-// HOOK
+// HOOKS
 // ============================================================
 
-export function useBetting(): BettingContextValue {
-  const context = useContext(BettingContext);
+export function usePredictionGame(): PredictionGameContextValue {
+  const context = useContext(PredictionGameContext);
   if (!context) {
-    throw new Error('useBetting must be used within a BettingProvider');
+    throw new Error('usePredictionGame must be used within a PredictionGameProvider');
   }
   return context;
 }
 
 /**
- * Hook to check if betting mode is available
+ * Hook to check if game mode is available
  * Returns false if context is not mounted (SSR safety)
  */
-export function useBettingAvailable(): boolean {
-  const context = useContext(BettingContext);
+export function usePredictionGameAvailable(): boolean {
+  const context = useContext(PredictionGameContext);
   return context !== null;
 }
+
+// ============================================================
+// BACKWARD COMPATIBILITY ALIASES
+// These maintain compatibility with existing code during migration
+// ============================================================
+
+/** @deprecated Use PredictionGameProvider instead */
+export const BettingProvider = PredictionGameProvider;
+
+/** @deprecated Use usePredictionGame instead */
+export function useBetting(): PredictionGameContextValue {
+  return usePredictionGame();
+}
+
+/** @deprecated Use usePredictionGameAvailable instead */
+export function useBettingAvailable(): boolean {
+  return usePredictionGameAvailable();
+}
+
+// Re-export types with old names for compatibility
+export type { Bet, BetType, BettingSettings };

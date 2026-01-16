@@ -120,7 +120,7 @@ function ShareIcon({ className }: { className?: string }) {
 interface ShareRequestParams {
   corridorId: string;
   sailingInfo: { route: string; departureTime: string } | null;
-  betType: string;
+  choice: string;  // User's prediction choice ('will_sail' | 'will_cancel')
   likelihood: number;
   outcome: Outcome;
   onToast: (message: string) => void;
@@ -133,7 +133,7 @@ interface ShareRequestParams {
 async function shareOnFacebook({
   corridorId,
   sailingInfo,
-  betType,
+  choice,
   likelihood,
   outcome,
   onToast,
@@ -147,7 +147,7 @@ async function shareOnFacebook({
         corridorId,
         outcome,
         modelProbability: likelihood, // API handles 0-100 normalization
-        betType: betType as 'will_sail' | 'will_cancel',
+        betType: choice as 'will_sail' | 'will_cancel', // API still expects 'betType' field
         departureTime: sailingInfo?.departureTime,
         route: sailingInfo?.route,
       }),
@@ -221,7 +221,7 @@ export default function PredictionsPage() {
 function PredictionsLoading() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50 fixed-nav-safe">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-20">
             <Link href="/" className="flex items-center gap-2">
@@ -333,7 +333,7 @@ function PredictionsContent() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50 fixed-nav-safe">
           <div className="container mx-auto px-4 lg:px-8">
             <div className="flex items-center justify-between h-16 lg:h-20">
               <Link href="/" className="flex items-center gap-2">
@@ -374,7 +374,7 @@ function PredictionsContent() {
   if (!bettingEnabled) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50 fixed-nav-safe">
           <div className="container mx-auto px-4 lg:px-8">
             <div className="flex items-center justify-between h-16 lg:h-20">
               <Link href="/" className="flex items-center gap-2">
@@ -413,7 +413,7 @@ function PredictionsContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-border/50 fixed-nav-safe">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-20">
             <Link href="/" className="flex items-center gap-2">
@@ -609,7 +609,7 @@ function PredictionsContent() {
                                     onClick={() => shareOnFacebook({
                                       corridorId: bet.corridorId,
                                       sailingInfo,
-                                      betType: bet.betType,
+                                      choice: bet.choice,
                                       likelihood: bet.likelihoodSnapshot,
                                       outcome: isWon ? 'correct' : isLost ? 'incorrect' : 'correct',
                                       onToast: showToast,

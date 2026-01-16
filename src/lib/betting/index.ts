@@ -1,43 +1,65 @@
 /**
- * Betting System
+ * Prediction Game System
  *
- * Opt-in betting-style prediction game for ferry sailings.
+ * Opt-in prediction game for ferry sailings.
  * Points-based, zero-stakes social competition.
+ *
+ * TERMINOLOGY: All "bet/betting" terminology has been replaced with
+ * "prediction/game" terminology. Backward compatibility aliases provided.
  */
 
 // Constants (shared between client and server)
 export {
-  BETTING_LOCKOUT_MINUTES,
+  PREDICTION_LOCKOUT_MINUTES,
+  BETTING_LOCKOUT_MINUTES, // deprecated alias
   DEFAULT_STAKE_POINTS,
   INITIAL_BANKROLL_POINTS,
   DAILY_LIMIT_POINTS,
 } from './constants';
 
-// Types
+// New terminology types
 export type {
-  Bet,
-  BetType,
-  BetSize,
-  BetStatus,
+  Prediction,
+  PredictionChoice,
+  PredictionStatus,
+  StakeSize,
   UserBankroll,
-  BettingSettings,
+  GameSettings,
   LanguageMode,
   LanguageStrings,
   LeaderboardEntry,
   DailyCrown,
   OddsDisplay,
-  BetResolution,
-  PlaceBetRequest,
-  PlaceBetResponse,
+  PredictionResolution,
+  SubmitPredictionRequest,
+  SubmitPredictionResponse,
   LeaderboardResponse,
 } from './types';
 
+// Backward compatibility type aliases (deprecated)
+export type {
+  Bet,
+  BetType,
+  BetSize,
+  BetStatus,
+  BettingSettings,
+  BetResolution,
+  PlaceBetRequest,
+  PlaceBetResponse,
+} from './types';
+
+// Constants exports
 export {
-  BET_SIZES,
+  STAKE_SIZES,
+  BET_SIZES, // deprecated alias
   DEFAULT_BANKROLL,
-  DEFAULT_BETTING_SETTINGS,
+  DEFAULT_GAME_SETTINGS,
+  DEFAULT_BETTING_SETTINGS, // deprecated alias
   NEUTRAL_LANGUAGE,
-  BETTING_LANGUAGE,
+  GAME_LANGUAGE,
+  BETTING_LANGUAGE, // deprecated alias
+  betToPrediction,
+  predictionToBet,
 } from './types';
 
 // Odds utilities
@@ -48,14 +70,24 @@ export {
   calculateProfit,
   getOddsDisplay,
   formatOdds,
-  getOddsForBetType,
+  getOddsForChoice,
+  getOddsForBetType, // deprecated alias
   formatPotentialPayout,
   getOddsRiskLevel,
+  calculatePredictionValue,
+  calculateBetValue, // deprecated alias
   getTimeBonus,
   calculateFinalPayout,
 } from './odds';
 
-// Context and hooks
+// Context and hooks - new terminology
+export {
+  PredictionGameProvider,
+  usePredictionGame,
+  usePredictionGameAvailable,
+} from './context';
+
+// Context and hooks - backward compatibility aliases
 export {
   BettingProvider,
   useBetting,

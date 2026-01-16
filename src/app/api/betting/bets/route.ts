@@ -1,10 +1,13 @@
 /**
- * User Bets API
+ * User Predictions API
  *
  * GET /api/betting/bets
  *
- * Returns all bets for the authenticated user.
+ * Returns all predictions for the authenticated user.
  * Phase 86E: Uses Bearer token auth instead of cookies.
+ *
+ * NOTE: API path retained for backward compatibility.
+ * TERMINOLOGY: All log messages use "prediction" terminology.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -56,7 +59,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('[BETTING API] auth user id:', user.id);
+    console.log('[PREDICTION API] auth user id:', user.id);
 
     // Get user ID from authenticated user
     const { data: userData, error: userError } = await supabase
@@ -66,14 +69,14 @@ export async function GET(request: NextRequest) {
       .single<UserData>();
 
     if (userError || !userData) {
-      console.log('[BETTING API] User not found for auth_provider_id:', user.id);
+      console.log('[PREDICTION API] User not found for auth_provider_id:', user.id);
       return NextResponse.json(
         { success: false, error: 'User not found', authId: user.id },
         { status: 404 }
       );
     }
 
-    console.log('[BETTING API] Found ferry_forecast.users.id:', userData.id);
+    console.log('[PREDICTION API] Found ferry_forecast.users.id:', userData.id);
 
     // Get query params for filtering
     const { searchParams } = new URL(request.url);
@@ -95,14 +98,14 @@ export async function GET(request: NextRequest) {
     const { data: bets, error: betsError } = await query.returns<BetData[]>();
 
     if (betsError) {
-      console.error('[BETTING] Fetch bets error:', betsError);
+      console.error('[PREDICTION API] Fetch predictions error:', betsError);
       return NextResponse.json(
-        { success: false, error: 'Failed to fetch bets' },
+        { success: false, error: 'Failed to fetch predictions' },
         { status: 500 }
       );
     }
 
-    console.log('[BETTING API] Found', bets?.length || 0, 'bets for user_id:', userData.id);
+    console.log('[PREDICTION API] Found', bets?.length || 0, 'predictions for user_id:', userData.id);
 
     // Fetch bankroll for this user
     const { data: bankroll, error: bankrollError } = await supabase
@@ -112,7 +115,7 @@ export async function GET(request: NextRequest) {
       .single<BankrollData>();
 
     if (bankrollError) {
-      console.error('[BETTING API] Bankroll fetch error:', bankrollError);
+      console.error('[PREDICTION API] Bankroll fetch error:', bankrollError);
     }
 
     // Transform to client format
@@ -142,7 +145,7 @@ export async function GET(request: NextRequest) {
       } : null,
     });
   } catch (error) {
-    console.error('[BETTING] Unexpected error:', error);
+    console.error('[PREDICTION API] Unexpected error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

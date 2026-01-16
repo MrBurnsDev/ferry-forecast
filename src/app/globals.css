@@ -82,6 +82,31 @@
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
+
+  /**
+   * iOS PWA Safe Area Support
+   *
+   * When the app runs in standalone mode (Add to Home Screen),
+   * the status bar overlays the content with viewport-fit: cover.
+   * These styles ensure content respects iOS safe areas.
+   *
+   * - Fixed headers get top padding for status bar
+   * - Page content gets bottom padding for home indicator
+   * - Works on notched and non-notched iPhones
+   * - Falls back gracefully on desktop/Android
+   */
+
+  /* Fixed navigation bars should respect safe area at top */
+  .fixed-nav-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Main content container should account for safe areas */
+  .safe-area-content {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 @layer components {

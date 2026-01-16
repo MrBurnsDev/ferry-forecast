@@ -121,6 +121,7 @@ export function MobileMenu() {
         style={{
           backgroundColor: 'white',
           background: 'white',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
         {/* Header */}

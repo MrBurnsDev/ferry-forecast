@@ -1,24 +1,27 @@
 /**
- * Place Bet API
+ * Submit Prediction API
  *
  * POST /api/betting/place
  *
- * Places a bet for an authenticated user.
+ * Submits a prediction for an authenticated user.
  * Phase 86E: Uses Bearer token auth instead of cookies.
- * Phase 86F: Server-computed betting payload - frontend sends intent only.
+ * Phase 86F: Server-computed prediction payload - frontend sends intent only.
  *
- * The betting system is a simple thumbs up/down prediction model:
+ * The prediction system is a simple thumbs up/down model:
  * - Frontend sends: sailingId, corridorId, betType (sail/cancel)
  * - Server computes: stake, odds, likelihood, departure time, payout
  *
- * All betting math is handled server-side for trust and consistency.
+ * All prediction math is handled server-side for trust and consistency.
+ *
+ * NOTE: API path and field names retained for backward compatibility.
+ * TERMINOLOGY: All log messages use "prediction" terminology.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createBearerClient } from '@/lib/supabase/serverBearerClient';
 import { getDailyCorridorBoard } from '@/lib/corridor-board';
-import { isValidApiBetType, type PlaceBetRequest } from '@/types/betting-api';
-import { BETTING_LOCKOUT_MINUTES, DEFAULT_STAKE_POINTS } from '@/lib/betting/constants';
+import { isValidApiChoice, type PlaceBetRequest } from '@/types/betting-api';
+import { PREDICTION_LOCKOUT_MINUTES, DEFAULT_STAKE_POINTS } from '@/lib/betting/constants';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -86,17 +89,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[BETTING PLACE] auth user:', user.id);
+    console.log('[PREDICTION API] auth user:', user.id);
 
     // Parse request body - Phase 86F minimal payload
     const body: PlaceBetRequest = await request.json();
-    console.log('[BETTING PLACE] received body:', body);
+    console.log('[PREDICTION API] received body:', body);
 
     const { sailingId, corridorId, betType } = body;
 
     // Basic validation with detailed error
     if (!sailingId || !corridorId || !betType) {
-      console.log('[BETTING PLACE] Validation failed:', { sailingId, corridorId, betType });
+      console.log('[PREDICTION API] Validation failed:', { sailingId, corridorId, betType });
       return NextResponse.json(
         {
           success: false,
@@ -107,10 +110,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isValidApiBetType(betType)) {
-      console.log('[BETTING PLACE] Invalid betType:', betType);
+    if (!isValidApiChoice(betType)) {
+      console.log('[PREDICTION API] Invalid choice:', betType);
       return NextResponse.json(
-        { success: false, error: 'Invalid bet type - must be "sail" or "cancel"', received: betType },
+        { success: false, error: 'Invalid choice - must be "sail" or "cancel"', received: betType },
         { status: 400 }
       );
     }
@@ -134,7 +137,7 @@ export async function POST(request: NextRequest) {
     // ================================================================
 
     // Fetch the corridor board to find the sailing
-    console.log('[BETTING API] Fetching corridor board:', corridorId);
+    console.log('[PREDICTION API] Fetching corridor board:', corridorId);
     const board = await getDailyCorridorBoard(corridorId);
 
     if (!board || !board.sailings || board.sailings.length === 0) {
@@ -148,7 +151,7 @@ export async function POST(request: NextRequest) {
     const sailing = board.sailings.find(s => s.sailing_id === sailingId);
 
     if (!sailing) {
-      console.log('[BETTING API] Sailing not found:', sailingId, 'Available:', board.sailings.map(s => s.sailing_id).slice(0, 5));
+      console.log('[PREDICTION API] Sailing not found:', sailingId, 'Available:', board.sailings.map(s => s.sailing_id).slice(0, 5));
       return NextResponse.json(
         { success: false, error: 'Sailing not found - it may have departed or been removed' },
         { status: 404 }
@@ -160,19 +163,19 @@ export async function POST(request: NextRequest) {
     const departureTimestampMs = new Date(departureTimeIso).getTime();
     const likelihood = sailing.likelihood_to_run_pct ?? 90; // Default to 90% if not computed
 
-    // Validate betting window (must be BETTING_LOCKOUT_MINUTES+ before departure)
+    // Validate prediction window (must be PREDICTION_LOCKOUT_MINUTES+ before departure)
     const minutesUntilDeparture = (departureTimestampMs - Date.now()) / (1000 * 60);
-    if (minutesUntilDeparture < BETTING_LOCKOUT_MINUTES) {
+    if (minutesUntilDeparture < PREDICTION_LOCKOUT_MINUTES) {
       return NextResponse.json(
-        { success: false, error: `Betting window has closed - predictions must be made at least ${BETTING_LOCKOUT_MINUTES} minutes before departure` },
+        { success: false, error: `Prediction window has closed - predictions must be made at least ${PREDICTION_LOCKOUT_MINUTES} minutes before departure` },
         { status: 400 }
       );
     }
 
-    // Compute betting math server-side
+    // Compute prediction math server-side
     const stakePoints = DEFAULT_STAKE_POINTS;
 
-    // Get odds for the specific bet type
+    // Get odds for the specific choice
     const sailLikelihood = likelihood;
     const cancelLikelihood = 100 - likelihood;
     const odds = betType === 'sail'
@@ -181,7 +184,7 @@ export async function POST(request: NextRequest) {
 
     const payoutPoints = calculatePayout(stakePoints, odds);
 
-    console.log('[BETTING API] Computed bet:', {
+    console.log('[PREDICTION API] Computed prediction:', {
       sailingId,
       corridorId,
       betType,
@@ -193,7 +196,8 @@ export async function POST(request: NextRequest) {
     });
 
     // ================================================================
-    // PLACE BET VIA DATABASE FUNCTION
+    // SUBMIT PREDICTION VIA DATABASE FUNCTION
+    // Note: DB function retains old name 'place_bet' for compatibility
     // ================================================================
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -210,12 +214,14 @@ export async function POST(request: NextRequest) {
     }) as { data: PlaceBetResult | null; error: Error | null };
 
     if (placeBetError) {
-      console.error('[BETTING] Place bet error:', placeBetError);
+      console.error('[PREDICTION API] Submit prediction error:', placeBetError);
 
       // Return user-friendly error messages
-      if (placeBetError.message.includes('Betting mode is not enabled')) {
+      // Note: DB error messages may still use old terminology
+      if (placeBetError.message.includes('Betting mode is not enabled') ||
+          placeBetError.message.includes('Game mode is not enabled')) {
         return NextResponse.json(
-          { success: false, error: 'Betting mode must be enabled in settings' },
+          { success: false, error: 'Game mode must be enabled in settings' },
           { status: 400 }
         );
       }
@@ -225,13 +231,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      if (placeBetError.message.includes('Betting window has closed')) {
+      if (placeBetError.message.includes('Betting window has closed') ||
+          placeBetError.message.includes('Prediction window has closed')) {
         return NextResponse.json(
-          { success: false, error: 'Betting window has closed' },
+          { success: false, error: 'Prediction window has closed' },
           { status: 400 }
         );
       }
-      if (placeBetError.message.includes('Already placed a bet')) {
+      if (placeBetError.message.includes('Already placed a bet') ||
+          placeBetError.message.includes('Already made a prediction')) {
         return NextResponse.json(
           { success: false, error: 'You already made a prediction on this sailing' },
           { status: 400 }
@@ -239,7 +247,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { success: false, error: 'Failed to place prediction' },
+        { success: false, error: 'Failed to submit prediction' },
         { status: 500 }
       );
     }
@@ -269,7 +277,7 @@ export async function POST(request: NextRequest) {
       newBalance: bankroll?.balance_points ?? null,
     });
   } catch (error) {
-    console.error('[BETTING] Unexpected error:', error);
+    console.error('[PREDICTION API] Unexpected error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

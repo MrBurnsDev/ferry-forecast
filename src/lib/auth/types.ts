@@ -12,6 +12,7 @@ export type AuthProvider = 'google' | 'apple';
 
 /**
  * User record stored in database (users table)
+ * Note: Database column is still 'betting_mode_enabled' for backward compatibility
  */
 export interface User {
   id: string;
@@ -19,7 +20,7 @@ export interface User {
   auth_provider: AuthProvider;
   auth_provider_id: string;
   email: string | null;
-  betting_mode_enabled: boolean;
+  betting_mode_enabled: boolean;  // DB column name (aliased as gameModeEnabled in frontend)
   created_at: string;
   last_login_at: string;
 }
@@ -32,12 +33,12 @@ export interface SessionUser {
   id: string;
   username: string;
   provider: AuthProvider;
-  bettingModeEnabled: boolean;
+  gameModeEnabled: boolean;
   isNewUser: boolean;
 }
 
 /**
- * Bankroll state
+ * Bankroll state (points system)
  */
 export interface Bankroll {
   userId: string;
@@ -66,7 +67,7 @@ export interface AuthActions {
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
-  toggleBettingMode: (enabled: boolean) => Promise<void>;
+  toggleGameMode: (enabled: boolean) => Promise<void>;
 }
 
 /**
@@ -81,4 +82,25 @@ export interface OAuthCallbackResult {
   success: boolean;
   user?: SessionUser;
   error?: string;
+}
+
+// ============================================================
+// BACKWARD COMPATIBILITY
+// ============================================================
+
+/**
+ * @deprecated Use SessionUser.gameModeEnabled instead
+ * This interface extends SessionUser to provide the old property name
+ */
+export interface SessionUserCompat extends Omit<SessionUser, 'gameModeEnabled'> {
+  bettingModeEnabled: boolean;
+  gameModeEnabled: boolean;
+}
+
+/**
+ * @deprecated Use toggleGameMode instead
+ */
+export interface AuthActionsCompat extends Omit<AuthActions, 'toggleGameMode'> {
+  toggleBettingMode: (enabled: boolean) => Promise<void>;
+  toggleGameMode: (enabled: boolean) => Promise<void>;
 }
