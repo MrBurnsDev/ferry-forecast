@@ -37,9 +37,11 @@ interface PredictionAggregate {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // Use service role key to bypass RLS - this endpoint only returns aggregate counts,
+  // no personally identifiable information is exposed
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !serviceRoleKey) {
     return NextResponse.json(
       { error: 'SUPABASE_NOT_CONFIGURED', message: 'Supabase is not configured' },
       { status: 503 }
@@ -75,7 +77,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
     db: {
       schema: SCHEMA_NAME,
     },
