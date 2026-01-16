@@ -148,11 +148,23 @@ export async function GET(request: NextRequest) {
           };
         });
 
+        // Get recent bets for detailed analysis
+        const recentBets = (allBets || [])
+          .sort((a, b) => new Date(b.placed_at).getTime() - new Date(a.placed_at).getTime())
+          .slice(0, 20)
+          .map(b => ({
+            userId: b.user_id,
+            status: b.status,
+            placedAt: b.placed_at,
+            resolvedAt: b.resolved_at,
+          }));
+
         debugInfo = {
           serverDate: new Date().toISOString(),
           usersWithBettingEnabled: allUsers?.length || 0,
           totalBetsInDb: allBets?.length || 0,
           userStats,
+          recentBets,
         };
       }
     }
