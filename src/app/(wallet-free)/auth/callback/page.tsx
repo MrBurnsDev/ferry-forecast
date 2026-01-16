@@ -18,39 +18,103 @@ export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for OAuth error in URL
+    // DIAGNOSTIC: Log callback page load with full URL details
+    const fullUrl = window.location.href;
+    const origin = window.location.origin;
+    const isWww = origin.includes('www.');
     const params = new URLSearchParams(window.location.search);
-    const urlError = params.get('error');
-    const errorDescription = params.get('error_description');
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+
+    console.log('[AUTH_DIAG] Callback Page Loaded:', {
+      fullUrl: fullUrl.substring(0, 150), // Truncate for safety
+      origin,
+      isWww,
+      pathname: window.location.pathname,
+      hasCode: params.has('code'),
+      hasError: params.has('error'),
+      hasHashAccessToken: hashParams.has('access_token'),
+      hasHashError: hashParams.has('error'),
+      timestamp: new Date().toISOString(),
+    });
+
+    // Check for OAuth error in URL (both query params and hash)
+    const urlError = params.get('error') || hashParams.get('error');
+    const errorDescription = params.get('error_description') || hashParams.get('error_description');
 
     if (urlError) {
-      console.error('[AUTH CALLBACK] OAuth error:', urlError, errorDescription);
+      console.error('[AUTH_DIAG] Callback OAuth Error:', {
+        error: urlError,
+        description: errorDescription,
+        origin,
+        isWww,
+        fullUrl: fullUrl.substring(0, 150),
+      });
       setError(errorDescription || urlError);
       return;
     }
 
     if (!supabase) {
+      console.error('[AUTH_DIAG] Callback - Supabase not configured');
       setError('Authentication not configured');
       return;
     }
 
+    // DIAGNOSTIC: Track time waiting for auth state change
+    const startTime = Date.now();
+    let authStateReceived = false;
+
     // Listen for auth state change - Supabase will fire SIGNED_IN when ready
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('[AUTH CALLBACK] Event:', event, session ? 'has session' : 'no session');
+        authStateReceived = true;
+        const elapsed = Date.now() - startTime;
+
+        console.log('[AUTH_DIAG] Callback Auth State:', {
+          event,
+          hasSession: !!session,
+          userId: session?.user?.id,
+          provider: session?.user?.app_metadata?.provider,
+          elapsedMs: elapsed,
+          origin,
+          isWww,
+        });
 
         if (session) {
           // We have a session - redirect immediately
           const redirectTo = localStorage.getItem('auth_redirect') || '/';
           localStorage.removeItem('auth_redirect');
-          console.log('[AUTH CALLBACK] Session confirmed, redirecting to:', redirectTo);
+          console.log('[AUTH_DIAG] Callback Success - Redirecting:', {
+            redirectTo,
+            elapsedMs: elapsed,
+          });
           router.replace(redirectTo);
+        } else if (event === 'INITIAL_SESSION') {
+          // DIAGNOSTIC: No session on initial - this is a failure state
+          console.warn('[AUTH_DIAG] Callback INITIAL_SESSION with no session:', {
+            origin,
+            isWww,
+            hasCode: params.has('code'),
+            elapsedMs: elapsed,
+          });
         }
       }
     );
 
+    // DIAGNOSTIC: Log if we're stuck waiting
+    const stuckTimer = setTimeout(() => {
+      if (!authStateReceived) {
+        console.warn('[AUTH_DIAG] Callback Stuck - No auth state after 10s:', {
+          origin,
+          isWww,
+          hasCode: params.has('code'),
+          fullUrl: fullUrl.substring(0, 150),
+        });
+      }
+    }, 10000);
+
     return () => {
       subscription.unsubscribe();
+      clearTimeout(stuckTimer);
     };
   }, [router]);
 

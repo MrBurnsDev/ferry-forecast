@@ -144,6 +144,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const provisionUser = useCallback(async (user: SupabaseUser) => {
     if (!supabase) return;
 
+    // DIAGNOSTIC: Log provisioning start
+    console.log('[AUTH_DIAG] Provisioning Start:', {
+      supabaseUserId: user.id,
+      email: user.email ? `${user.email.substring(0, 3)}***` : null,
+      appMetaProvider: user.app_metadata?.provider,
+      identityProviders: user.identities?.map(i => i.provider),
+      timestamp: new Date().toISOString(),
+    });
+
     setProfileLoading(true);
 
     try {
@@ -152,11 +161,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // CRITICAL: Normalize provider - if null, skip provisioning (don't block auth)
       const provider = normalizeAuthProvider(user);
       if (provider === null) {
-        console.warn('[AUTH] Skipping provisioning - no recognized provider');
+        console.warn('[AUTH_DIAG] Provisioning Skipped - no recognized provider:', {
+          appMetaProvider: user.app_metadata?.provider,
+          identityProviders: user.identities?.map(i => i.provider),
+        });
         setProfileLoading(false);
         return;
       }
-      console.log('[AUTH] Provisioning user with provider:', provider);
+      console.log('[AUTH_DIAG] Provider normalized:', provider);
 
       // Generate username from user metadata
       const username =
@@ -166,6 +178,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'User';
 
       const email = (metadata.email as string) || user.email || null;
+
+      console.log('[AUTH_DIAG] Calling get_or_create_user RPC:', {
+        provider,
+        authProviderId: user.id,
+        username,
+        hasEmail: !!email,
+      });
 
       // Call Phase 85 canonical function: get_or_create_user
       // Parameters: p_auth_provider, p_auth_provider_id, p_username, p_email
@@ -180,12 +199,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (error) {
-        // Log error but DO NOT affect auth state
-        console.error('[AUTH] User provisioning failed (non-fatal):', error.message);
+        // DIAGNOSTIC: Log full error details
+        console.error('[AUTH_DIAG] Provisioning RPC Failed:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          provider,
+          authProviderId: user.id,
+        });
         return;
       }
 
       if (data) {
+        console.log('[AUTH_DIAG] Provisioning Success:', {
+          userId: data.id,
+          username: data.username,
+          provider: data.auth_provider,
+          isNewUser: data.created_at === data.last_login_at,
+        });
         setProfile({
           id: data.id,
           username: data.username,
@@ -194,10 +226,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Map from DB column name to new frontend property name
           gameModeEnabled: data.betting_mode_enabled || false,
         });
+      } else {
+        console.warn('[AUTH_DIAG] Provisioning returned no data');
       }
     } catch (err) {
-      // Catch-all - NEVER throw, NEVER affect auth
-      console.error('[AUTH] User provisioning error (non-fatal):', err);
+      // DIAGNOSTIC: Log catch-all errors with full details
+      console.error('[AUTH_DIAG] Provisioning Exception:', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack?.substring(0, 200) : undefined,
+      });
     } finally {
       setProfileLoading(false);
     }
@@ -212,15 +249,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // DIAGNOSTIC: Log OAuth initiation details
+    const origin = window.location.origin;
+    const redirectTo = `${origin}/auth/callback`;
+    const isWww = origin.includes('www.');
+    console.log('[AUTH_DIAG] OAuth Initiation:', {
+      provider: 'google',
+      origin,
+      redirectTo,
+      isWww,
+      fullUrl: window.location.href,
+      userAgent: navigator.userAgent.substring(0, 100),
+      timestamp: new Date().toISOString(),
+    });
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo,
       },
     });
 
     if (error) {
-      console.error('[AUTH] Google sign in error:', error);
+      console.error('[AUTH_DIAG] Google sign in error:', {
+        message: error.message,
+        status: error.status,
+        origin,
+        redirectTo,
+      });
     }
   }, []);
 
@@ -233,15 +289,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // DIAGNOSTIC: Log OAuth initiation details
+    const origin = window.location.origin;
+    const redirectTo = `${origin}/auth/callback`;
+    const isWww = origin.includes('www.');
+    console.log('[AUTH_DIAG] OAuth Initiation:', {
+      provider: 'apple',
+      origin,
+      redirectTo,
+      isWww,
+      fullUrl: window.location.href,
+      userAgent: navigator.userAgent.substring(0, 100),
+      timestamp: new Date().toISOString(),
+    });
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'apple',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo,
       },
     });
 
     if (error) {
-      console.error('[AUTH] Apple sign in error:', error);
+      console.error('[AUTH_DIAG] Apple sign in error:', {
+        message: error.message,
+        status: error.status,
+        origin,
+        redirectTo,
+      });
     }
   }, []);
 
@@ -316,7 +391,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
-        console.log('[AUTH] Auth state change:', event);
+        // DIAGNOSTIC: Enhanced auth state change logging
+        console.log('[AUTH_DIAG] Auth State Change:', {
+          event,
+          hasSession: !!newSession,
+          hasUser: !!newSession?.user,
+          userId: newSession?.user?.id,
+          provider: newSession?.user?.app_metadata?.provider,
+          timestamp: new Date().toISOString(),
+        });
 
         // Update session state
         setSession(newSession);
@@ -324,15 +407,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Handle events
         if (event === 'SIGNED_IN' && newSession?.user) {
+          console.log('[AUTH_DIAG] SIGNED_IN - Starting provisioning');
           // Provision user async - NEVER blocks
           provisionUser(newSession.user);
         } else if (event === 'SIGNED_OUT') {
+          console.log('[AUTH_DIAG] SIGNED_OUT - Clearing profile');
           setProfile(null);
         } else if (event === 'INITIAL_SESSION') {
+          console.log('[AUTH_DIAG] INITIAL_SESSION:', {
+            hasUser: !!newSession?.user,
+            willProvision: !!newSession?.user,
+          });
           // Initial load - provision if we have a user
           if (newSession?.user) {
             provisionUser(newSession.user);
           }
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('[AUTH_DIAG] TOKEN_REFRESHED');
+        } else {
+          console.log('[AUTH_DIAG] Unhandled event:', event);
         }
       }
     );

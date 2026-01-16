@@ -44,17 +44,37 @@ function SignInButtonsInner({
 
   const handleGoogleClick = () => {
     onSignInStart?.();
+    // DIAGNOSTIC: Log sign-in button click
+    const origin = window.location.origin;
+    const pathname = window.location.pathname;
+    console.log('[AUTH_DIAG] Sign-In Button Clicked:', {
+      provider: 'google',
+      origin,
+      isWww: origin.includes('www.'),
+      pathname,
+      timestamp: new Date().toISOString(),
+    });
     // Store redirect URL for after OAuth
     if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_redirect', window.location.pathname);
+      localStorage.setItem('auth_redirect', pathname);
     }
     signInWithGoogle();
   };
 
   const handleAppleClick = () => {
     onSignInStart?.();
+    // DIAGNOSTIC: Log sign-in button click
+    const origin = window.location.origin;
+    const pathname = window.location.pathname;
+    console.log('[AUTH_DIAG] Sign-In Button Clicked:', {
+      provider: 'apple',
+      origin,
+      isWww: origin.includes('www.'),
+      pathname,
+      timestamp: new Date().toISOString(),
+    });
     if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_redirect', window.location.pathname);
+      localStorage.setItem('auth_redirect', pathname);
     }
     signInWithApple();
   };
