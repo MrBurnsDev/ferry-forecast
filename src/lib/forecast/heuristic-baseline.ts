@@ -250,20 +250,38 @@ function formatWindDisplay(
 
 /**
  * Get forecast hour for a specific time
+ *
+ * PHASE 94: Timezone-aware hour matching
+ * Forecast data is now fetched in America/New_York timezone, so forecast times
+ * are local (e.g., "2026-01-16T07:00"). We match using local time strings directly.
  */
 function getHourlyForecastForTime(
   hours: ForecastHour[],
   targetDate: string,
   targetTime: string
 ): ForecastHour | null {
-  // Convert target time to ISO
-  const targetDateTime = new Date(`${targetDate}T${targetTime}:00Z`);
+  // Build target local time string (e.g., "2026-01-16T07:00")
+  // Forecast times from Open-Meteo are now in America/New_York local time
+  const targetLocalTime = `${targetDate}T${targetTime}`;
 
-  // Find the closest forecast hour
+  // First try exact match (most common case)
+  for (const hour of hours) {
+    // forecastTime format: "2026-01-16T07:00" (no Z suffix when using local timezone)
+    if (hour.forecastTime.startsWith(targetLocalTime)) {
+      return hour;
+    }
+  }
+
+  // Fall back to finding closest hour within 2 hours
+  // Parse both as local times for comparison
   let closest: ForecastHour | null = null;
   let closestDiff = Infinity;
 
+  // Parse target time - no Z suffix since it's local time
+  const targetDateTime = new Date(`${targetDate}T${targetTime}:00`);
+
   for (const hour of hours) {
+    // Parse forecast time - also local, no Z suffix
     const hourDate = new Date(hour.forecastTime);
     const diff = Math.abs(hourDate.getTime() - targetDateTime.getTime());
 
@@ -343,7 +361,8 @@ export async function generateHeuristicForecast(
       const forecastHour = getHourlyForecastForTime(forecast.hours, dateStr, timeStr);
 
       // Calculate hours ahead
-      const sailingTime = new Date(`${dateStr}T${timeStr}:00Z`);
+      // PHASE 94: Parse as local time (no Z suffix) since sailing times are local
+      const sailingTime = new Date(`${dateStr}T${timeStr}:00`);
       const hoursAhead = Math.max(0, Math.floor((sailingTime.getTime() - now.getTime()) / (1000 * 60 * 60)));
 
       // Get weather data (or null if not available)

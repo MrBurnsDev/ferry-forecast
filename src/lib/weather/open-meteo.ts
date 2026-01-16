@@ -150,12 +150,15 @@ async function fetchGFSForecast(lat: number, lon: number, days: number = 7): Pro
   // GFS Seamless supports up to 16 days
   const forecastDays = Math.min(days, 16);
 
+  // PHASE 94: Use local timezone for proper hour alignment
+  // Sailing times are local (America/New_York), so forecast times must match.
+  // Using UTC caused 7 AM sailings to get 2 AM weather (5 hours off).
   const params = new URLSearchParams({
     latitude: lat.toString(),
     longitude: lon.toString(),
     hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation,precipitation_probability,visibility',
     wind_speed_unit: 'ms',
-    timezone: 'UTC',
+    timezone: 'America/New_York',
     forecast_days: forecastDays.toString(),
     models: 'gfs_seamless',
   });
@@ -199,12 +202,13 @@ async function fetchGFSForecast(lat: number, lon: number, days: number = 7): Pro
  * Fetch ECMWF forecast from Open-Meteo (0-14 days)
  */
 async function fetchECMWFForecast(lat: number, lon: number): Promise<ForecastHour[]> {
+  // PHASE 94: Use local timezone for proper hour alignment
   const params = new URLSearchParams({
     latitude: lat.toString(),
     longitude: lon.toString(),
     hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation',
     wind_speed_unit: 'ms',
-    timezone: 'UTC',
+    timezone: 'America/New_York',
     forecast_days: '14',
     models: 'ecmwf_ifs04',
   });
@@ -248,12 +252,13 @@ async function fetchECMWFForecast(lat: number, lon: number): Promise<ForecastHou
  * Fetch marine forecast (wave data) from Open-Meteo
  */
 async function fetchMarineForecast(lat: number, lon: number, days: number = 7): Promise<Map<string, Partial<ForecastHour>>> {
+  // PHASE 94: Use local timezone for proper hour alignment
   const params = new URLSearchParams({
     latitude: lat.toString(),
     longitude: lon.toString(),
     hourly: 'wave_height,wave_period,wave_direction',
     length_unit: 'metric',
-    timezone: 'UTC',
+    timezone: 'America/New_York',
     forecast_days: days.toString(),
   });
 
