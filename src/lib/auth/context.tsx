@@ -101,6 +101,13 @@ export interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
 
+  /**
+   * Phase 97: Explicit flag indicating auth rehydration is complete.
+   * True ONLY after INITIAL_SESSION event fires from onAuthStateChange.
+   * Use this to gate API calls - do NOT rely on isAuthenticated alone.
+   */
+  authReady: boolean;
+
   // Optional app-level profile (may be null even when authenticated)
   profile: UserProfile | null;
   profileLoading: boolean;
@@ -130,6 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Core auth state - ONLY from Supabase session
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  /**
+   * Phase 97: Explicit flag for auth rehydration completion.
+   * Set to true ONLY after INITIAL_SESSION event fires.
+   * This prevents premature API calls in Safari/iPad contexts.
+   */
+  const [authReady, setAuthReady] = useState(false);
 
   // Optional profile state - never blocks auth
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -329,9 +343,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Sign out - ONLY called by explicit user action
+   * Phase 97: Guards against missing session to prevent AuthSessionMissingError
    */
   const signOut = useCallback(async () => {
     if (!supabase) return;
+
+    // Phase 97: Check if session exists before calling signOut
+    // This prevents AuthSessionMissingError in Safari/iPad contexts
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    if (!currentSession) {
+      console.log('[AUTH] No session to sign out from - clearing local state');
+      setSession(null);
+      setProfile(null);
+      return;
+    }
 
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -392,6 +417,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured() || !supabase) {
       console.log('[AUTH] Supabase not configured');
       setIsLoading(false);
+      setAuthReady(true); // Phase 97: Still mark ready even if not configured
       return;
     }
 
@@ -425,6 +451,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             hasUser: !!newSession?.user,
             willProvision: !!newSession?.user,
           });
+          // Phase 97: Mark auth as ready - rehydration from localStorage complete
+          setAuthReady(true);
           // Initial load - provision if we have a user
           if (newSession?.user) {
             provisionUser(newSession.user);
@@ -450,6 +478,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     isLoading,
     isAuthenticated: !!session, // Session exists = authenticated. Period.
+    authReady, // Phase 97: True after INITIAL_SESSION - gate API calls on this
     profile,
     profileLoading,
     signInWithGoogle,

@@ -323,6 +323,11 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
   const profile = auth?.profile;
   const session = auth?.session;
   const isAuthenticated = auth?.isAuthenticated ?? false;
+  /**
+   * Phase 97: authReady indicates session rehydration from localStorage is complete.
+   * This prevents premature API calls in Safari/iPad contexts.
+   */
+  const authReady = auth?.authReady ?? false;
   const accessToken = session?.access_token;
   const userId = session?.user?.id;
 
@@ -361,6 +366,12 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
 
   // Fetch user's predictions from API when game is enabled and we have a token
   const refreshPredictions = useCallback(async () => {
+    // Phase 97: Hard gate on authReady to prevent Safari/iPad premature API calls
+    if (!authReady) {
+      console.log('[PREDICTION_GAME] Skipping refreshPredictions - auth not ready (rehydration pending)');
+      return;
+    }
+
     // Only fetch predictions if game mode is enabled and we have a token
     if (!gameEnabled || !accessToken) {
       if (gameEnabled && !accessToken) {
@@ -372,7 +383,7 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
     const headers = getAuthHeaders();
     if (!headers) return;
 
-    console.log('[PREDICTION_GAME] Fetching predictions (hasToken: true)');
+    console.log('[PREDICTION_GAME] Fetching predictions (authReady: true, hasToken: true)');
     dispatch({ type: 'SET_SYNCING', payload: true });
     try {
       // Note: API endpoint retains old name for backward compatibility
@@ -443,14 +454,15 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_SYNCING', payload: false });
     }
-  }, [gameEnabled, accessToken, getAuthHeaders, userId]);
+  }, [authReady, gameEnabled, accessToken, getAuthHeaders, userId]);
 
-  // Fetch predictions when game is enabled and we have a token
+  // Fetch predictions when game is enabled, auth is ready, and we have a token
+  // Phase 97: Added authReady to prevent Safari/iPad premature API calls
   useEffect(() => {
-    if (gameEnabled && accessToken) {
+    if (authReady && gameEnabled && accessToken) {
       refreshPredictions();
     }
-  }, [gameEnabled, accessToken, refreshPredictions]);
+  }, [authReady, gameEnabled, accessToken, refreshPredictions]);
 
   // Fetch leaderboard (public endpoint, but include token if available)
   const refreshLeaderboard = useCallback(async () => {
@@ -499,12 +511,19 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
    * Phase 86F: Simplified submitPrediction - send intent only, server computes all math.
    * Frontend sends: sailingId, corridorId, choice
    * Server computes: stake, odds, likelihood, payout, departure time
+   * Phase 97: Added authReady gate to prevent Safari/iPad premature submissions.
    */
   const submitPrediction = useCallback(async (
     sailingId: string,
     corridorId: string,
     choice: PredictionChoice
   ): Promise<{ success: boolean; error?: string }> => {
+    // Phase 97: Hard gate on authReady to prevent Safari/iPad premature API calls
+    if (!authReady) {
+      console.warn('[PREDICTION_GAME] Cannot submit prediction - auth not ready');
+      return { success: false, error: 'Authentication not ready' };
+    }
+
     // Validate we have an access token
     if (!accessToken) {
       console.warn('[PREDICTION_GAME] Cannot submit prediction - no access token');
@@ -599,15 +618,16 @@ export function PredictionGameProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [accessToken, state.settings.enabled, state.bankroll, state.predictions, isAuthenticated, userId]);
+  }, [authReady, accessToken, state.settings.enabled, state.bankroll, state.predictions, isAuthenticated, userId]);
 
   const getPredictionForSailing = useCallback((sailingId: string): Prediction | undefined => {
     return state.predictions.get(sailingId);
   }, [state.predictions]);
 
+  // Phase 97: canSubmitPrediction now requires authReady
   const canSubmitPrediction = useCallback((): boolean => {
-    return !!accessToken && state.settings.enabled && isAuthenticated;
-  }, [accessToken, state.settings.enabled, isAuthenticated]);
+    return authReady && !!accessToken && state.settings.enabled && isAuthenticated;
+  }, [authReady, accessToken, state.settings.enabled, isAuthenticated]);
 
   const getTimeUntilLock = useCallback((departureTimestampMs: number): { minutes: number; locked: boolean } => {
     const minutesUntil = (departureTimestampMs - Date.now()) / (1000 * 60);
