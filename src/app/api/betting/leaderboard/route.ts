@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Force dynamic rendering - uses cookies
 export const dynamic = 'force-dynamic';
 import { createRouteClient } from '@/lib/supabase/serverRouteClient';
+import { createServiceRoleClient } from '@/lib/supabase/serverServiceClient';
 
 export async function GET(request: NextRequest) {
   try {
@@ -103,43 +104,57 @@ export async function GET(request: NextRequest) {
     let debugInfo = null;
 
     if (debug) {
-      // Get all users with betting enabled and their bet counts
-      const { data: allUsers } = await supabase
-        .from('users')
-        .select('id, username, betting_mode_enabled')
-        .eq('betting_mode_enabled', true);
+      // Use service role client to bypass RLS for debug queries
+      const adminClient = createServiceRoleClient({ allowNull: true });
+      if (!adminClient) {
+        console.error('[PREDICTION LEADERBOARD] Service role client unavailable for debug');
+      } else {
+        // Get all users with betting enabled and their bet counts
+        const { data: allUsers } = await adminClient
+          .from('users')
+          .select('id, username, betting_mode_enabled')
+          .eq('betting_mode_enabled', true);
 
-      // Get all bets with status breakdown
-      const { data: allBets } = await supabase
-        .from('bets')
-        .select('user_id, status, placed_at, resolved_at');
+        // Get all bets with status breakdown (service role bypasses RLS)
+        const { data: allBets, error: betsError } = await adminClient
+          .from('bets')
+          .select('user_id, status, placed_at, resolved_at, amount, payout');
 
-      // Calculate stats per user
-      const userStats = (allUsers || []).map(user => {
-        const userBets = (allBets || []).filter(b => b.user_id === user.id);
-        const today = new Date().toISOString().split('T')[0];
-        const placedToday = userBets.filter(b => b.placed_at?.startsWith(today));
-        const resolvedToday = userBets.filter(b => b.resolved_at?.startsWith(today));
-        const resolved = userBets.filter(b => b.status === 'won' || b.status === 'lost');
-        const pending = userBets.filter(b => b.status === 'pending');
+        if (betsError) {
+          console.error('[PREDICTION LEADERBOARD] Debug bets query error:', betsError);
+        }
 
-        return {
-          username: user.username,
-          totalBets: userBets.length,
-          placedToday: placedToday.length,
-          resolvedToday: resolvedToday.length,
-          totalResolved: resolved.length,
-          totalPending: pending.length,
-          bettingEnabled: user.betting_mode_enabled,
+        // Calculate stats per user
+        const userStats = (allUsers || []).map(user => {
+          const userBets = (allBets || []).filter(b => b.user_id === user.id);
+          const today = new Date().toISOString().split('T')[0];
+          const placedToday = userBets.filter(b => b.placed_at?.startsWith(today));
+          const resolvedToday = userBets.filter(b => b.resolved_at?.startsWith(today));
+          const resolved = userBets.filter(b => b.status === 'won' || b.status === 'lost');
+          const pending = userBets.filter(b => b.status === 'pending');
+          const won = userBets.filter(b => b.status === 'won');
+          const lost = userBets.filter(b => b.status === 'lost');
+
+          return {
+            username: user.username,
+            totalBets: userBets.length,
+            placedToday: placedToday.length,
+            resolvedToday: resolvedToday.length,
+            totalResolved: resolved.length,
+            totalPending: pending.length,
+            totalWon: won.length,
+            totalLost: lost.length,
+            bettingEnabled: user.betting_mode_enabled,
+          };
+        });
+
+        debugInfo = {
+          serverDate: new Date().toISOString(),
+          usersWithBettingEnabled: allUsers?.length || 0,
+          totalBetsInDb: allBets?.length || 0,
+          userStats,
         };
-      });
-
-      debugInfo = {
-        serverDate: new Date().toISOString(),
-        usersWithBettingEnabled: allUsers?.length || 0,
-        totalBetsInDb: allBets?.length || 0,
-        userStats,
-      };
+      }
     }
 
     return NextResponse.json({
