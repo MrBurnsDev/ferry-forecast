@@ -124,12 +124,17 @@ export async function GET(request: NextRequest) {
           console.error('[PREDICTION LEADERBOARD] Debug bets query error:', betsError);
         }
 
-        // Calculate stats per user
+        // Calculate stats per user (using Eastern time for "today")
+        const getEasternDate = (isoString: string | null) => {
+          if (!isoString) return null;
+          return new Date(isoString).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+        };
+        const todayEastern = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+
         const userStats = (allUsers || []).map(user => {
           const userBets = (allBets || []).filter(b => b.user_id === user.id);
-          const today = new Date().toISOString().split('T')[0];
-          const placedToday = userBets.filter(b => b.placed_at?.startsWith(today));
-          const resolvedToday = userBets.filter(b => b.resolved_at?.startsWith(today));
+          const placedToday = userBets.filter(b => getEasternDate(b.placed_at) === todayEastern);
+          const resolvedToday = userBets.filter(b => getEasternDate(b.resolved_at) === todayEastern);
           const resolved = userBets.filter(b => b.status === 'won' || b.status === 'lost');
           const pending = userBets.filter(b => b.status === 'pending');
           const won = userBets.filter(b => b.status === 'won');
@@ -161,6 +166,7 @@ export async function GET(request: NextRequest) {
 
         debugInfo = {
           serverDate: new Date().toISOString(),
+          serverDateEastern: todayEastern,
           usersWithBettingEnabled: allUsers?.length || 0,
           totalBetsInDb: allBets?.length || 0,
           userStats,
