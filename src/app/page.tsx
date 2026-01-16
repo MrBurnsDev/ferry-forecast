@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { SiteFooter, MobileMenu } from '@/components/layout';
 import { AccountButton } from '@/components/auth/AccountButton';
+import { PortAccordion } from '@/components/PortAccordion';
 
 // Homepage-specific metadata
 export const metadata: Metadata = {
@@ -272,6 +273,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Port Conditions Accordion - Phase 90 SEO Enhancement */}
+      <PortAccordion />
 
       {/* Important Notice */}
       <section className="py-8 lg:py-12">
