@@ -52,12 +52,13 @@ interface LeaderboardEntry {
   username: string;
   dailyProfit?: number;
   allTimeProfit?: number;
-  totalBets?: number;
+  totalPredictions?: number;  // All-time predictions count
   totalWins?: number;
   winRate?: number;
-  betsToday?: number;
+  predictionsToday?: number;  // Daily predictions count
   winsToday?: number;
   winRateToday?: number;
+  roi?: number;  // Return on investment (all-time)
 }
 
 export default function LeaderboardPage() {
@@ -347,7 +348,7 @@ function LeaderboardRow({ entry, isCurrentUser, showDailyProfit }: LeaderboardRo
   const profit = showDailyProfit ? (entry.dailyProfit ?? 0) : (entry.allTimeProfit ?? 0);
   const isPositive = profit >= 0;
   const winRate = showDailyProfit ? entry.winRateToday : entry.winRate;
-  const totalBets = showDailyProfit ? entry.betsToday : entry.totalBets;
+  const totalPredictions = showDailyProfit ? entry.predictionsToday : entry.totalPredictions;
 
   return (
     <div
@@ -387,10 +388,10 @@ function LeaderboardRow({ entry, isCurrentUser, showDailyProfit }: LeaderboardRo
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
-          {winRate !== undefined && totalBets !== undefined
-            ? `${Math.round(winRate)}% accuracy | ${totalBets} predictions`
-            : totalBets !== undefined
-              ? `${totalBets} predictions`
+          {winRate !== undefined && totalPredictions !== undefined
+            ? `${Math.round(winRate)}% accuracy | ${totalPredictions} predictions`
+            : totalPredictions !== undefined
+              ? `${totalPredictions} predictions`
               : ''}
         </p>
       </div>
