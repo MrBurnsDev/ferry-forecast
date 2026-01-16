@@ -162,7 +162,7 @@ export default function Home() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative pt-24 lg:pt-32 pb-8 lg:pb-12 bathymetric-bg overflow-hidden">
+      <section className="relative pt-header pb-8 lg:pb-12 bathymetric-bg overflow-hidden">
         <div className="container mx-auto px-4 lg:px-8 relative">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">

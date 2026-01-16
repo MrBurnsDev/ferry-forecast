@@ -6,6 +6,10 @@
 
 @layer base {
   :root {
+    /* Header Height - single source of truth for fixed header spacing */
+    --header-height: 4rem; /* 64px - matches h-16 in nav */
+    --header-height-lg: 5rem; /* 80px - matches lg:h-20 in nav */
+
     /* Maritime Color Palette */
     --background: 210 20% 98%;
     --foreground: 213 35% 12%;
@@ -106,6 +110,25 @@
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /**
+   * Hero/Content padding to clear fixed header
+   *
+   * Use this class on sections that need to appear below the fixed header.
+   * Accounts for:
+   * - Header height (4rem mobile, 5rem desktop)
+   * - iOS safe area inset (status bar in PWA mode)
+   * - Extra breathing room (1rem mobile, 2rem desktop)
+   */
+  .pt-header {
+    padding-top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 1rem);
+  }
+
+  @media (min-width: 1024px) {
+    .pt-header {
+      padding-top: calc(var(--header-height-lg) + env(safe-area-inset-top, 0px) + 2rem);
+    }
   }
 }
 
