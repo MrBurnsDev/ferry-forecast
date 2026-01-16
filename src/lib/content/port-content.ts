@@ -152,7 +152,7 @@ All operating decisions rest with vessel captains who assess real-time condition
       },
       {
         question: 'Do I need a vehicle reservation?',
-        answer: 'Vehicle reservations are required during peak periods and strongly recommended at other times. Foot passengers typically do not need reservations but should confirm space availability during busy periods.',
+        answer: 'Vehicle reservations are required during peak periods and strongly recommended at other times. Check with the Steamship Authority for current reservation policies.',
       },
     ],
   },
