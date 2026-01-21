@@ -50,9 +50,8 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
-  alternates: {
-    canonical: BASE_URL,
-  },
+  // Note: canonical is intentionally NOT set at layout level
+  // Each page should set its own canonical in generateMetadata
   icons: {
     icon: [
       { url: '/icons/favicon-32x32.png', sizes: '32x32', type: 'image/png' },

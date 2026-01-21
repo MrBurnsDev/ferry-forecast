@@ -36,11 +36,28 @@ export async function generateMetadata({
     };
   }
 
+  const canonicalUrl = `https://www.istheferryrunning.com/ports/${port.slug}`;
+
   return {
     title: port.seo.title,
     description: port.seo.description,
     alternates: {
-      canonical: `https://www.istheferryrunning.com/ports/${port.slug}`,
+      canonical: canonicalUrl,
+    },
+    // Override layout-level OpenGraph with port-specific values
+    openGraph: {
+      type: 'website',
+      locale: 'en_US',
+      url: canonicalUrl,
+      siteName: 'Is the Ferry Running?',
+      title: port.seo.title,
+      description: port.seo.description,
+    },
+    // Override layout-level Twitter with port-specific values
+    twitter: {
+      card: 'summary_large_image',
+      title: port.seo.title,
+      description: port.seo.description,
     },
   };
 }
@@ -127,7 +144,7 @@ function InfoIcon({ className }: { className?: string }) {
 }
 
 // ============================================================
-// FAQ SCHEMA
+// STRUCTURED DATA SCHEMAS
 // ============================================================
 
 function generateFAQSchema(port: PortContent) {
@@ -142,6 +159,38 @@ function generateFAQSchema(port: PortContent) {
         text: faq.answer,
       },
     })),
+  };
+}
+
+/**
+ * WebPage + Place schema for port pages
+ * Helps Google understand each port page as a unique entity
+ */
+function generateWebPageSchema(port: PortContent) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `https://www.istheferryrunning.com/ports/${port.slug}#webpage`,
+    url: `https://www.istheferryrunning.com/ports/${port.slug}`,
+    name: port.seo.title,
+    description: port.seo.description,
+    isPartOf: {
+      '@type': 'WebSite',
+      '@id': 'https://www.istheferryrunning.com#website',
+      name: 'Is the Ferry Running?',
+      url: 'https://www.istheferryrunning.com',
+    },
+    about: {
+      '@type': 'Place',
+      '@id': `https://www.istheferryrunning.com/ports/${port.slug}#place`,
+      name: port.fullName,
+      description: port.overview,
+      geo: {
+        '@type': 'GeoCoordinates',
+        latitude: port.coordinates.lat,
+        longitude: port.coordinates.lon,
+      },
+    },
   };
 }
 
@@ -162,10 +211,16 @@ export default async function PortPage({
   }
 
   const faqSchema = generateFAQSchema(port);
+  const webPageSchema = generateWebPageSchema(port);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* FAQ Schema */}
+      {/* Structured Data: WebPage + Place (for SEO uniqueness) */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(webPageSchema) }}
+      />
+      {/* Structured Data: FAQPage */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
